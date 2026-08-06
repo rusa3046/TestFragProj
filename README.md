@@ -27,6 +27,12 @@ Ingest Reddit comments:
 uv run python -m fragrance_graph.ingest.reddit --subreddit fragrance --limit 500
 ```
 
+`--limit` bounds submissions scanned per sort, not comments stored — one
+submission can carry hundreds of comments. Ingest is idempotent on
+`(source, source_id)` and commits in batches as it runs, so interrupting it
+loses nothing already committed and re-running resumes rather than
+duplicating.
+
 ## Development
 
 ```bash

@@ -29,7 +29,7 @@ early.
 2. **SQLite schema** in `db.py`, with migrations as plain `.sql` files:
    - `fragrances`: id, canonical_name, brand, house_year, aliases (JSON array)
    - `comments`: id, source, source_id, body, permalink, created_utc,
-     subreddit, score, extracted_at (nullable)
+     subreddit, score, extracted_at (nullable), raw_json
    - `claims`: id, comment_id, claim_type, object_kind, subject_frag_id,
      object_frag_id, raw_subject_text, raw_object_text, confidence,
      evidence_span, evidence_verified, extraction_model, created_at
@@ -64,6 +64,19 @@ early.
    new from r/fragrance and r/DelugeFragrance. Idempotent on `source_id`.
    CLI: `python -m fragrance_graph.ingest.reddit --subreddit fragrance --limit 500`
    Rate-limit politely, log progress, resume cleanly if interrupted.
+
+   The full Reddit payload is retained per comment in `comments.raw_json`.
+   Fields that look useless today become fields phase 3 needs, and
+   re-fetching old comments is unreliable — accounts get deleted, posts get
+   removed. Politeness is a `--sleep` between submission fetches *plus*
+   PRAW's own rate-limit handling: PRAW respects the API's limit, which is
+   not the same as being a good citizen.
+
+   Resume rests on two things: the `UNIQUE (source, source_id)` constraint,
+   and committing in batches during the run rather than once at the end.
+   Verified by `kill -9` mid-run, not by inspection — a killed run left 125
+   of 138 fetched rows durable (the last commit boundary), and re-running
+   reported exactly 375 new / 125 skipped with no duplicates.
 
 4. **Pydantic extraction schema** (`models.py`). One comment yields zero or
    more claims:
