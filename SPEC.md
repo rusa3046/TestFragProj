@@ -53,6 +53,13 @@ early.
    is meaningless — so the check runs on every write and the result is
    persisted, not assumed.
 
+   Note that `UNMET_PRODUCT_REQUEST` is `TAG`, not `NONE`: the requested
+   thing ("a body lotion") is the entire value of the claim type. Mapping it
+   to `NONE` would record that someone wanted something but not what,
+   killing the "body lotion: 842 mentions" rollup that justifies collecting
+   it. A request with no identifiable object is now rejected at validation
+   rather than stored as a contentless row.
+
 3. **Reddit ingest** (`ingest/reddit.py`) using PRAW, read-only. Pull top +
    new from r/fragrance and r/DelugeFragrance. Idempotent on `source_id`.
    CLI: `python -m fragrance_graph.ingest.reddit --subreddit fragrance --limit 500`
@@ -75,6 +82,29 @@ early.
 
 6. **Tests**: schema validation, idempotent ingest, malformed-LLM-output
    handling, evidence-span verification. Use fixtures, not live API calls.
+
+### Deferred decisions
+
+Recorded so they aren't rediscovered later. None block Phase 1.
+
+- **`SIMILAR_TO` vs `REMINDS_ME_OF` are near-synonyms.** The LLM will assign
+  them inconsistently. Resolve when writing the extraction prompt in
+  `extract/llm.py`: either merge the two types, or write a sharp
+  disambiguation rule (proposed: `SIMILAR_TO` = an olfactory claim about the
+  scent itself; `REMINDS_ME_OF` = an associative/memory claim that need not
+  imply smelling alike). Either way the eval set must explicitly measure
+  agreement on this pair — it is the most likely source of silent label
+  noise in the whole taxonomy.
+- **`LONGEVITY_COMPLAINT` carries no severity or subtype.** Longevity vs.
+  sillage vs. projection are different complaints and may deserve splitting,
+  possibly with severity. Deferred — revisit once there is real data showing
+  the mix.
+- **`evidence_span` is not always a literal substring.** Verification falls
+  back to whitespace/case-normalized matching, so a span can be verified
+  without being byte-identical, and offset-based highlighting is not
+  possible from the stored span alone. If highlighting is wanted, add
+  `evidence_start`/`evidence_end`. Safe to defer: `comments.body` is
+  retained, so offsets are derivable by backfill and need no re-extraction.
 
 ### Phase 2 and beyond (not built yet)
 

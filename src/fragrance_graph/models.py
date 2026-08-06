@@ -42,7 +42,10 @@ OBJECT_KIND_BY_CLAIM_TYPE: dict[ClaimType, ObjectKind] = {
     ClaimType.OCCASION: ObjectKind.TAG,
     ClaimType.AESTHETIC: ObjectKind.TAG,
     ClaimType.LONGEVITY_COMPLAINT: ObjectKind.NONE,
-    ClaimType.UNMET_PRODUCT_REQUEST: ObjectKind.NONE,
+    # The requested thing ("a body lotion", "a travel size") is the entire
+    # value of this claim type — without it we record that someone wanted
+    # something but not what, and lose the "body lotion: 842 mentions" rollup.
+    ClaimType.UNMET_PRODUCT_REQUEST: ObjectKind.TAG,
 }
 
 
@@ -64,8 +67,9 @@ class Claim(BaseModel):
         default=None,
         description="Second entity in the claim. Another fragrance for "
         "SIMILAR_TO/DUPE_OF/REMINDS_ME_OF/BETTER_THAN; a non-fragrance tag "
-        "for OCCASION/AESTHETIC; omitted for LONGEVITY_COMPLAINT and "
-        "UNMET_PRODUCT_REQUEST.",
+        "for OCCASION/AESTHETIC; the requested product form for "
+        "UNMET_PRODUCT_REQUEST (\"a body lotion\", \"a travel size\"); "
+        "omitted for LONGEVITY_COMPLAINT.",
     )
     confidence: float = Field(ge=0.0, le=1.0)
     evidence_span: str = Field(
