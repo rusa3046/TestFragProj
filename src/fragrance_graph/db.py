@@ -60,7 +60,8 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
     return applied
 
 
-def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> Path:
+def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
+    """Create or update the database at db_path. Returns migrations applied."""
     conn = get_connection(db_path)
     try:
         applied = migrate(conn)

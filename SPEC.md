@@ -30,10 +30,28 @@ early.
    - `fragrances`: id, canonical_name, brand, house_year, aliases (JSON array)
    - `comments`: id, source, source_id, body, permalink, created_utc,
      subreddit, score, extracted_at (nullable)
-   - `claims`: id, comment_id, claim_type, subject_frag_id, object_frag_id,
-     raw_subject_text, raw_object_text, confidence, extraction_model,
-     created_at
+   - `claims`: id, comment_id, claim_type, object_kind, subject_frag_id,
+     object_frag_id, raw_subject_text, raw_object_text, confidence,
+     evidence_span, evidence_verified, extraction_model, created_at
    - `eval_labels`: comment_id, labeled_json, labeler, created_at
+
+   **`object_kind`** (`FRAGRANCE | TAG | NONE`) distinguishes the two shapes
+   crammed into `claim_type`. `SIMILAR_TO`/`DUPE_OF`/`REMINDS_ME_OF`/
+   `BETTER_THAN` are binary edges between fragrances (`FRAGRANCE`) and are
+   what the graph is built from. `OCCASION`/`AESTHETIC` are unary attributes
+   whose object is a non-fragrance concept — "weddings", "old money"
+   (`TAG`). `LONGEVITY_COMPLAINT`/`UNMET_PRODUCT_REQUEST` have no object
+   (`NONE`). It is derived from `claim_type` rather than emitted by the LLM
+   (costs no output tokens, cannot be inconsistent) and stored denormalized
+   so downstream queries filter without knowing the mapping. A CHECK
+   constraint enforces that an object is present for `FRAGRANCE`/`TAG` and
+   absent for `NONE`.
+
+   **`evidence_verified`** records whether `evidence_span` was actually
+   found in `comments.body` at write time. If the model paraphrases instead
+   of quoting, the evidence is fiction and any eval number computed from it
+   is meaningless — so the check runs on every write and the result is
+   persisted, not assumed.
 
 3. **Reddit ingest** (`ingest/reddit.py`) using PRAW, read-only. Pull top +
    new from r/fragrance and r/DelugeFragrance. Idempotent on `source_id`.
@@ -51,10 +69,12 @@ early.
 5. **Extraction module** (`extract/llm.py`): batch comments, call
    `claude-haiku-4-5` with a schema-constrained prompt, parse strictly,
    write claims. Must handle malformed JSON without crashing the batch, and
-   never re-extract a comment that already has `extracted_at` set.
+   never re-extract a comment that already has `extracted_at` set. Every
+   claim's `evidence_span` is checked against the comment body before write
+   and the outcome stored in `evidence_verified`.
 
 6. **Tests**: schema validation, idempotent ingest, malformed-LLM-output
-   handling. Use fixtures, not live API calls.
+   handling, evidence-span verification. Use fixtures, not live API calls.
 
 ### Phase 2 and beyond (not built yet)
 
