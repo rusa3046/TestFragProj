@@ -133,18 +133,17 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                                     "type": "string",
                                     "enum": [t.value for t in ClaimType],
                                 },
-                                # minLength mirrors the Pydantic contract, so
-                                # empty strings are refused at generation
-                                # rather than validated away after we have
-                                # already paid to generate them.
-                                "raw_subject_text": {"type": "string", "minLength": 1},
+                                # Structured outputs support neither string
+                                # constraints (minLength) nor numeric ones
+                                # (minimum/maximum) — adding them is rejected
+                                # and every batch fails. Empty and
+                                # out-of-range values are caught by the
+                                # Pydantic contract in parse_response
+                                # instead, which is where they belong.
+                                "raw_subject_text": {"type": "string"},
                                 "raw_object_text": {"type": ["string", "null"]},
-                                "confidence": {
-                                    "type": "number",
-                                    "minimum": 0,
-                                    "maximum": 1,
-                                },
-                                "evidence_span": {"type": "string", "minLength": 1},
+                                "confidence": {"type": "number"},
+                                "evidence_span": {"type": "string"},
                             },
                             "required": [
                                 "claim_type",
@@ -478,6 +477,22 @@ def extract(
         conn.commit()
 
     elapsed = time.monotonic() - started
+
+    # "0 claims written" reads like a result. When every batch failed it is
+    # not one, and the distinction is easy to miss in a filtered log.
+    if cost.failed_batches and not cost.batches:
+        log.error(
+            "ALL %d batches failed — no comments were extracted. "
+            "Re-run without filtering the log to see the cause.",
+            cost.failed_batches,
+        )
+    elif cost.failed_batches:
+        log.warning(
+            "%d of %d batches failed and will be retried on the next run.",
+            cost.failed_batches,
+            cost.failed_batches + cost.batches,
+        )
+
     log.info("Done in %.1fs. %s", elapsed, cost.summary())
     log.info(
         "%d claims written, %d with unverified evidence (%.1f%%).",

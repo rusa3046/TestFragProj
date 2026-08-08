@@ -354,13 +354,37 @@ def test_requests_pin_temperature_for_reproducibility():
     assert client.kwargs[0]["temperature"] == TEMPERATURE == 0.0
 
 
-def test_schema_refuses_empty_strings_at_generation():
-    """A dropped-claim warning cost us tokens we had already paid for."""
+def test_schema_uses_no_unsupported_constraints():
+    """Structured outputs reject minLength/minimum/maximum.
+
+    Adding them made every batch fail with an empty result rather than an
+    obvious error, so this is a regression guard, not a style check.
+    """
     from fragrance_graph.extract.llm import RESPONSE_SCHEMA
 
-    props = RESPONSE_SCHEMA["properties"]["results"]["items"]["properties"]["claims"][
-        "items"
-    ]["properties"]
-    assert props["raw_subject_text"]["minLength"] == 1
-    assert props["evidence_span"]["minLength"] == 1
-    assert (props["confidence"]["minimum"], props["confidence"]["maximum"]) == (0, 1)
+    banned = {"minLength", "maxLength", "minimum", "maximum", "multipleOf", "pattern"}
+    found = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            found.update(banned & node.keys())
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(RESPONSE_SCHEMA)
+    assert not found, f"structured outputs reject these: {sorted(found)}"
+
+
+def test_total_failure_is_reported_as_an_error_not_a_result(conn, caplog):
+    """'0 claims written' must not read like a successful empty extraction."""
+    import logging
+
+    seed(conn, n=2)
+    client = FakeClient([FakeResponse("garbage")])
+    with caplog.at_level(logging.ERROR):
+        extract(conn, client, limit=10, batch_size=2)
+
+    assert any("ALL 1 batches failed" in r.message for r in caplog.records)
