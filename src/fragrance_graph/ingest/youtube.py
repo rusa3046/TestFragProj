@@ -105,12 +105,25 @@ def build_client() -> tuple[Any, str]:
     return httpx.Client(timeout=30.0), api_key
 
 
+def _api_error_message(response: Any) -> str:
+    """The API's own human-readable message, falling back to raw text."""
+    try:
+        return response.json()["error"]["message"]
+    except Exception:
+        return response.text[:300]
+
+
 def _get(client: Any, path: str, params: dict[str, Any]) -> dict[str, Any]:
     response = client.get(f"{API_ROOT}/{path}", params=params)
-    if response.status_code == 403:
-        # Quota exhaustion and a disabled API both arrive as 403, and the
-        # difference matters: one resets tomorrow, the other needs a fix.
-        raise SystemExit(f"YouTube API refused the request (403): {response.text[:300]}")
+    # Verified against the live API: an invalid key is a 400 ("API key not
+    # valid"), while quota exhaustion and a disabled API arrive as 403. All
+    # carry a clear message in the error body — relay it instead of a
+    # traceback, since a bad key in .env is the most common failure.
+    if response.status_code in (400, 403):
+        raise SystemExit(
+            f"YouTube API refused the request "
+            f"({response.status_code}): {_api_error_message(response)}"
+        )
     response.raise_for_status()
     return response.json()
 
@@ -217,6 +230,9 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    # httpx logs every request URL at INFO, and the API key rides in the
+    # query string — silence it so credentials never land in logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     if not args.videos and not args.query:
         raise SystemExit("Give at least one --video ID, or a --query to search.")

@@ -191,3 +191,35 @@ def test_missing_key_exits_with_instructions(monkeypatch):
     monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
     with pytest.raises(SystemExit, match="YOUTUBE_API_KEY"):
         build_client()
+
+
+def test_api_error_message_extracted_from_error_body():
+    """The live API sends {'error': {'message': ...}} on 400/403; relay it."""
+    from fragrance_graph.ingest.youtube import _api_error_message
+
+    class R:
+        text = '{"error": {"message": "API key not valid."}}'
+
+        def json(self):
+            return {"error": {"message": "API key not valid."}}
+
+    assert _api_error_message(R()) == "API key not valid."
+
+
+def test_bad_key_exits_with_the_apis_message():
+    """Verified live: an invalid key is a 400, not a 403."""
+    from fragrance_graph.ingest.youtube import _get
+
+    class R:
+        status_code = 400
+        text = "irrelevant"
+
+        def json(self):
+            return {"error": {"message": "API key not valid."}}
+
+    class Http:
+        def get(self, url, params=None):
+            return R()
+
+    with pytest.raises(SystemExit, match="400.*API key not valid"):
+        _get(Http(), "commentThreads", {})
