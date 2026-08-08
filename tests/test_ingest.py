@@ -61,7 +61,7 @@ def test_source_id_uniqueness_is_enforced_by_the_database(conn):
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
             "INSERT INTO comments (source, source_id, body, permalink,"
-            " created_utc, subreddit, score) VALUES"
+            " created_utc, source_channel, score) VALUES"
             " ('reddit', 't1_fake00001', 'b', 'p', 1, 'fragrance', 0)"
         )
 

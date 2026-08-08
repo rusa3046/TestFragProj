@@ -43,9 +43,9 @@ DEFAULT_USER_AGENT = (
 
 INSERT_SQL = """
 INSERT INTO comments
-    (source, source_id, body, permalink, created_utc, subreddit, score, raw_json)
+    (source, source_id, body, permalink, created_utc, source_channel, score, raw_json)
 VALUES
-    (:source, :source_id, :body, :permalink, :created_utc, :subreddit, :score, :raw_json)
+    (:source, :source_id, :body, :permalink, :created_utc, :source_channel, :score, :raw_json)
 ON CONFLICT (source, source_id) DO NOTHING
 """
 
@@ -77,7 +77,7 @@ def normalize_comment(comment: Any) -> dict[str, Any]:
         "body": comment.body,
         "permalink": f"https://www.reddit.com{comment.permalink}",
         "created_utc": int(comment.created_utc),
-        "subreddit": str(comment.subreddit),
+        "source_channel": str(comment.subreddit),
         "score": int(comment.score),
         "raw_json": json.dumps(raw, default=str, sort_keys=True),
     }

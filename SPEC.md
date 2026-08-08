@@ -29,7 +29,7 @@ early.
 2. **SQLite schema** in `db.py`, with migrations as plain `.sql` files:
    - `fragrances`: id, canonical_name, brand, house_year, aliases (JSON array)
    - `comments`: id, source, source_id, body, permalink, created_utc,
-     subreddit, score, extracted_at (nullable), raw_json
+     source_channel, score, extracted_at (nullable), raw_json
    - `claims`: id, comment_id, claim_type, subject_kind, raw_subject_text,
      subject_frag_id, object_kind, raw_object_text, object_frag_id,
      sentiment, confidence, evidence_span, evidence_verified,
@@ -173,7 +173,13 @@ If work drifts into these areas while doing Phase 1, stop.
 
 ## Constraints
 
-- Reddit's public API only. No scraping of Fragrantica, Parfumo, or
+- Official platform APIs only. No scraping of Fragrantica, Parfumo, or
   retailers — their ToS forbid it and this needs to be publicly demoable.
+- **Amendment:** the original constraint read "Reddit's public API only".
+  Reddit refused API access, so YouTube Data API v3 is the primary source
+  (`ingest/youtube.py`) and the Reddit ingest remains in place should
+  access ever be granted. The schema anticipated this: uniqueness is
+  `(source, source_id)`, and `source_channel` (renamed from `subreddit` in
+  migration 0004) holds whatever subdivision the source uses.
 - Extraction must be cheap: this runs over 100k+ comments eventually.
 - Cost per 1k comments must be logged so it's visible.

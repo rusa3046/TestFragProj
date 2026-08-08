@@ -57,7 +57,7 @@ def make_row(body: str, *, subreddit: str, note: str = "") -> dict:
         "body": body,
         "permalink": f"seed://{digest}",
         "created_utc": int(time.time()),
-        "subreddit": subreddit,
+        "source_channel": subreddit,
         "score": 0,
         "raw_json": json.dumps({"seeded": True, "note": note}, sort_keys=True),
     }

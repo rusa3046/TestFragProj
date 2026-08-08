@@ -21,7 +21,17 @@ Initialize the database:
 uv run python -m fragrance_graph.db init
 ```
 
-Ingest Reddit comments:
+Ingest YouTube comments (primary source — Reddit refused API access):
+
+```bash
+# by video id (cheap: 1 quota unit per 100 comments)
+uv run python -m fragrance_graph.ingest.youtube --video VIDEO_ID --limit 500
+
+# or search first (costs 100 quota units per search)
+uv run python -m fragrance_graph.ingest.youtube --query "baccarat rouge dupe" --max-videos 5
+```
+
+Ingest Reddit comments (kept in case API access is ever granted):
 
 ```bash
 uv run python -m fragrance_graph.ingest.reddit --subreddit fragrance --limit 500

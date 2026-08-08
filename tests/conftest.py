@@ -21,7 +21,7 @@ def make_comment(i: int, **overrides):
         "body": f"comment number {i}",
         "permalink": f"https://www.reddit.com/r/fragrance/comments/x/_/{i}",
         "created_utc": 1700000000 + i,
-        "subreddit": "fragrance",
+        "source_channel": "fragrance",
         "score": i,
         "raw_json": json.dumps({"id": f"fake{i:05d}", "unused_field": "kept anyway"}),
     }
