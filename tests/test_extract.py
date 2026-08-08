@@ -432,3 +432,29 @@ def test_sentiment_round_trips_to_the_database(conn):
     write_claims(conn, comment_id, BODY, claims)
 
     assert conn.execute("SELECT sentiment FROM claims").fetchone()[0] == "POSITIVE"
+
+
+# --- prompt rules that answered observed defects ----------------------------
+
+
+def test_prompt_forbids_list_valued_descriptors():
+    """Three runs each stored 'bright, powdery, citrusy' as one object."""
+    from fragrance_graph.extract.llm import SYSTEM_PROMPT
+
+    assert "comma-separated list" in SYSTEM_PROMPT
+    assert "bright, powdery, citrusy" in SYSTEM_PROMPT
+
+
+def test_prompt_forbids_pronoun_subjects():
+    """Three runs each stored 'these fragrances' as a FRAGRANCE subject."""
+    from fragrance_graph.extract.llm import SYSTEM_PROMPT
+
+    assert "never store the pronoun" in SYSTEM_PROMPT
+    assert "these fragrances" in SYSTEM_PROMPT
+
+
+def test_prompt_states_descriptor_direction():
+    """NOTE_DESCRIPTOR with object_kind NONE was dropped twice per run."""
+    from fragrance_graph.extract.llm import SYSTEM_PROMPT
+
+    assert "the object is never" in SYSTEM_PROMPT
