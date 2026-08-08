@@ -98,9 +98,38 @@ from: a comparison type with a FRAGRANCE subject and a FRAGRANCE object.
   Adding them made every batch fail while still logging "0 claims
   written". A regression test now walks the schema for them, and a total
   failure logs at ERROR rather than looking like an empty result.
-- **Measured cost** on the sample: ~$0.47 per 1k comments at Haiku 4.5
-  list pricing, roughly half that on the Batch API. Output tokens
-  dominate, so the figure moves with claim volume.
+- **Measured cost** on the v2 sample: **$1.14-1.22 per 1k comments** at
+  Haiku 4.5 list pricing, roughly half that on the Batch API. 100k
+  comments is therefore about $115-122, or ~$60 batched. Output tokens
+  dominate, so the figure moves with claim volume — the earlier $0.47
+  figure was an artefact of v1 missing most claims.
+
+### Do not tune the prompt without an eval set
+
+A prompt change that looked obviously correct made things measurably
+worse, and this is recorded because the reasoning is easy to forget.
+
+Three real defects were observed identically across three v2 runs: a
+descriptor emitted with no object, a comma-separated list stored as one
+object, and a pronoun stored as a subject. The prompt was amended to
+address all three. The result:
+
+| | before | after |
+|---|---|---|
+| Claims per run | 29 / 29 / 26 | 22 / 18 / 30 |
+| Spread | ~10% | ~66% |
+| Unverified evidence | 0% | 3.3% |
+| Dropped claims | 2/run | 3/run |
+
+Variance rose sixfold, mean recall fell, evidence verification broke for
+the first time in the project, and the defect being fixed did not go away
+— its error message merely changed. The change was reverted.
+
+The lesson is not that those defects are unfixable. It is that at this
+model size, adding conditional rules to a prompt trades against stability
+in ways that cannot be predicted by reading the prompt, and that a
+three-run sample plus one person's reading is too coarse an instrument to
+tune against. **Build the eval set first** — see Deferred decisions.
 
 ### Deferred decisions
 
