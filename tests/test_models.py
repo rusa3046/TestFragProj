@@ -4,11 +4,14 @@ import pytest
 from pydantic import ValidationError
 
 from fragrance_graph.models import (
-    OBJECT_KIND_BY_CLAIM_TYPE,
+    ALLOWED_OBJECT_KINDS,
+    EDGE_CLAIM_TYPES,
     Claim,
     ClaimType,
     ExtractionResult,
     ObjectKind,
+    Sentiment,
+    SubjectKind,
 )
 
 BODY = "Honestly Delina  smells   just like Baccarat 540 to me, great for weddings."
@@ -17,7 +20,9 @@ BODY = "Honestly Delina  smells   just like Baccarat 540 to me, great for weddin
 def claim(**overrides):
     base = {
         "claim_type": ClaimType.DUPE_OF,
+        "subject_kind": SubjectKind.FRAGRANCE,
         "raw_subject_text": "Delina",
+        "object_kind": ObjectKind.FRAGRANCE,
         "raw_object_text": "Baccarat 540",
         "confidence": 0.9,
         "evidence_span": "smells   just like Baccarat 540",
@@ -25,8 +30,8 @@ def claim(**overrides):
     return Claim(**{**base, **overrides})
 
 
-def test_every_claim_type_has_an_object_kind():
-    assert set(OBJECT_KIND_BY_CLAIM_TYPE) == set(ClaimType)
+def test_every_claim_type_declares_allowed_object_kinds():
+    assert set(ALLOWED_OBJECT_KINDS) == set(ClaimType)
 
 
 @pytest.mark.parametrize("confidence", [-0.01, 1.01])
@@ -46,47 +51,134 @@ def test_unknown_claim_type_rejected():
         claim(claim_type="SMELLS_NICE")
 
 
-# --- object_kind invariants ------------------------------------------------
+def test_removed_v1_types_are_gone():
+    """REMINDS_ME_OF merged into SIMILAR_TO; LONGEVITY_COMPLAINT split."""
+    names = {t.value for t in ClaimType}
+    assert "REMINDS_ME_OF" not in names
+    assert "LONGEVITY_COMPLAINT" not in names
+
+
+# --- object kind ------------------------------------------------------------
+
+
+def test_similar_to_accepts_a_house_object():
+    """v1 forced 'a Serge Lutens vibe' to be recorded as a fragrance."""
+    c = claim(
+        claim_type=ClaimType.SIMILAR_TO,
+        object_kind=ObjectKind.HOUSE,
+        raw_object_text="Serge Lutens",
+    )
+    assert c.object_kind is ObjectKind.HOUSE
+
+
+def test_similar_to_accepts_a_material_object():
+    c = claim(
+        claim_type=ClaimType.SIMILAR_TO,
+        object_kind=ObjectKind.TAG,
+        raw_object_text="cocoa pyrazine",
+    )
+    assert c.object_kind is ObjectKind.TAG
+
+
+def test_dupe_of_rejects_a_house_object():
+    """Only SIMILAR_TO reaches beyond fragrances."""
+    with pytest.raises(ValidationError, match="allows object_kind"):
+        claim(
+            claim_type=ClaimType.DUPE_OF,
+            object_kind=ObjectKind.HOUSE,
+            raw_object_text="Serge Lutens",
+        )
 
 
 @pytest.mark.parametrize(
     "claim_type",
-    [t for t, k in OBJECT_KIND_BY_CLAIM_TYPE.items() if k is ObjectKind.FRAGRANCE],
+    [t for t, k in ALLOWED_OBJECT_KINDS.items() if k == {ObjectKind.NONE}],
 )
-def test_fragrance_claims_are_binary_edges(claim_type):
-    assert claim(claim_type=claim_type).object_kind is ObjectKind.FRAGRANCE
+def test_objectless_types_reject_an_object(claim_type):
+    with pytest.raises(ValidationError):
+        claim(
+            claim_type=claim_type,
+            object_kind=ObjectKind.TAG,
+            raw_object_text="anything",
+        )
 
 
-def test_occasion_object_is_a_tag_not_a_fragrance():
-    c = claim(claim_type=ClaimType.OCCASION, raw_object_text="weddings")
-    assert c.object_kind is ObjectKind.TAG
+@pytest.mark.parametrize(
+    "claim_type",
+    [t for t, k in ALLOWED_OBJECT_KINDS.items() if k == {ObjectKind.NONE}],
+)
+def test_objectless_types_are_valid_with_no_object(claim_type):
+    c = claim(claim_type=claim_type, object_kind=ObjectKind.NONE, raw_object_text=None)
+    assert c.raw_object_text is None
 
 
-def test_unmet_request_keeps_the_requested_product():
-    """The requested thing is the whole point of the claim type."""
+def test_object_required_when_kind_is_not_none():
+    with pytest.raises(ValidationError, match="requires raw_object_text"):
+        claim(object_kind=ObjectKind.FRAGRANCE, raw_object_text=None)
+
+
+# --- sentiment --------------------------------------------------------------
+
+
+def test_sentiment_defaults_to_neutral():
+    assert claim().sentiment is Sentiment.NEUTRAL
+
+
+def test_longevity_can_be_praise():
+    """v1 stored 'still lingering, delightful' as a COMPLAINT."""
     c = claim(
-        claim_type=ClaimType.UNMET_PRODUCT_REQUEST,
-        raw_object_text="body lotion",
+        claim_type=ClaimType.LONGEVITY,
+        object_kind=ObjectKind.NONE,
+        raw_object_text=None,
+        sentiment=Sentiment.POSITIVE,
         evidence_span="great for weddings",
     )
-    assert c.object_kind is ObjectKind.TAG
-    assert c.raw_object_text == "body lotion"
+    assert c.sentiment is Sentiment.POSITIVE
 
 
-def test_objectless_request_is_rejected():
-    """A request with no 'what' is contentless and must not be stored."""
-    with pytest.raises(ValidationError, match="requires raw_object_text"):
-        claim(claim_type=ClaimType.UNMET_PRODUCT_REQUEST, raw_object_text=None)
+# --- subject kind and edges -------------------------------------------------
 
 
-def test_claim_type_with_no_object_rejects_one():
-    with pytest.raises(ValidationError, match="takes no object"):
-        claim(claim_type=ClaimType.LONGEVITY_COMPLAINT, raw_object_text="anything")
+def test_category_subject_is_allowed_but_not_an_edge():
+    """'skin scents' is real signal that entity resolution must skip."""
+    c = claim(
+        claim_type=ClaimType.LONGEVITY,
+        subject_kind=SubjectKind.CATEGORY,
+        raw_subject_text="skin scents",
+        object_kind=ObjectKind.NONE,
+        raw_object_text=None,
+    )
+    assert not c.is_edge
 
 
-def test_longevity_complaint_needs_no_object():
-    c = claim(claim_type=ClaimType.LONGEVITY_COMPLAINT, raw_object_text=None)
-    assert c.object_kind is ObjectKind.NONE
+def test_fragrance_to_fragrance_comparison_is_an_edge():
+    assert claim(claim_type=ClaimType.SIMILAR_TO).is_edge
+
+
+def test_house_object_is_not_an_edge():
+    c = claim(
+        claim_type=ClaimType.SIMILAR_TO,
+        object_kind=ObjectKind.HOUSE,
+        raw_object_text="Serge Lutens",
+    )
+    assert not c.is_edge
+
+
+def test_descriptor_is_not_an_edge():
+    c = claim(
+        claim_type=ClaimType.NOTE_DESCRIPTOR,
+        object_kind=ObjectKind.TAG,
+        raw_object_text="citrusy",
+    )
+    assert not c.is_edge
+
+
+def test_edge_types_are_the_comparison_types():
+    assert EDGE_CLAIM_TYPES == {
+        ClaimType.SIMILAR_TO,
+        ClaimType.DUPE_OF,
+        ClaimType.BETTER_THAN,
+    }
 
 
 # --- evidence verification -------------------------------------------------
@@ -97,8 +189,7 @@ def test_exact_quote_verifies():
 
 
 def test_requoted_whitespace_and_case_still_verifies():
-    c = claim(evidence_span="smells just like baccarat 540")
-    assert c.evidence_matches(BODY)
+    assert claim(evidence_span="smells just like baccarat 540").evidence_matches(BODY)
 
 
 def test_paraphrase_does_not_verify():
@@ -108,8 +199,7 @@ def test_paraphrase_does_not_verify():
 
 
 def test_span_from_a_different_comment_does_not_verify():
-    c = claim(evidence_span="smells like Aventus")
-    assert not c.evidence_matches(BODY)
+    assert not claim(evidence_span="smells like Aventus").evidence_matches(BODY)
 
 
 def test_verified_claims_filters_out_paraphrase():

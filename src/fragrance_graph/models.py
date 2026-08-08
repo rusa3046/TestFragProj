@@ -1,4 +1,27 @@
-"""Pydantic schemas for LLM-extracted fragrance claims."""
+"""Pydantic schemas for LLM-extracted fragrance claims.
+
+The taxonomy here is v2, revised after running v1 over a real r/fragrance
+sample. Every change below is a response to an observed defect, recorded
+so the reasoning survives:
+
+- `LONGEVITY_COMPLAINT` absorbed anything about something going away:
+  a fragrance that "never really develops", a reformulation where a note
+  "has disappeared", and a "low projection" remark all landed there.
+  Split into LONGEVITY / PROJECTION / DEVELOPMENT / REFORMULATION.
+- The type name presumed a complaint, so "still lingering on my clothes,
+  delightful" was stored as a complaint at 0.3 confidence. Polarity is now
+  a separate `sentiment` field and the type names are neutral.
+- `REMINDS_ME_OF` never fired. The one clear case in the sample — "I got a
+  bit of a Serge Lutens vibe" — was labelled SIMILAR_TO on every run.
+  Merged into SIMILAR_TO rather than kept as a distinction the extractor
+  cannot make.
+- `object_kind` was derived from `claim_type`, which forced "Serge Lutens"
+  (a house) to be recorded as a fragrance. It is now stated per claim and
+  validated against the kinds each type permits.
+- Subjects were sometimes categories ("skin scents") or several fragrances
+  in one string. `subject_kind` marks the first so entity resolution can
+  skip it; the prompt forbids the second.
+"""
 
 from __future__ import annotations
 
@@ -8,45 +31,76 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ClaimType(StrEnum):
+    # Comparisons between fragrances — the graph is built from these.
     SIMILAR_TO = "SIMILAR_TO"
     DUPE_OF = "DUPE_OF"
-    REMINDS_ME_OF = "REMINDS_ME_OF"
     BETTER_THAN = "BETTER_THAN"
+
+    # Descriptions of a single fragrance.
+    NOTE_DESCRIPTOR = "NOTE_DESCRIPTOR"
     OCCASION = "OCCASION"
     AESTHETIC = "AESTHETIC"
-    LONGEVITY_COMPLAINT = "LONGEVITY_COMPLAINT"
+
+    # Performance, each with its own sentiment.
+    LONGEVITY = "LONGEVITY"
+    PROJECTION = "PROJECTION"
+    DEVELOPMENT = "DEVELOPMENT"
+
+    # Product-level observations.
+    REFORMULATION = "REFORMULATION"
     UNMET_PRODUCT_REQUEST = "UNMET_PRODUCT_REQUEST"
 
 
-class ObjectKind(StrEnum):
-    """What sort of thing raw_object_text names, if anything.
-
-    FRAGRANCE claims are binary edges between two fragrances and are what
-    the similarity graph is built from. TAG claims are unary attributes of
-    the subject, where the object is a non-fragrance concept ("weddings",
-    "old money"). NONE claims have no object at all.
-    """
+class SubjectKind(StrEnum):
+    """What the claim is about."""
 
     FRAGRANCE = "FRAGRANCE"
+    HOUSE = "HOUSE"
+    #: A class of fragrances rather than a specific one — "skin scents",
+    #: "80s perfumes". Real signal, but not resolvable to a bottle.
+    CATEGORY = "CATEGORY"
+
+
+class ObjectKind(StrEnum):
+    """What the claim points at, if anything."""
+
+    FRAGRANCE = "FRAGRANCE"
+    HOUSE = "HOUSE"
+    #: Any non-entity object: a note, accord, occasion, vibe, product form,
+    #: or comparison to something that isn't a fragrance ("a bakery").
     TAG = "TAG"
     NONE = "NONE"
 
 
-#: Which shape each claim type takes. Derived rather than model-emitted:
-#: it costs no output tokens and the LLM cannot get it inconsistent.
-OBJECT_KIND_BY_CLAIM_TYPE: dict[ClaimType, ObjectKind] = {
-    ClaimType.SIMILAR_TO: ObjectKind.FRAGRANCE,
-    ClaimType.DUPE_OF: ObjectKind.FRAGRANCE,
-    ClaimType.REMINDS_ME_OF: ObjectKind.FRAGRANCE,
-    ClaimType.BETTER_THAN: ObjectKind.FRAGRANCE,
-    ClaimType.OCCASION: ObjectKind.TAG,
-    ClaimType.AESTHETIC: ObjectKind.TAG,
-    ClaimType.LONGEVITY_COMPLAINT: ObjectKind.NONE,
-    # The requested thing ("a body lotion", "a travel size") is the entire
-    # value of this claim type — without it we record that someone wanted
-    # something but not what, and lose the "body lotion: 842 mentions" rollup.
-    ClaimType.UNMET_PRODUCT_REQUEST: ObjectKind.TAG,
+class Sentiment(StrEnum):
+    POSITIVE = "POSITIVE"
+    NEGATIVE = "NEGATIVE"
+    NEUTRAL = "NEUTRAL"
+
+
+#: Which object kinds each claim type may carry. A type mapped to {NONE}
+#: takes no object at all.
+ALLOWED_OBJECT_KINDS: dict[ClaimType, set[ObjectKind]] = {
+    # Comparisons reach beyond fragrances in practice: people compare to a
+    # house ("a Serge Lutens vibe") and to raw materials ("cocoa pyrazine").
+    ClaimType.SIMILAR_TO: {ObjectKind.FRAGRANCE, ObjectKind.HOUSE, ObjectKind.TAG},
+    ClaimType.DUPE_OF: {ObjectKind.FRAGRANCE},
+    ClaimType.BETTER_THAN: {ObjectKind.FRAGRANCE},
+    ClaimType.NOTE_DESCRIPTOR: {ObjectKind.TAG},
+    ClaimType.OCCASION: {ObjectKind.TAG},
+    ClaimType.AESTHETIC: {ObjectKind.TAG},
+    ClaimType.UNMET_PRODUCT_REQUEST: {ObjectKind.TAG},
+    ClaimType.LONGEVITY: {ObjectKind.NONE},
+    ClaimType.PROJECTION: {ObjectKind.NONE},
+    ClaimType.DEVELOPMENT: {ObjectKind.NONE},
+    ClaimType.REFORMULATION: {ObjectKind.NONE},
 }
+
+#: Types whose object is another fragrance — the edges the graph is built
+#: from. Kept as a set so downstream queries need not restate the mapping.
+EDGE_CLAIM_TYPES = frozenset(
+    {ClaimType.SIMILAR_TO, ClaimType.DUPE_OF, ClaimType.BETTER_THAN}
+)
 
 
 def normalize_for_match(text: str) -> str:
@@ -57,41 +111,54 @@ def normalize_for_match(text: str) -> str:
 class Claim(BaseModel):
     """A single structured claim extracted from a comment.
 
-    Entity resolution happens later — subject/object are the raw text as
-    written by the commenter, not resolved fragrance IDs.
+    Entity resolution happens later — subject and object are the raw text
+    as written by the commenter, not resolved fragrance IDs.
     """
 
     claim_type: ClaimType
+
+    subject_kind: SubjectKind
     raw_subject_text: str = Field(min_length=1)
-    raw_object_text: str | None = Field(
-        default=None,
-        description="Second entity in the claim. Another fragrance for "
-        "SIMILAR_TO/DUPE_OF/REMINDS_ME_OF/BETTER_THAN; a non-fragrance tag "
-        "for OCCASION/AESTHETIC; the requested product form for "
-        "UNMET_PRODUCT_REQUEST (\"a body lotion\", \"a travel size\"); "
-        "omitted for LONGEVITY_COMPLAINT.",
+
+    object_kind: ObjectKind
+    raw_object_text: str | None = Field(default=None)
+
+    sentiment: Sentiment = Field(
+        default=Sentiment.NEUTRAL,
+        description="Whether the commenter frames this positively or negatively. "
+        "Carries the polarity that a type name must not presume.",
     )
     confidence: float = Field(ge=0.0, le=1.0)
     evidence_span: str = Field(
         min_length=1,
-        description="Substring of the comment body supporting this claim. Quote "
-        "the comment verbatim; do not paraphrase.",
+        description="Substring of the comment body supporting this claim.",
     )
-
-    @property
-    def object_kind(self) -> ObjectKind:
-        return OBJECT_KIND_BY_CLAIM_TYPE[self.claim_type]
 
     @model_validator(mode="after")
     def check_object_matches_claim_type(self) -> Claim:
-        kind = self.object_kind
-        if kind is ObjectKind.NONE and self.raw_object_text is not None:
+        allowed = ALLOWED_OBJECT_KINDS[self.claim_type]
+        if self.object_kind not in allowed:
+            names = ", ".join(sorted(k.value for k in allowed))
+            raise ValueError(
+                f"{self.claim_type} allows object_kind {{{names}}}, "
+                f"got {self.object_kind}"
+            )
+        if self.object_kind is ObjectKind.NONE and self.raw_object_text is not None:
             raise ValueError(
                 f"{self.claim_type} takes no object, got {self.raw_object_text!r}"
             )
-        if kind is not ObjectKind.NONE and not self.raw_object_text:
+        if self.object_kind is not ObjectKind.NONE and not self.raw_object_text:
             raise ValueError(f"{self.claim_type} requires raw_object_text")
         return self
+
+    @property
+    def is_edge(self) -> bool:
+        """Whether this claim is a fragrance-to-fragrance edge."""
+        return (
+            self.claim_type in EDGE_CLAIM_TYPES
+            and self.subject_kind is SubjectKind.FRAGRANCE
+            and self.object_kind is ObjectKind.FRAGRANCE
+        )
 
     def evidence_matches(self, body: str) -> bool:
         """Whether evidence_span is genuinely quoted from the comment body.

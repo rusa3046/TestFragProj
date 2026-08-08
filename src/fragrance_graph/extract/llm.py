@@ -40,7 +40,13 @@ from typing import Any
 from pydantic import ValidationError
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
-from fragrance_graph.models import Claim, ClaimType
+from fragrance_graph.models import (
+    Claim,
+    ClaimType,
+    ObjectKind,
+    Sentiment,
+    SubjectKind,
+)
 
 log = logging.getLogger("fragrance_graph.extract.llm")
 
@@ -68,11 +74,11 @@ TEMPERATURE = 0.0
 # --------------------------------------------------------------------------
 # Prompt
 #
-# NOTE: the claim-type definitions below are the taxonomy as currently
-# specified. The SIMILAR_TO / REMINDS_ME_OF boundary is the one line that
-# should be revisited against real comments before any large extraction run
-# — see SPEC.md, "Deferred decisions". Everything else in this module is
-# independent of how that resolves.
+# The "Distinguishing the performance types" section exists because v1
+# collapsed four distinct claims into LONGEVITY_COMPLAINT: anything about
+# something going away landed there. Each bullet is a misclassification
+# observed on real comments, quoted from the comment that produced it.
+# Keep them concrete — the failures were lexical, not conceptual.
 # --------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
@@ -82,25 +88,66 @@ You will receive a numbered list of comments. For each one, return every
 claim it asserts. Most comments assert nothing — returning an empty list
 for a comment is correct and expected. Do not invent claims to fill space.
 
-Claim types:
+## Claim types
 
-- SIMILAR_TO: an olfactory claim that two fragrances smell alike.
-  ("Delina smells just like Baccarat 540")
-- REMINDS_ME_OF: an associative or memory claim. The subject evokes
-  something; this need not mean they smell alike.
-  ("Reminds me of my grandmother's house")
-- DUPE_OF: a claim that one fragrance is a cheaper substitute for another.
-- BETTER_THAN: a preference claim between two fragrances.
-- OCCASION: the fragrance suits a setting or event. Object is the setting.
-  ("great for weddings")
-- AESTHETIC: the fragrance evokes a style or vibe. Object is the vibe.
-  ("very old money")
-- LONGEVITY_COMPLAINT: the fragrance fades or projects poorly. No object.
+Comparisons between two things:
+
+- SIMILAR_TO: the subject smells like, evokes, or resembles the object.
+  The object may be another fragrance ("smells just like Baccarat 540"),
+  a house ("a bit of a Serge Lutens vibe"), or a material or thing
+  ("smells remarkably similar to cocoa pyrazine", "smells like a bakery").
+- DUPE_OF: the subject is a cheaper substitute for the object.
+- BETTER_THAN: the subject is preferred over the object.
+
+Descriptions of one fragrance:
+
+- NOTE_DESCRIPTOR: what it smells of. One claim per descriptor.
+  ("it's soapy and citrusy" is two claims: soapy, and citrusy)
+- OCCASION: a setting it suits. ("great for weddings", "for the office")
+- AESTHETIC: a style or vibe it evokes. ("very old money")
+
+Performance — how it behaves on skin. These take no object, and the
+sentiment field carries whether the commenter is praising or complaining:
+
+- LONGEVITY: how long it lasts.
+  ("disappears after 15 minutes" NEGATIVE;
+   "it is now Friday and it's still lingering" POSITIVE)
+- PROJECTION: how far it throws — sillage, projection, strength.
+  ("mostly skin scents with a low projection" NEGATIVE)
+- DEVELOPMENT: how it evolves over the wear. Not about lasting or
+  throwing. ("it never really develops" NEGATIVE)
+
+Product-level:
+
+- REFORMULATION: a version differs from an earlier one. No object.
+  ("much of the original's elegant woodiness has disappeared")
 - UNMET_PRODUCT_REQUEST: the commenter wants a product form that does not
-  exist. Object is the requested form. ("wish it came in a body lotion")
+  exist. Object is the form. ("wish it came in a body lotion")
 
-Rules:
+## Distinguishing the performance types
 
+These are the ones most often confused. A word about something going away
+does not make a claim about longevity:
+
+- "it never really develops" — DEVELOPMENT, not LONGEVITY. The scent is
+  present the whole time; it just doesn't change.
+- "the woodiness has disappeared" (comparing versions) — REFORMULATION,
+  not LONGEVITY. A note was removed from the composition, not lost on skin.
+- "low projection" — PROJECTION, not LONGEVITY. How far, not how long.
+- "still lingering on my clothes, delightful" — LONGEVITY with sentiment
+  POSITIVE. Praise is a claim, not an absence of one.
+
+## Kinds
+
+- subject_kind: FRAGRANCE for a named fragrance, HOUSE for a brand or
+  perfumer, CATEGORY for a class ("skin scents", "80s perfumes").
+- object_kind: FRAGRANCE, HOUSE, TAG for anything else, NONE for none.
+  Notes, occasions, vibes, materials, and product forms are all TAG.
+
+## Rules
+
+- One subject per claim. If a sentence covers several fragrances, emit one
+  claim each. Never put several names in one raw_subject_text.
 - raw_subject_text and raw_object_text are the commenter's own words. Do
   not normalise, correct, or expand names. "BR540" stays "BR540".
 - evidence_span MUST be copied verbatim from the comment body. Do not
@@ -109,8 +156,8 @@ Rules:
 - confidence reflects how clearly the comment asserts the claim, not how
   true you think it is. Hedged language ("kinda similar I guess") is low
   confidence; a flat assertion is high.
-- Claims requiring an object (all except LONGEVITY_COMPLAINT) must have
-  one. If there is no identifiable object, omit the claim entirely.
+- If a claim would need an object and there is no identifiable one, omit
+  the claim entirely rather than emitting an empty string.
 """
 
 #: Response schema. Claims are nested under a comment index so results map
@@ -133,6 +180,10 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                                     "type": "string",
                                     "enum": [t.value for t in ClaimType],
                                 },
+                                "subject_kind": {
+                                    "type": "string",
+                                    "enum": [k.value for k in SubjectKind],
+                                },
                                 # Structured outputs support neither string
                                 # constraints (minLength) nor numeric ones
                                 # (minimum/maximum) — adding them is rejected
@@ -141,14 +192,25 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                                 # Pydantic contract in parse_response
                                 # instead, which is where they belong.
                                 "raw_subject_text": {"type": "string"},
+                                "object_kind": {
+                                    "type": "string",
+                                    "enum": [k.value for k in ObjectKind],
+                                },
                                 "raw_object_text": {"type": ["string", "null"]},
+                                "sentiment": {
+                                    "type": "string",
+                                    "enum": [s.value for s in Sentiment],
+                                },
                                 "confidence": {"type": "number"},
                                 "evidence_span": {"type": "string"},
                             },
                             "required": [
                                 "claim_type",
+                                "subject_kind",
                                 "raw_subject_text",
+                                "object_kind",
                                 "raw_object_text",
+                                "sentiment",
                                 "confidence",
                                 "evidence_span",
                             ],
@@ -281,10 +343,12 @@ def parse_response(
 
 INSERT_CLAIM_SQL = """
 INSERT INTO claims (
-    comment_id, claim_type, object_kind, raw_subject_text, raw_object_text,
+    comment_id, claim_type, subject_kind, raw_subject_text,
+    object_kind, raw_object_text, sentiment,
     confidence, evidence_span, evidence_verified, extraction_model, created_at
 ) VALUES (
-    :comment_id, :claim_type, :object_kind, :raw_subject_text, :raw_object_text,
+    :comment_id, :claim_type, :subject_kind, :raw_subject_text,
+    :object_kind, :raw_object_text, :sentiment,
     :confidence, :evidence_span, :evidence_verified, :extraction_model, :created_at
 )
 """
@@ -329,9 +393,11 @@ def write_claims(
             {
                 "comment_id": comment_id,
                 "claim_type": claim.claim_type.value,
-                "object_kind": claim.object_kind.value,
+                "subject_kind": claim.subject_kind.value,
                 "raw_subject_text": claim.raw_subject_text,
+                "object_kind": claim.object_kind.value,
                 "raw_object_text": claim.raw_object_text,
+                "sentiment": claim.sentiment.value,
                 "confidence": claim.confidence,
                 "evidence_span": claim.evidence_span,
                 "evidence_verified": int(verified),

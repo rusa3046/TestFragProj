@@ -1,0 +1,64 @@
+-- Taxonomy v2, after running v1 over a real r/fragrance sample.
+--
+-- Adds subject_kind and sentiment, and widens object_kind to include
+-- HOUSE. SQLite cannot alter a CHECK constraint, so the table is rebuilt.
+--
+-- Existing claims are DISCARDED rather than migrated. Two reasons: the old
+-- type names (LONGEVITY_COMPLAINT, REMINDS_ME_OF) no longer exist, and the
+-- v1 sample measured roughly 1 usable claim in 7 — the rows are not worth
+-- carrying forward. Claims are derived data; comments.body is retained, so
+-- re-extraction reproduces them. extracted_at is reset accordingly.
+
+DROP INDEX IF EXISTS idx_claims_comment_id;
+DROP INDEX IF EXISTS idx_claims_edges;
+DROP TABLE IF EXISTS claims;
+
+CREATE TABLE claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    comment_id INTEGER NOT NULL REFERENCES comments (id),
+    claim_type TEXT NOT NULL,
+
+    -- What the claim is about. CATEGORY marks a class of fragrances
+    -- ("skin scents") rather than a specific bottle, so entity resolution
+    -- can skip it instead of failing to resolve it.
+    subject_kind TEXT NOT NULL
+        CHECK (subject_kind IN ('FRAGRANCE', 'HOUSE', 'CATEGORY')),
+    raw_subject_text TEXT NOT NULL,
+    subject_frag_id INTEGER REFERENCES fragrances (id),
+
+    -- What the claim points at. Stated per claim rather than derived from
+    -- claim_type: comparisons reach beyond fragrances in practice, to a
+    -- house ("a Serge Lutens vibe") or a material ("cocoa pyrazine").
+    object_kind TEXT NOT NULL
+        CHECK (object_kind IN ('FRAGRANCE', 'HOUSE', 'TAG', 'NONE')),
+    raw_object_text TEXT,
+    object_frag_id INTEGER REFERENCES fragrances (id),
+
+    -- Polarity lives here so type names need not presume it. v1 stored
+    -- "still lingering, delightful" as a LONGEVITY_COMPLAINT.
+    sentiment TEXT NOT NULL DEFAULT 'NEUTRAL'
+        CHECK (sentiment IN ('POSITIVE', 'NEGATIVE', 'NEUTRAL')),
+
+    confidence REAL NOT NULL,
+    evidence_span TEXT NOT NULL,
+    evidence_verified INTEGER NOT NULL DEFAULT 0
+        CHECK (evidence_verified IN (0, 1)),
+    extraction_model TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+
+    CHECK (
+        (object_kind = 'NONE' AND raw_object_text IS NULL)
+        OR (object_kind <> 'NONE' AND raw_object_text IS NOT NULL)
+    )
+);
+
+CREATE INDEX idx_claims_comment_id ON claims (comment_id);
+
+-- Supports the phase-3 graph build: fragrance-to-fragrance edges only,
+-- restricted to verified evidence.
+CREATE INDEX idx_claims_edges
+    ON claims (claim_type, subject_kind, object_kind, evidence_verified);
+
+-- Re-extraction is required, since the discarded claims were the only
+-- record that these comments had been processed.
+UPDATE comments SET extracted_at = NULL;

@@ -30,94 +30,104 @@ early.
    - `fragrances`: id, canonical_name, brand, house_year, aliases (JSON array)
    - `comments`: id, source, source_id, body, permalink, created_utc,
      subreddit, score, extracted_at (nullable), raw_json
-   - `claims`: id, comment_id, claim_type, object_kind, subject_frag_id,
-     object_frag_id, raw_subject_text, raw_object_text, confidence,
-     evidence_span, evidence_verified, extraction_model, created_at
+   - `claims`: id, comment_id, claim_type, subject_kind, raw_subject_text,
+     subject_frag_id, object_kind, raw_object_text, object_frag_id,
+     sentiment, confidence, evidence_span, evidence_verified,
+     extraction_model, created_at
    - `eval_labels`: comment_id, labeled_json, labeler, created_at
-
-   **`object_kind`** (`FRAGRANCE | TAG | NONE`) distinguishes the two shapes
-   crammed into `claim_type`. `SIMILAR_TO`/`DUPE_OF`/`REMINDS_ME_OF`/
-   `BETTER_THAN` are binary edges between fragrances (`FRAGRANCE`) and are
-   what the graph is built from. `OCCASION`/`AESTHETIC` are unary attributes
-   whose object is a non-fragrance concept — "weddings", "old money"
-   (`TAG`). `LONGEVITY_COMPLAINT`/`UNMET_PRODUCT_REQUEST` have no object
-   (`NONE`). It is derived from `claim_type` rather than emitted by the LLM
-   (costs no output tokens, cannot be inconsistent) and stored denormalized
-   so downstream queries filter without knowing the mapping. A CHECK
-   constraint enforces that an object is present for `FRAGRANCE`/`TAG` and
-   absent for `NONE`.
 
    **`evidence_verified`** records whether `evidence_span` was actually
    found in `comments.body` at write time. If the model paraphrases instead
    of quoting, the evidence is fiction and any eval number computed from it
    is meaningless — so the check runs on every write and the result is
-   persisted, not assumed.
+   persisted, not assumed. Measured 0% paraphrase across every run so far.
 
-   Note that `UNMET_PRODUCT_REQUEST` is `TAG`, not `NONE`: the requested
-   thing ("a body lotion") is the entire value of the claim type. Mapping it
-   to `NONE` would record that someone wanted something but not what,
-   killing the "body lotion: 842 mentions" rollup that justifies collecting
-   it. A request with no identifiable object is now rejected at validation
-   rather than stored as a contentless row.
+## Taxonomy
 
-3. **Reddit ingest** (`ingest/reddit.py`) using PRAW, read-only. Pull top +
-   new from r/fragrance and r/DelugeFragrance. Idempotent on `source_id`.
-   CLI: `python -m fragrance_graph.ingest.reddit --subreddit fragrance --limit 500`
-   Rate-limit politely, log progress, resume cleanly if interrupted.
+Version 2, revised after running v1 over a real r/fragrance sample of 17
+posts. Every change below answers an observed defect rather than a
+prediction; the v1 sample produced roughly one usable claim in seven.
 
-   The full Reddit payload is retained per comment in `comments.raw_json`.
-   Fields that look useless today become fields phase 3 needs, and
-   re-fetching old comments is unreliable — accounts get deleted, posts get
-   removed. Politeness is a `--sleep` between submission fetches *plus*
-   PRAW's own rate-limit handling: PRAW respects the API's limit, which is
-   not the same as being a good citizen.
+| Type | Object | Notes |
+|---|---|---|
+| `SIMILAR_TO` | FRAGRANCE / HOUSE / TAG | Absorbed `REMINDS_ME_OF` |
+| `DUPE_OF` | FRAGRANCE | |
+| `BETTER_THAN` | FRAGRANCE | |
+| `NOTE_DESCRIPTOR` | TAG | New — the largest gap in v1 |
+| `OCCASION` | TAG | |
+| `AESTHETIC` | TAG | |
+| `LONGEVITY` | none | Was `LONGEVITY_COMPLAINT` |
+| `PROJECTION` | none | New |
+| `DEVELOPMENT` | none | New |
+| `REFORMULATION` | none | New |
+| `UNMET_PRODUCT_REQUEST` | TAG | |
 
-   Resume rests on two things: the `UNIQUE (source, source_id)` constraint,
-   and committing in batches during the run rather than once at the end.
-   Verified by `kill -9` mid-run, not by inspection — a killed run left 125
-   of 138 fetched rows durable (the last commit boundary), and re-running
-   reported exactly 375 new / 125 skipped with no duplicates.
+**What v1 got wrong, and why each change exists:**
 
-4. **Pydantic extraction schema** (`models.py`). One comment yields zero or
-   more claims:
-   - `claim_type`: `SIMILAR_TO | DUPE_OF | REMINDS_ME_OF | BETTER_THAN |
-     OCCASION | AESTHETIC | LONGEVITY_COMPLAINT | UNMET_PRODUCT_REQUEST`
-   - subject/object as raw strings (entity resolution is a later phase)
-   - `confidence`: 0-1, how clearly the comment asserts this
-   - `evidence_span`: the substring supporting the claim
+- **`LONGEVITY_COMPLAINT` was a magnet.** Anything about something going
+  away landed there: a fragrance that "never really develops"
+  (development), a reformulation where a note "has disappeared"
+  (composition, not skin), and "low projection" (throw, not duration).
+  The failure was lexical, not conceptual — which is why the prompt now
+  distinguishes them with the exact misclassified quotes.
+- **The type name presumed polarity.** "It is now Friday and the scent is
+  still lingering… delightful" was stored as a complaint at 0.3
+  confidence. `sentiment` is now a separate field and the type names are
+  neutral.
+- **`REMINDS_ME_OF` never fired.** The one clear case in the sample —
+  "I got a bit of a Serge Lutens vibe" — was labelled `SIMILAR_TO` on
+  every run. Merged rather than kept as a distinction the extractor cannot
+  make. Revisit only with labelled data showing the split is learnable.
+- **`object_kind` was derived from `claim_type`**, which forced "Serge
+  Lutens" (a house) to be recorded as a fragrance. It is now stated per
+  claim and validated against the kinds each type permits.
+- **Subjects were sometimes categories** ("skin scents") **or several
+  fragrances in one string.** `subject_kind` marks the first so entity
+  resolution can skip it; the prompt forbids the second.
 
-5. **Extraction module** (`extract/llm.py`): batch comments, call
-   `claude-haiku-4-5` with a schema-constrained prompt, parse strictly,
-   write claims. Must handle malformed JSON without crashing the batch, and
-   never re-extract a comment that already has `extracted_at` set. Every
-   claim's `evidence_span` is checked against the comment body before write
-   and the outcome stored in `evidence_verified`.
+`Claim.is_edge` is the single place that decides what the graph is built
+from: a comparison type with a FRAGRANCE subject and a FRAGRANCE object.
 
-6. **Tests**: schema validation, idempotent ingest, malformed-LLM-output
-   handling, evidence-span verification. Use fixtures, not live API calls.
+## Extraction reliability
+
+- **`temperature = 0.0`.** Two identical runs over the same 17 comments
+  returned 4 claims and then 8. Prompt changes cannot be evaluated against
+  that. Pinning it narrowed the spread to 6/6/7 — residual jitter of about
+  one claim, so **treat a change of ±1 as noise**.
+- **Structured outputs reject `minLength`, `minimum`, and `maximum`.**
+  Adding them made every batch fail while still logging "0 claims
+  written". A regression test now walks the schema for them, and a total
+  failure logs at ERROR rather than looking like an empty result.
+- **Measured cost** on the sample: ~$0.47 per 1k comments at Haiku 4.5
+  list pricing, roughly half that on the Batch API. Output tokens
+  dominate, so the figure moves with claim volume.
 
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.
 
-- **`SIMILAR_TO` vs `REMINDS_ME_OF` are near-synonyms.** The LLM will assign
-  them inconsistently. Resolve when writing the extraction prompt in
-  `extract/llm.py`: either merge the two types, or write a sharp
-  disambiguation rule (proposed: `SIMILAR_TO` = an olfactory claim about the
-  scent itself; `REMINDS_ME_OF` = an associative/memory claim that need not
-  imply smelling alike). Either way the eval set must explicitly measure
-  agreement on this pair — it is the most likely source of silent label
-  noise in the whole taxonomy.
-- **`LONGEVITY_COMPLAINT` carries no severity or subtype.** Longevity vs.
-  sillage vs. projection are different complaints and may deserve splitting,
-  possibly with severity. Deferred — revisit once there is real data showing
-  the mix.
 - **`evidence_span` is not always a literal substring.** Verification falls
   back to whitespace/case-normalized matching, so a span can be verified
   without being byte-identical, and offset-based highlighting is not
   possible from the stored span alone. If highlighting is wanted, add
   `evidence_start`/`evidence_end`. Safe to defer: `comments.body` is
   retained, so offsets are derivable by backfill and need no re-extraction.
+- **Ingest covers comments, not submission bodies.** The richest claim
+  density in the sample was a long review post, and `ingest/reddit.py`
+  reads comments from submissions while discarding submission selftext.
+  Decide whether submissions should be stored as rows too.
+- **No eval set exists.** Precision is currently judged by reading output
+  by hand, which does not scale past a few dozen comments and cannot
+  detect regression. `eval_labels` is in the schema and unused. A few
+  hundred labelled comments would turn "this looks better" into a number.
+
+**Resolved by the v1 sample** (kept for the record, since the reasoning
+matters more than the outcome):
+
+- `SIMILAR_TO` vs `REMINDS_ME_OF` — merged. The distinction was not
+  learnable by the extractor; see Taxonomy above.
+- `LONGEVITY_COMPLAINT` subtypes — split into LONGEVITY / PROJECTION /
+  DEVELOPMENT / REFORMULATION, with polarity moved to `sentiment`.
 
 ### Phase 2 and beyond (not built yet)
 

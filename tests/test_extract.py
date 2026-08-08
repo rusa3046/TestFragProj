@@ -20,7 +20,7 @@ from fragrance_graph.extract.llm import (
     write_claims,
 )
 from fragrance_graph.ingest.reddit import ingest
-from fragrance_graph.models import ClaimType, ObjectKind
+from fragrance_graph.models import ClaimType, ObjectKind, Sentiment, SubjectKind
 from tests.conftest import make_comment
 
 BODY = "Delina smells just like Baccarat 540 honestly, great for weddings"
@@ -29,8 +29,11 @@ BODY = "Delina smells just like Baccarat 540 honestly, great for weddings"
 def claim_json(**overrides):
     base = {
         "claim_type": "DUPE_OF",
+        "subject_kind": "FRAGRANCE",
         "raw_subject_text": "Delina",
+        "object_kind": "FRAGRANCE",
         "raw_object_text": "Baccarat 540",
+        "sentiment": "NEUTRAL",
         "confidence": 0.9,
         "evidence_span": "smells just like Baccarat 540",
     }
@@ -101,7 +104,7 @@ def test_one_invalid_claim_does_not_discard_the_others():
 
 
 def test_claim_violating_object_invariant_is_dropped():
-    """Schema can't express 'NONE takes no object'; the model validator can."""
+    """Schema can't express 'LONGEVITY takes no object'; the validator can."""
     text = json.dumps(
         {
             "results": [
@@ -109,9 +112,27 @@ def test_claim_violating_object_invariant_is_dropped():
                     "comment_index": 0,
                     "claims": [
                         claim_json(
-                            claim_type="LONGEVITY_COMPLAINT",
+                            claim_type="LONGEVITY",
+                            object_kind="TAG",
                             raw_object_text="should not be here",
                         )
+                    ],
+                }
+            ]
+        }
+    )
+    assert parse_response(text, batch_size=1)[0] == []
+
+
+def test_disallowed_object_kind_for_claim_type_is_dropped():
+    """DUPE_OF must not accept a house, even though SIMILAR_TO does."""
+    text = json.dumps(
+        {
+            "results": [
+                {
+                    "comment_index": 0,
+                    "claims": [
+                        claim_json(object_kind="HOUSE", raw_object_text="Serge Lutens")
                     ],
                 }
             ]
@@ -202,7 +223,9 @@ def test_write_marks_extracted_and_stores_object_kind(conn):
     write_claims(conn, comment_id, BODY, claims)
 
     row = conn.execute("SELECT * FROM claims").fetchone()
+    assert row["subject_kind"] == SubjectKind.FRAGRANCE.value
     assert row["object_kind"] == ObjectKind.FRAGRANCE.value
+    assert row["sentiment"] == Sentiment.NEUTRAL.value
     assert row["evidence_verified"] == 1
     assert row["extraction_model"]
 
@@ -388,3 +411,24 @@ def test_total_failure_is_reported_as_an_error_not_a_result(conn, caplog):
         extract(conn, client, limit=10, batch_size=2)
 
     assert any("ALL 1 batches failed" in r.message for r in caplog.records)
+
+
+def test_sentiment_round_trips_to_the_database(conn):
+    """Polarity must survive the write; v1 had nowhere to put it."""
+    (comment_id,) = seed(conn)
+    claims = parse_response(
+        response_json(
+            claims=[
+                claim_json(
+                    claim_type="LONGEVITY",
+                    object_kind="NONE",
+                    raw_object_text=None,
+                    sentiment="POSITIVE",
+                )
+            ]
+        ),
+        batch_size=1,
+    )[0]
+    write_claims(conn, comment_id, BODY, claims)
+
+    assert conn.execute("SELECT sentiment FROM claims").fetchone()[0] == "POSITIVE"
