@@ -33,6 +33,24 @@ submission can carry hundreds of comments. Ingest is idempotent on
 loses nothing already committed and re-running resumes rather than
 duplicating.
 
+## Measuring extraction quality
+
+Extraction quality is judged against hand-written labels, not by reading
+output. Export a template, fill in the claims each comment should yield,
+then import:
+
+```bash
+uv run python -m fragrance_graph.evals.labels export labels.json
+# fill in the "claims" list for each comment
+uv run python -m fragrance_graph.evals.labels import labels.json --labeler you
+uv run python -m fragrance_graph.evals.score
+```
+
+Comments are split deterministically into `train` (70%) and `holdout`.
+Tune against `train`; consult `--split holdout` only to confirm a prompt
+you have already chosen. Scoring against the holdout while iterating turns
+it into training data and the number stops meaning anything.
+
 ## Development
 
 ```bash

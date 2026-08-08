@@ -145,10 +145,12 @@ Recorded so they aren't rediscovered later. None block Phase 1.
   density in the sample was a long review post, and `ingest/reddit.py`
   reads comments from submissions while discarding submission selftext.
   Decide whether submissions should be stored as rows too.
-- **No eval set exists.** Precision is currently judged by reading output
-  by hand, which does not scale past a few dozen comments and cannot
-  detect regression. `eval_labels` is in the schema and unused. A few
-  hundred labelled comments would turn "this looks better" into a number.
+- **The eval set has a harness but no labels.**
+  `fragrance_graph.evals` exports a template, imports labels, and scores
+  precision/recall/F1 per claim type with a fixed 70/30 train/holdout
+  split. What is missing is the labelling itself — roughly an hour of
+  human judgement for a couple of hundred comments. Until that exists,
+  prompt changes cannot be evaluated (see above).
 
 **Resolved by the v1 sample** (kept for the record, since the reasoning
 matters more than the outcome):
