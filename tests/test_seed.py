@@ -60,6 +60,7 @@ def test_seeded_rows_are_pending_extraction(conn):
 def test_provenance_note_is_retained(conn):
     import json
 
-    ingest(conn, [make_row("x", subreddit="fragrance", note="from r/fragrance 2026-08")], source=SOURCE)
+    row = make_row("x", subreddit="fragrance", note="from r/fragrance 2026-08")
+    ingest(conn, [row], source=SOURCE)
     raw = conn.execute("SELECT raw_json FROM comments").fetchone()[0]
     assert json.loads(raw)["note"] == "from r/fragrance 2026-08"
