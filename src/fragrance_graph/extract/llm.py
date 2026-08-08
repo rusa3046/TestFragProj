@@ -101,14 +101,8 @@ Comparisons between two things:
 
 Descriptions of one fragrance:
 
-- NOTE_DESCRIPTOR: what it smells of. The fragrance is the subject and the
-  descriptor is the object — never the reverse, and the object is never
-  empty. One descriptor per claim: "it's soapy and citrusy" is two claims
-  (soapy, citrusy), and "bright, powdery, citrusy" is three. Never put a
-  comma-separated list in one object.
-  Only record a descriptor the commenter attributes to a named fragrance.
-  Wondering aloud about a scent they have not named — "something bright
-  and citrusy perhaps" — is not a claim about any fragrance.
+- NOTE_DESCRIPTOR: what it smells of. One claim per descriptor.
+  ("it's soapy and citrusy" is two claims: soapy, and citrusy)
 - OCCASION: a setting it suits. ("great for weddings", "for the office")
 - AESTHETIC: a style or vibe it evokes. ("very old money")
 
@@ -154,11 +148,6 @@ does not make a claim about longevity:
 
 - One subject per claim. If a sentence covers several fragrances, emit one
   claim each. Never put several names in one raw_subject_text.
-- raw_subject_text must name something. If the comment says "it", "this
-  one", or "these fragrances" without a name, use the name from earlier in
-  the same comment. If several fragrances are meant, emit one claim per
-  name. If no name is recoverable, describe the class and set subject_kind
-  to CATEGORY — never store the pronoun.
 - raw_subject_text and raw_object_text are the commenter's own words. Do
   not normalise, correct, or expand names. "BR540" stays "BR540".
 - evidence_span MUST be copied verbatim from the comment body. Do not
