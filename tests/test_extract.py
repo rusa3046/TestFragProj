@@ -327,3 +327,40 @@ def test_render_batch_numbers_comments_from_zero():
     rendered = render_batch([{"body": "first"}, {"body": "second"}])
     assert rendered.startswith("[0] first")
     assert "[1] second" in rendered
+
+
+# --- determinism ------------------------------------------------------------
+
+
+class RecordingClient(FakeClient):
+    """Captures the kwargs of each request."""
+
+    def __init__(self, responses):
+        super().__init__(responses)
+        self.kwargs = []
+
+    def create(self, **kwargs):
+        self.kwargs.append(kwargs)
+        return super().create(**kwargs)
+
+
+def test_requests_pin_temperature_for_reproducibility():
+    """Identical input returned 4 claims then 8 at default temperature."""
+    from fragrance_graph.extract.llm import TEMPERATURE
+
+    client = RecordingClient([FakeResponse(response_json())])
+    call_model(client, [{"body": "x"}])
+
+    assert client.kwargs[0]["temperature"] == TEMPERATURE == 0.0
+
+
+def test_schema_refuses_empty_strings_at_generation():
+    """A dropped-claim warning cost us tokens we had already paid for."""
+    from fragrance_graph.extract.llm import RESPONSE_SCHEMA
+
+    props = RESPONSE_SCHEMA["properties"]["results"]["items"]["properties"]["claims"][
+        "items"
+    ]["properties"]
+    assert props["raw_subject_text"]["minLength"] == 1
+    assert props["evidence_span"]["minLength"] == 1
+    assert (props["confidence"]["minimum"], props["confidence"]["maximum"]) == (0, 1)

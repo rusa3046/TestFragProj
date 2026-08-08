@@ -56,6 +56,14 @@ DEFAULT_BATCH_SIZE = 20
 
 DEFAULT_MAX_TOKENS = 8000
 
+#: Extraction is a measurement, so run-to-run variance is a defect, not a
+#: feature. Identical input returned 4 claims on one run and 8 on the next
+#: at the default sampling temperature, which makes prompt changes
+#: impossible to evaluate. Sampling parameters are accepted on Haiku 4.5;
+#: they are rejected with a 400 on Opus 4.7+, Sonnet 5, and Fable 5, so
+#: this must be dropped if the model is ever changed to one of those.
+TEMPERATURE = 0.0
+
 
 # --------------------------------------------------------------------------
 # Prompt
@@ -125,10 +133,18 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                                     "type": "string",
                                     "enum": [t.value for t in ClaimType],
                                 },
-                                "raw_subject_text": {"type": "string"},
+                                # minLength mirrors the Pydantic contract, so
+                                # empty strings are refused at generation
+                                # rather than validated away after we have
+                                # already paid to generate them.
+                                "raw_subject_text": {"type": "string", "minLength": 1},
                                 "raw_object_text": {"type": ["string", "null"]},
-                                "confidence": {"type": "number"},
-                                "evidence_span": {"type": "string"},
+                                "confidence": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                },
+                                "evidence_span": {"type": "string", "minLength": 1},
                             },
                             "required": [
                                 "claim_type",
@@ -373,6 +389,7 @@ def call_model(
     response = client.messages.create(
         model=model,
         max_tokens=max_tokens,
+        temperature=TEMPERATURE,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": render_batch(comments)}],
         output_config={"format": {"type": "json_schema", "schema": RESPONSE_SCHEMA}},
