@@ -160,16 +160,43 @@ matters more than the outcome):
 - `LONGEVITY_COMPLAINT` subtypes — split into LONGEVITY / PROJECTION /
   DEVELOPMENT / REFORMULATION, with polarity moved to `sentiment`.
 
-### Phase 2 and beyond (not built yet)
+### Phase 2: entity resolution (in progress)
 
-- Entity resolution (mapping raw subject/object text to canonical
-  `fragrances` rows)
-- The similarity graph itself
+Mapping raw subject/object text to canonical `fragrances` rows, so that
+the graph has things for nodes instead of strings. `resolve/names.py`
+does the matching, `resolve/entities.py` the curation and backfill.
+
+Three layers, cheapest first: junk rejection (video timestamps, bare
+numbers, stubs), normalised exact match (case, punctuation, accents,
+filler words), then fuzzy match above a deliberately high threshold
+(0.88). A false merge silently corrupts every edge that touches it,
+whereas a miss stays visible in the unresolved report — so the threshold
+is set to prefer misses.
+
+Abbreviations are the layer no string comparison reaches: "BR540" and
+"Baccarat Rouge 540" score 0.43. That is domain knowledge, and it lives
+in curated `fragrances.aliases`.
+
+**Exact matching runs before the junk check**, on purpose. `540` is a
+bare number and the junk rule rejects it, but it was the single most
+common way commenters wrote Baccarat Rouge 540 in the first live corpus.
+A curated alias is a person stating a fact; the junk rule is a guess
+about text, and the guess must not overrule the fact. Junk still blocks
+fuzzy matching, which carries no such warrant.
+
+Curation is human work by design. `report` ranks unresolved mentions by
+frequency, so effort goes where the corpus actually is. Workflow:
+
+    report  →  add / alias  →  backfill  →  edges
+
+### Phase 3 and beyond (not built yet)
+
+- The similarity graph itself (weights, transitivity, symmetry)
 - Ranking / scoring
 - Any web UI
 - TikTok or other social sources
 
-If work drifts into these areas while doing Phase 1, stop.
+If work drifts into these areas while doing Phase 2, stop.
 
 ## Constraints
 
