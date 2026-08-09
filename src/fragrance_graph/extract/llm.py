@@ -383,10 +383,16 @@ def write_claims(
         verified = claim.evidence_matches(body)
         if not verified:
             unverified += 1
+            # Log the span in full. Truncating it here made a real
+            # investigation impossible: the elided spans looked as though
+            # the model had emitted truncated text, when the log was doing
+            # the truncating. A diagnostic that hides the evidence is worse
+            # than none.
             log.warning(
-                "Unverified evidence on comment %s: %r not found in body",
+                "Unverified evidence on comment %s.\n  span: %r\n  body: %r",
                 comment_id,
-                claim.evidence_span[:60],
+                claim.evidence_span,
+                body,
             )
         conn.execute(
             INSERT_CLAIM_SQL,

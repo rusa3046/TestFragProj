@@ -432,3 +432,21 @@ def test_sentiment_round_trips_to_the_database(conn):
     write_claims(conn, comment_id, BODY, claims)
 
     assert conn.execute("SELECT sentiment FROM claims").fetchone()[0] == "POSITIVE"
+
+
+def test_unverified_evidence_log_is_not_truncated(conn, caplog):
+    """A truncated diagnostic made a real paraphrase investigation impossible."""
+    import logging
+
+    long_span = "x" * 200
+    (comment_id,) = seed(conn, body="unrelated body text")
+    claims = parse_response(
+        response_json(claims=[claim_json(evidence_span=long_span)]), batch_size=1
+    )[0]
+
+    with caplog.at_level(logging.WARNING):
+        write_claims(conn, comment_id, "unrelated body text", claims)
+
+    logged = "\n".join(r.message % r.args for r in caplog.records)
+    assert long_span in logged, "full span needed to diagnose the mismatch"
+    assert "unrelated body text" in logged, "body needed for comparison"
