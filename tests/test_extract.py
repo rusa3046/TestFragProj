@@ -447,6 +447,6 @@ def test_unverified_evidence_log_is_not_truncated(conn, caplog):
     with caplog.at_level(logging.WARNING):
         write_claims(conn, comment_id, "unrelated body text", claims)
 
-    logged = "\n".join(r.message % r.args for r in caplog.records)
+    logged = "\n".join(r.getMessage() for r in caplog.records)
     assert long_span in logged, "full span needed to diagnose the mismatch"
     assert "unrelated body text" in logged, "body needed for comparison"
