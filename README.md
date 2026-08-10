@@ -71,6 +71,10 @@ What that does **not** yet establish:
   distinct unresolved mentions; the head of that list is short and
   repetitive (Layton 99, Khamrah 44, Aventus 57 across casings), so the
   first hour of curation is worth far more than the last.
+- **Denials are stored as assertions.** Measured at ~7% of similarity
+  claims: *"it is nothing like angel share"* is recorded as a dupe edge and
+  would be quoted as evidence for it. This is the worst known defect and it
+  is open — SPEC.md has the breakdown and why sentiment cannot fix it.
 - There is no product, price, or retailer data of any kind.
 
 [AUDIT.md](./AUDIT.md) is a read-only assessment of what is real, what is

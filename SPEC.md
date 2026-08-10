@@ -409,6 +409,52 @@ extractor score: if DUPE_OF/SIMILAR_TO confusion dominates the errors while
 the collapsed edge score stays high, the distinction is costing more than
 it earns.
 
+### Denials are stored as assertions (2026-08-10) — OPEN, the worst known defect
+
+*"I just try latafa it is nothing like angel share"* is stored as
+`DUPE_OF latafa → angel share, NEGATIVE`. The commenter is **denying** the
+similarity; the graph records them asserting it, and `query.similar_to()`
+will quote them as supporting evidence for the edge they rejected.
+
+Measured across the 499 similarity claims in the corpus:
+
+| | count | share |
+|---|---|---|
+| Denials stored as edges | 36 | 7.2% |
+| Conditionals (*"if X smells like Y then…"*) — assert nothing | 3 | 0.6% |
+| Genuine edges with negative tone (*"worst dupe of (540)"*) | 5 | 1.0% |
+| Misfiled descriptors (*"smells like a dentist"*) — object is a TAG, never surfaced | 11 | 2.2% |
+
+**Roughly one similarity edge in thirteen says the opposite of what the
+person wrote.** For a product that sells verbatim evidence, this outranks
+every F1 number recorded above: a wrong claim type is a mislabelled fact,
+but a denial stored as an assertion is a fabricated one, quoting a real
+person against themselves.
+
+**Sentiment is not the fix.** All 36 denials are NEGATIVE, but so are 5
+genuine edges. Filtering `NEGATIVE` from ranking trades 36 wrong edges for
+5 right ones — a defensible 7:1, but it silently discards "worst dupe of
+540", which is exactly the kind of thing a buyer wants told to them.
+
+**The eval is not blind to this; it is too small to have met it.**
+`docs/LABELLING.md` already instructs labellers to drop denials, so a
+denial extracted as `SIMILAR_TO` scores as a false positive. At ~7%
+incidence and 13 labelled comments, the expected count in the sample is
+0.4. `SIMILARITY EDGES 1.00` was measured on five edges, none of them a
+denial. The score is honest; the sample simply has not encountered the
+failure mode that most threatens the product.
+
+This is the strongest argument for finishing the 35 unreviewed labels —
+not because labels repair denials, but because at 35-50 comments the eval
+starts containing them and the number starts meaning something.
+
+**Do not fix this with a louder prompt.** That is precisely the move that
+raised variance sixfold, and the eval cannot currently measure whether a
+fix worked. The likely correct shape is a polarity field distinguishing
+asserted from denied — negation is a property of the claim, not of its
+sentiment, and overloading `sentiment` to carry both is the same
+collapse-two-facts-into-one-field error as v1's `LONGEVITY_COMPLAINT`.
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.
