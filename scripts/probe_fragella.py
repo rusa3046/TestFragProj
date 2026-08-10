@@ -20,6 +20,7 @@ with "an API said this" and delete the product's whole differentiation.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -59,6 +60,8 @@ def main() -> int:
         print("httpx is not installed. Run: uv sync", file=sys.stderr)
         return 1
 
+    shown_shape = False
+    seen_names: list[str] = []
     hits = {"designer": 0, "clone house": 0}
     totals = {"designer": 0, "clone house": 0}
 
@@ -88,6 +91,20 @@ def main() -> int:
             results = payload if isinstance(payload, list) else (
                 payload.get("data") or payload.get("results") or []
             )
+            if not shown_shape and results:
+                # Print one raw record. Guessed field names printed "?" for
+                # every row on the first run, and an identical hit count for
+                # every distinct query is the signature of a search param
+                # being ignored — neither is visible from a tidy summary.
+                print("\n--- raw first result, so the fields can be read ---")
+                print(json.dumps(results[0], indent=2)[:1200])
+                print(f"--- top-level keys: "
+                      f"{sorted(payload) if isinstance(payload, dict) else 'list'}")
+                print("--- end raw ---\n")
+                shown_shape = True
+            seen_names.append(
+                str(results[0]) [:60] if results else "(none)"
+            )
             if results:
                 hits[kind] += 1
                 top = results[0]
@@ -96,6 +113,13 @@ def main() -> int:
                 print(f"  {name:<26} -> {brand} / {title}   ({len(results)} hits)")
             else:
                 print(f"  {name:<26} -> NOT FOUND")
+
+    # An identical top result for every query means the search parameter is
+    # being ignored and the hit counts mean nothing.
+    if len(set(seen_names)) == 1 and seen_names[0] != "(none)":
+        print("\n*** EVERY QUERY RETURNED THE SAME TOP RESULT ***")
+        print("The search parameter is being ignored. The counts below are")
+        print("meaningless — do not read them as coverage.\n")
 
     print()
     for kind in ("designer", "clone house"):
