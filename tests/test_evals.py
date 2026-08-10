@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from fragrance_graph.evals.labels import (
     HOLDOUT,
     TRAIN,
@@ -77,7 +79,8 @@ def test_import_round_trips(conn):
     import_labels(conn, entries, labeler="aanya")
     loaded = load_labels(conn, labeler="aanya")
 
-    assert loaded[entries[0]["comment_id"]] == [label()]
+    only_id = conn.execute("SELECT id FROM comments").fetchone()[0]
+    assert loaded[only_id] == [label()]
 
 
 def test_reimport_replaces_rather_than_duplicates(conn):
@@ -92,7 +95,8 @@ def test_reimport_replaces_rather_than_duplicates(conn):
 
     rows = conn.execute("SELECT count(*) FROM eval_labels").fetchone()[0]
     assert rows == 1
-    assert load_labels(conn)[entries[0]["comment_id"]][0]["claim_type"] == "DUPE_OF"
+    only_id = conn.execute("SELECT id FROM comments").fetchone()[0]
+    assert load_labels(conn)[only_id][0]["claim_type"] == "DUPE_OF"
 
 
 def test_two_labelers_coexist(conn):
@@ -235,3 +239,109 @@ def test_labels_are_stored_as_readable_json(conn):
 
     raw = conn.execute("SELECT labeled_json FROM eval_labels").fetchone()[0]
     assert json.loads(raw)["claims"][0]["claim_type"] == "SIMILAR_TO"
+
+
+# --- template identity ------------------------------------------------------
+
+
+def test_template_is_keyed_on_source_id_not_autoincrement_id(conn):
+    """A template exported from one database must not silently apply to another."""
+    from fragrance_graph.evals.labels import export_template
+
+    ingest(conn, [make_comment(1, body="a")])
+    entry = export_template(conn)[0]
+
+    assert "source_id" in entry and "source" in entry
+    assert "comment_id" not in entry
+
+
+def test_importing_a_foreign_template_raises_rather_than_mislabelling(conn):
+    """The failure this guards: 291-comment database, 3155-comment corpus.
+
+    A label whose comment is absent must not be written to whatever row
+    happens to hold that id, and must not be silently skipped either.
+    """
+    from fragrance_graph.evals.labels import UnknownComment, import_labels
+
+    ingest(conn, [make_comment(1, body="a")])
+    foreign = [
+        {"source": "youtube", "source_id": "not-in-this-corpus",
+         "split": "train", "claims": []}
+    ]
+
+    with pytest.raises(UnknownComment, match="different corpus"):
+        import_labels(conn, foreign, labeler="aanya")
+
+
+def test_labels_attach_to_the_right_comment_after_renumbering(conn, tmp_path):
+    """Export from one database, import into another where ids differ."""
+    from fragrance_graph.db import get_connection, migrate
+    from fragrance_graph.evals.labels import export_template, import_labels
+
+    ingest(conn, [make_comment(7, body="the labelled one")])
+    template = export_template(conn)
+    template[0]["claims"] = [{"claim_type": "DUPE_OF", "raw_subject_text": "X",
+                              "raw_object_text": "Y", "sentiment": "NEUTRAL"}]
+
+    other = get_connection(tmp_path / "other.db")
+    migrate(other)
+    ingest(other, [make_comment(i, body="filler") for i in range(20, 30)])
+    ingest(other, [make_comment(7, body="the labelled one")])
+
+    import_labels(other, template, labeler="aanya")
+
+    body = other.execute(
+        "SELECT co.body FROM eval_labels l JOIN comments co ON co.id = l.comment_id"
+    ).fetchone()[0]
+    assert body == "the labelled one"
+    other.close()
+
+
+def test_legacy_comment_id_templates_still_import_with_a_warning(conn, caplog):
+    import logging
+
+    from fragrance_graph.evals.labels import import_labels
+
+    ingest(conn, [make_comment(1, body="a")])
+    comment_id = conn.execute("SELECT id FROM comments").fetchone()[0]
+
+    with caplog.at_level(logging.WARNING):
+        import_labels(conn, [{"comment_id": comment_id, "claims": []}],
+                      labeler="aanya")
+
+    assert "comment_id" in "\n".join(r.getMessage() for r in caplog.records)
+
+
+# --- sampling ---------------------------------------------------------------
+
+
+def test_sample_spreads_across_the_corpus_not_the_first_n(conn):
+    """The first 50 rows are one video's comment section, not a sample."""
+    from fragrance_graph.evals.labels import export_template
+
+    ingest(conn, [make_comment(i, body=f"c{i}") for i in range(100)])
+
+    sampled = {e["source_id"] for e in export_template(conn, sample=10)}
+    first_ten = {e["source_id"] for e in export_template(conn, limit=10)}
+
+    assert len(sampled) == 10
+    assert sampled != first_ten
+
+
+def test_sample_is_deterministic(conn):
+    """A labelling session has to be resumable."""
+    from fragrance_graph.evals.labels import export_template
+
+    ingest(conn, [make_comment(i, body=f"c{i}") for i in range(50)])
+
+    first = [e["source_id"] for e in export_template(conn, sample=10)]
+    second = [e["source_id"] for e in export_template(conn, sample=10)]
+
+    assert first == second
+
+
+def test_sample_larger_than_corpus_returns_everything(conn):
+    from fragrance_graph.evals.labels import export_template
+
+    ingest(conn, [make_comment(i, body=f"c{i}") for i in range(5)])
+    assert len(export_template(conn, sample=999)) == 5

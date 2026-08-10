@@ -173,11 +173,20 @@ and nodding. Export a template, fill in the claims each comment *should* yield,
 then import and score:
 
 ```bash
-uv run python -m fragrance_graph.evals.labels export labels.json
+uv run python -m fragrance_graph.evals.labels export labels.json --sample 50
 # fill in the "claims" list for each comment
 uv run python -m fragrance_graph.evals.labels import labels.json --labeler you
 uv run python -m fragrance_graph.evals.score
 ```
+
+`--sample N` spreads the selection across the whole corpus. Without it you get
+the first N rows by id, which are N comments from one video's comment section —
+a labelled set that measures that video rather than the corpus. The sample is
+deterministic, so a labelling session can be resumed.
+
+Templates are keyed on `(source, source_id)`. Importing one into a database it
+was not exported from fails loudly rather than attaching your labels to
+whatever rows happen to hold those ids.
 
 Comments split deterministically into `train` (70%) and `holdout`. Tune against
 `train`; consult `--split holdout` only to confirm a prompt you have already
