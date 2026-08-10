@@ -40,17 +40,32 @@ YouTube comments  →  LLM claim extraction  →  entity resolution  →  ranked
 
 ## Status
 
-**Steps 1–3 are built. Step 4 is not.** There is currently no way to ask "what
-is similar to X" — the only query dumps every edge in the database.
+**Steps 1 and 2 are built and have run on real data. Step 3 is built but
+uncurated. Step 4 does not exist.** There is currently no way to ask "what is
+similar to X" — the only query dumps every edge in the database.
 
-[AUDIT.md](./AUDIT.md) is a read-only assessment of exactly what is real, what
-is stubbed, and what has never been measured. **Where this README and AUDIT.md
-disagree, AUDIT.md is right.** In particular:
+First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
 
-- No corpus has been ingested into a persistent database yet.
-- Extraction accuracy has never been scored against human labels, so its
-  quality is unknown.
+| | |
+|---|---|
+| Comments | 3,155 across 24 YouTube videos |
+| Claims | 1,391 (0.441 per comment) |
+| Extraction cost | $1.15 total, $0.3656 per 1k comments |
+| Failed batches | 0 of 158 |
+| Fragrances curated | 0 — nothing is resolved yet |
+
+What that does **not** yet establish:
+
+- **Extraction accuracy is still unmeasured.** No claim has been scored
+  against a human label. 0.441 claims per comment says nothing about whether
+  they are the right claims.
+- **Nothing is resolved.** Until fragrances are curated, the claims are edges
+  between strings, not between bottles.
 - There is no product, price, or retailer data of any kind.
+
+[AUDIT.md](./AUDIT.md) is a read-only assessment of what is real, what is
+stubbed, and what has never been measured. It predates this corpus, so its
+data-layer findings are now out of date; its architectural ones are not.
 
 ## Setup
 
@@ -93,8 +108,8 @@ uv run python -m fragrance_graph.corpus import    # db  ← data/corpus/*.jsonl
 ```
 
 Four files: `comments.jsonl`, `claims.jsonl`, `fragrances.jsonl`, and
-`eval_labels.jsonl`. They diff
-line by line in review, are readable without SQLite, and round-trip losslessly
+`eval_labels.jsonl`. They diff line by line in review, are readable without
+SQLite, and round-trip losslessly
 — rows link by natural keys (`source` + `source_id`, and `canonical_name`),
 never by autoincrement id, so a rebuilt database re-numbering its rows cannot
 silently reattach a claim to the wrong comment. Export is byte-stable, so an
