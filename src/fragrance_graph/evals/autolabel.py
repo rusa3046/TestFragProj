@@ -38,7 +38,7 @@ from typing import Any
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 from fragrance_graph.evals.labels import export_template, load_labels
-from fragrance_graph.evals.score import match_key, score
+from fragrance_graph.evals.score import edge_score, match_key, score
 from fragrance_graph.models import ALLOWED_OBJECT_KINDS, EDGE_CLAIM_TYPES, ClaimType
 
 log = logging.getLogger("fragrance_graph.evals.autolabel")
@@ -507,6 +507,17 @@ def main(argv: list[str] | None = None) -> int:
             report = agreement(conn, human=args.human, drafter=args.drafter)
             print(f"Drafter {args.drafter!r} vs human {args.human!r}")
             print(report.render())
+
+            human_labels = load_labels(conn, labeler=args.human)
+            draft_labels = load_labels(conn, labeler=args.drafter)
+            shared = set(human_labels) & set(draft_labels)
+            edges = edge_score(
+                {k: v for k, v in draft_labels.items() if k in shared},
+                {k: v for k, v in human_labels.items() if k in shared},
+            )
+            print()
+            print(edges.line("SIMILARITY EDGES"))
+            print("  DUPE_OF and SIMILAR_TO collapsed — both build the same edge.")
 
             if not args.quiet:
                 differing = disagreements(

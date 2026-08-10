@@ -113,6 +113,53 @@ class Report:
         return "\n".join(lines)
 
 
+#: Claim types that produce a similarity edge. BETTER_THAN is deliberately
+#: absent: it is a preference claim, and the product keeps it separate.
+SIMILARITY_TYPES = frozenset({"DUPE_OF", "SIMILAR_TO"})
+
+#: The pseudo-type both collapse to in the edge view.
+SIMILARITY_EDGE = "SIMILARITY_EDGE"
+
+
+def collapse_similarity(
+    by_comment: dict[int, list[dict]],
+) -> dict[int, list[dict]]:
+    """Rewrite DUPE_OF and SIMILAR_TO to one type, leaving the rest alone.
+
+    The per-type score punishes a disagreement the product does not care
+    about. Observed on the first calibration run:
+
+        "Sand+Fog Sweet Rose is a more wearable interpretation of DE"
+        human: DUPE_OF          drafter: SIMILAR_TO
+
+    Same subject, same object, same sentiment — one assertion, typed two
+    ways. Both are edge types, so the graph is identical either way, yet
+    the per-type view records it as a miss *and* an invention.
+
+    This view answers the question the product actually asks: was the edge
+    found at all. Reported alongside the per-type score, never instead of
+    it — the distinction may still matter later, and hiding it would be
+    how a taxonomy quietly stops being measured.
+    """
+    return {
+        comment_id: [
+            dict(claim, claim_type=SIMILARITY_EDGE)
+            if claim.get("claim_type") in SIMILARITY_TYPES
+            else claim
+            for claim in claims
+        ]
+        for comment_id, claims in by_comment.items()
+    }
+
+
+def edge_score(
+    extracted: dict[int, list[dict]], labels: dict[int, list[dict]]
+) -> Score:
+    """Score similarity edges with DUPE_OF and SIMILAR_TO treated as one."""
+    collapsed = score(collapse_similarity(extracted), collapse_similarity(labels))
+    return collapsed.by_type.get(SIMILARITY_EDGE, Score())
+
+
 def extracted_claims(conn: sqlite3.Connection) -> dict[int, list[dict]]:
     rows = conn.execute(
         "SELECT comment_id, claim_type, raw_subject_text, raw_object_text, sentiment "
@@ -195,12 +242,17 @@ def main(argv: list[str] | None = None) -> int:
                 f"No labels found for split={args.split}. "
                 "Run: python -m fragrance_graph.evals.labels export labels.json"
             )
-        report = score(extracted_claims(conn), labels)
+        extracted = extracted_claims(conn)
+        report = score(extracted, labels)
+        edges = edge_score(extracted, labels)
     finally:
         conn.close()
 
     print(f"split: {args.split}")
     print(report.render())
+    print()
+    print(edges.line("SIMILARITY EDGES"))
+    print("  DUPE_OF and SIMILAR_TO collapsed — both build the same edge.")
     return 0
 
 

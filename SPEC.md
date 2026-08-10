@@ -168,6 +168,32 @@ in ways that cannot be predicted by reading the prompt, and that a
 three-run sample plus one person's reading is too coarse an instrument to
 tune against. **Build the eval set first** — see Deferred decisions.
 
+### DUPE_OF vs SIMILAR_TO — watch, don't merge yet
+
+The first calibration run surfaced exactly one disagreement between the
+human labeller and the Opus drafter, on this comment:
+
+> "Sand+Fog Sweet Rose is a more wearable **interpretation** of DE to my
+> nose."
+
+Human: `DUPE_OF`. Drafter: `SIMILAR_TO`. Same subject, same object, same
+sentiment — one assertion, typed two ways. The taxonomy defines `DUPE_OF`
+as *a cheaper substitute*, and the comment never mentions price; "cheaper"
+comes from knowing Sand+Fog is a budget brand. On the text alone the
+drafter has the better case.
+
+**Both are edge types, so the graph is identical either way.** The scorer
+therefore reports a `SIMILARITY EDGES` line with the two collapsed,
+alongside the per-type breakdown — the product's question is whether the
+edge was found at all.
+
+This is the same shape as the v1 `SIMILAR_TO` / `REMINDS_ME_OF` split,
+which was merged because the distinction was not learnable. Do **not**
+merge these on one disagreement. The trigger to revisit is the first real
+extractor score: if DUPE_OF/SIMILAR_TO confusion dominates the errors while
+the collapsed edge score stays high, the distinction is costing more than
+it earns.
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.

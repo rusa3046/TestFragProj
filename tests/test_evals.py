@@ -396,3 +396,54 @@ def test_a_partly_filled_import_does_not_warn(conn, caplog):
         import_labels(conn, entries, labeler="aanya")
 
     assert "None of the" not in "\n".join(r.getMessage() for r in caplog.records)
+
+
+# --- the edge view ----------------------------------------------------------
+
+
+def edge_claim(claim_type, subject="Sand+Fog Sweet Rose", obj="DE"):
+    return {
+        "claim_type": claim_type,
+        "raw_subject_text": subject,
+        "raw_object_text": obj,
+        "sentiment": "POSITIVE",
+    }
+
+
+def test_dupe_versus_similar_is_a_match_in_the_edge_view():
+    """Observed live: one assertion, typed two ways, scored as two errors."""
+    from fragrance_graph.evals.score import edge_score
+
+    got = {1: [edge_claim("SIMILAR_TO")]}
+    expected = {1: [edge_claim("DUPE_OF")]}
+
+    assert score(got, expected).overall.f1 == 0.0
+    assert edge_score(got, expected).f1 == 1.0
+
+
+def test_better_than_is_not_collapsed_into_the_edge_view():
+    """A preference claim is not a similarity claim; the product keeps them apart."""
+    from fragrance_graph.evals.score import edge_score
+
+    got = {1: [edge_claim("BETTER_THAN")]}
+    expected = {1: [edge_claim("SIMILAR_TO")]}
+
+    assert edge_score(got, expected).f1 == 0.0
+
+
+def test_edge_view_still_catches_a_wrong_object():
+    """Collapsing the type must not collapse the entities."""
+    from fragrance_graph.evals.score import edge_score
+
+    got = {1: [edge_claim("SIMILAR_TO", obj="Aventus")]}
+    expected = {1: [edge_claim("DUPE_OF", obj="DE")]}
+
+    assert edge_score(got, expected).f1 == 0.0
+
+
+def test_non_edge_types_are_untouched_by_collapsing():
+    from fragrance_graph.evals.score import collapse_similarity
+
+    claims = {1: [{"claim_type": "LONGEVITY", "raw_subject_text": "X",
+                   "raw_object_text": None, "sentiment": "NEGATIVE"}]}
+    assert collapse_similarity(claims)[1][0]["claim_type"] == "LONGEVITY"
