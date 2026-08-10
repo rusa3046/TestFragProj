@@ -120,11 +120,26 @@ from: a comparison type with a FRAGRANCE subject and a FRAGRANCE object.
   Adding them made every batch fail while still logging "0 claims
   written". A regression test now walks the schema for them, and a total
   failure logs at ERROR rather than looking like an empty result.
-- **Measured cost** on the v2 sample: **$1.14-1.22 per 1k comments** at
-  Haiku 4.5 list pricing, roughly half that on the Batch API. 100k
-  comments is therefore about $115-122, or ~$60 batched. Output tokens
-  dominate, so the figure moves with claim volume — the earlier $0.47
-  figure was an artefact of v1 missing most claims.
+- **Measured cost.** Two corpora, and they differ by 3x, so quote the one
+  that matches the source:
+
+  | corpus | comments | cost / 1k | claims / comment |
+  |---|---|---|---|
+  | Reddit v2 sample | 17 | $1.14-1.22 | ~1.5 |
+  | YouTube, 2026-08-09 | 3,155 | **$0.3656** | 0.441 |
+
+  Output tokens are 69% of the bill, so cost tracks claim volume rather
+  than comment volume — Reddit review posts are long and assert several
+  claims each; YouTube comments are short and most assert nothing. At the
+  YouTube rate, 100k comments is about **$37**, or ~$18 on the Batch API.
+
+  A third of the input bill is avoidable: the system prompt plus JSON
+  schema costs ~1,206 tokens on every call, against comments averaging ~54
+  tokens of text, so at batch size 20 more than half the input spend is
+  re-sending the prompt. Raising the batch size to 40 would cut the total
+  ~8%. Not done yet: batch size changes how many comments share a context
+  window, which changes extraction behaviour, and that cannot be evaluated
+  before the eval set exists.
 
 ### Do not tune the prompt without an eval set
 

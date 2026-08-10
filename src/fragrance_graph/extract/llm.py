@@ -308,15 +308,31 @@ PER_CALL_OVERHEAD_TOKENS = 40
 #: Output tokens per comment, averaged over comments that assert nothing
 #: and comments that assert several claims.
 #:
-#: Derived, not measured directly: SPEC.md records $1.14-$1.22 per 1k
-#: comments on the v2 Reddit sample, where output tokens dominate. Backing
-#: that out at $5/Mtok output lands near this figure. It is the weakest
-#: number in this module and the only one that is a guess.
+#: **Measured**, from the first full run over the YouTube corpus (see
+#: MEASURED_RUNS below). The previous value of 160 was derived from
+#: SPEC.md's Reddit-era cost figure and overestimated by 3.2x — Reddit
+#: review posts are long and assert several claims each, while YouTube
+#: comments are short and most assert nothing.
 #:
-#: `extract()` logs the true input/output split on every real run — once a
-#: run over the real corpus exists, recalibrate this from that log rather
-#: than trusting the derivation.
-DEFAULT_OUTPUT_TOKENS_PER_COMMENT = 160
+#: This is per-corpus, not universal. Recalibrate from a real run before
+#: trusting it on a new source.
+DEFAULT_OUTPUT_TOKENS_PER_COMMENT = 50
+
+#: Real runs, for calibrating the constants above and for sanity-checking
+#: an estimate that looks surprising. Add a row after any full run.
+#:
+#: youtube-2026-08-09: 3155 comments, 158 batches of 20, 0 failed
+#:   input   360,406 tokens  (114.2/comment; 53% of it the fixed prompt)
+#:   output  158,636 tokens  (50.3/comment)
+#:   claims  1,391           (0.441/comment)
+#:   cost    $1.1536         ($0.3656 per 1k comments)
+#:
+#: The striking part is that split. YouTube comments average ~54 tokens of
+#: actual text, while the system prompt plus JSON schema costs ~1,206
+#: tokens on every call — so at a batch size of 20, more than half the
+#: input bill is the prompt being re-sent. Output is still 69% of the total
+#: bill, so claim volume remains the thing that moves cost most.
+MEASURED_RUNS = "youtube-2026-08-09: $0.3656/1k comments, 0.441 claims/comment"
 
 
 def estimate_tokens(text: str) -> int:
