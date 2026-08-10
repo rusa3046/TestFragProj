@@ -939,6 +939,21 @@ def main(argv: list[str] | None = None) -> int:
                 "  python -m fragrance_graph.corpus import --db-path <scratch.db>"
             )
 
+    if args.reset and args.dry_run:
+        # --dry-run is documented as "makes no API call and needs no API
+        # key", which reads as "changes nothing". Combining it with --reset
+        # used to delete the claims and then exit before re-extracting
+        # them, so the safe-looking flag was the destructive one.
+        conn.close()
+        raise SystemExit(
+            "--reset deletes claims and --dry-run exits before re-extracting "
+            "them, so together they would leave the database emptier than "
+            "they found it.\n\n"
+            "To price the run first, estimate the reset separately:\n"
+            "  python -m fragrance_graph.extract.llm --dry-run --limit 50\n"
+            "then re-run with --reset when you are ready to pay for it."
+        )
+
     if args.reset:
         cleared = reset_extraction(conn, labelled_only=args.only_labelled)
         log.warning(

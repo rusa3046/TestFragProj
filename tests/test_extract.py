@@ -807,3 +807,16 @@ def test_pydantic_is_the_only_thing_enforcing_per_type_object_kinds():
         }
     )
     assert parse_response(text, batch_size=1)[0] == [], "DUPE_OF must refuse TAG"
+
+
+def test_dry_run_refuses_to_reset(conn, tmp_path):
+    """--dry-run says it makes no API call, which reads as "changes
+    nothing". Combined with --reset it used to delete the claims and exit
+    before re-extracting them — the safe-looking flag was the destructive
+    one."""
+    from fragrance_graph.extract.llm import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--dry-run", "--reset", "--db-path", str(tmp_path / "x.db")])
+
+    assert "emptier than they found it" in str(exc.value)
