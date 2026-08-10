@@ -10,3 +10,5 @@ __pycache__/
 # Raw pasted scratch content — never commit. The reviewed corpus export
 # under data/corpus/ is committed deliberately; these are not that.
 seed/local-*.txt
+labels*.json
+*.db.stray
