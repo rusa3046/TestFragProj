@@ -369,15 +369,16 @@ def test_rollup_of_an_unknown_fragrance_is_none(conn):
 def test_ranking_reads_only_claims_comments_and_fragrances():
     """The trust rule, as an invariant the code cannot violate silently.
 
-    Ranking must never consider affiliate status or commission. The
-    products and retailers tables do not exist yet (Phase C), so the
-    honest test today is structural: every table the ranking queries touch
-    is named here, and adding a join to anything commercial fails this.
+    Ranking must never consider affiliate status or commission. Every table
+    the ranking queries touch is named here, and adding a join to anything
+    commercial fails this.
 
-    Phase C must ADD the promised end-to-end version — same corpus, product
-    rows attached to some fragrances and not others, asserting result order
-    is identical with those rows deleted. This test is the guard until then,
-    not a substitute for it.
+    This is the cheap half. The end-to-end half — real product rows on some
+    fragrances and not others, asserting the results are identical once they
+    are deleted — is `test_ranking_is_identical_with_and_without_products`
+    below, added when the tables it needs arrived in Phase C. Keep both: a
+    structural test catches the join before it can be measured, and the
+    behavioural one catches everything a regex would read past.
     """
     import re
 
@@ -433,6 +434,198 @@ def test_results_are_not_filtered_to_monetizable_options(conn):
     # Both filters are claim-quality, not commercial: they ask how many
     # people said it and how many places they said it. Neither can express
     # "only fragrances we can sell", which is the property being guarded.
+
+
+# --- trust rules, end to end -------------------------------------------------
+#
+# The tests above check what the query layer *could* do. These check what it
+# does, against real rows in the tables Phase C added. They are deliberately
+# written to be non-vacuous: each asserts the products it created actually
+# landed on the fragrances it meant, because "order unchanged by products" is
+# trivially true when there are no products.
+
+
+def monetize(conn, canonical_name, listings):
+    """Attach real product rows to a fragrance, through the real importer.
+
+    Uses `commerce.feeds.import_products` rather than hand-written INSERTs so
+    the rows are exactly the shape a live feed produces — including the
+    fragrance matching, which is the part a test could otherwise fake into
+    attaching nothing at all.
+    """
+    from fragrance_graph.commerce.feeds import FeedProduct, import_products
+    from fragrance_graph.commerce.links import add_retailer
+
+    retailer = conn.execute(
+        "SELECT id FROM retailers WHERE name = 'Test Shop'"
+    ).fetchone()
+    retailer_id = retailer["id"] if retailer else add_retailer(
+        conn,
+        "Test Shop",
+        network="shareasale",
+        affiliate_id="aff-1",
+        url_template="https://click.test/?id={affiliate_id}&u={url}",
+    )
+
+    stats = import_products(
+        conn,
+        retailer_id,
+        [
+            FeedProduct(
+                external_id=f"{canonical_name}-{i}",
+                name=f"{canonical_name} EDP {size}ml",
+                url=f"https://shop.test/p/{i}",
+                price=price,
+                currency="GBP",
+            )
+            for i, (size, price) in enumerate(listings)
+        ],
+    )
+    assert stats.matched == len(listings), (
+        f"{canonical_name} did not actually get product rows — the test would "
+        "pass without testing anything"
+    )
+
+
+@pytest.fixture
+def ranked_corpus(conn):
+    """Three fragrances compared to one, with clearly different support."""
+    target = add_fragrance(conn, "Creed Aventus")
+    add_fragrance(conn, "Armaf Club de Nuit Intense Man")
+    add_fragrance(conn, "Montblanc Explorer")
+    add_fragrance(conn, "Lattafa Khamrah")
+
+    support = {
+        "Armaf Club de Nuit Intense Man": ["alice", "bob", "carol", "dave"],
+        "Montblanc Explorer": ["erin", "frank"],
+        "Lattafa Khamrah": ["grace"],
+    }
+    i = 0
+    for name, authors in support.items():
+        other = conn.execute(
+            "SELECT id FROM fragrances WHERE canonical_name = ?", (name,)
+        ).fetchone()["id"]
+        for author in authors:
+            cid = add_comment(conn, i, body="x", author=author)
+            add_claim(conn, cid, subject=other, obj=target,
+                      evidence=f"{author} on {name}")
+            i += 1
+    return conn, target
+
+
+def test_ranking_is_identical_with_and_without_products(ranked_corpus):
+    """The promise the README makes, measured rather than argued.
+
+    Same corpus, run three times: with no commerce at all, with product rows
+    on some fragrances and not others, and again after those rows are
+    deleted. All three must be identical — not merely the same order, but
+    the same objects, since a commercial column leaking into a count or a
+    quote would be as bad as one leaking into the sort.
+
+    The rows are attached adversarially: three listings on the *weakest*
+    result and none on the strongest. Any ranking that noticed commerce at
+    all would reorder them, which is exactly the reordering a plausible
+    "surface what we can sell" change would produce and call an improvement.
+    """
+    conn, target = ranked_corpus
+
+    before = similar_to(conn, target)
+
+    monetize(conn, "Lattafa Khamrah", [(100, 32.95), (50, 21.00), (30, 15.00)])
+    monetize(conn, "Montblanc Explorer", [(100, 44.50)])
+    # Nothing at all on Club de Nuit, the top result.
+    with_products = similar_to(conn, target)
+
+    assert conn.execute("SELECT count(*) FROM products").fetchone()[0] == 4
+
+    conn.execute("DELETE FROM products")
+    conn.commit()
+    after = similar_to(conn, target)
+
+    assert [r.canonical_name for r in with_products] == [
+        "Armaf Club de Nuit Intense Man",
+        "Montblanc Explorer",
+        "Lattafa Khamrah",
+    ], "the unsellable fragrance still wins on people"
+    assert with_products == before
+    assert with_products == after
+
+
+def test_a_fragrance_with_no_buying_link_ranks_as_high_as_one_with_three(conn):
+    """Equal support, unequal monetization, identical standing.
+
+    The tie is the sharp case. With the same number of distinct commenters,
+    the only thing left to break the tie is the fragrance's name — and a
+    system quietly preferring the sellable one would look, from the outside,
+    exactly like a system with a different tiebreak.
+    """
+    target = add_fragrance(conn, "Creed Aventus")
+    add_fragrance(conn, "Armaf Club de Nuit Intense Man")
+    add_fragrance(conn, "Zara Vibrant Leather")
+
+    for i, (name, author) in enumerate(
+        [("Armaf Club de Nuit Intense Man", "alice"),
+         ("Armaf Club de Nuit Intense Man", "bob"),
+         ("Zara Vibrant Leather", "carol"),
+         ("Zara Vibrant Leather", "dave")]
+    ):
+        other = conn.execute(
+            "SELECT id FROM fragrances WHERE canonical_name = ?", (name,)
+        ).fetchone()["id"]
+        cid = add_comment(conn, i, body="x", author=author)
+        add_claim(conn, cid, subject=other, obj=target)
+
+    # Three ways to buy the one that sorts second; none for the other.
+    monetize(conn, "Zara Vibrant Leather", [(100, 17.99), (50, 12.99), (30, 9.99)])
+
+    results = similar_to(conn, target)
+    assert [(r.canonical_name, r.commenters) for r in results] == [
+        ("Armaf Club de Nuit Intense Man", 2),
+        ("Zara Vibrant Leather", 2),
+    ], "alphabetical, which is what the tiebreak was before commerce existed"
+
+
+def test_an_unsellable_fragrance_is_never_dropped_from_results(ranked_corpus):
+    """Filtering to what can be sold is the version of this failure that
+    leaves the order untouched and so passes every ordering test.
+
+    Two of the three results here have no product row at any point. Both
+    must come back.
+    """
+    conn, target = ranked_corpus
+    monetize(conn, "Lattafa Khamrah", [(100, 32.95)])
+
+    names = {r.canonical_name for r in similar_to(conn, target)}
+    assert names == {
+        "Armaf Club de Nuit Intense Man",
+        "Montblanc Explorer",
+        "Lattafa Khamrah",
+    }
+
+    unsellable = conn.execute(
+        "SELECT count(*) FROM fragrances f "
+        " WHERE NOT EXISTS (SELECT 1 FROM products p WHERE p.fragrance_id = f.id)"
+    ).fetchone()[0]
+    assert unsellable == 3, "the corpus really does contain unsellable bottles"
+
+
+def test_ranking_does_not_change_when_a_retailer_relationship_ends(ranked_corpus):
+    """Deleting a retailer cascades to its products. Results must not move.
+
+    The mirror image of the test above: commerce arriving must not reorder
+    results, and commerce leaving must not either. A page regenerated the
+    day an affiliate contract lapses should show the same fragrances in the
+    same order it showed the day before.
+    """
+    conn, target = ranked_corpus
+    monetize(conn, "Lattafa Khamrah", [(100, 32.95), (50, 21.00)])
+    with_retailer = similar_to(conn, target)
+
+    conn.execute("DELETE FROM retailers")
+    conn.commit()
+    assert conn.execute("SELECT count(*) FROM products").fetchone()[0] == 0
+
+    assert similar_to(conn, target) == with_retailer
 
 
 def test_evidence_never_exposes_a_display_name(graph):

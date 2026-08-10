@@ -745,3 +745,33 @@ def test_cli_says_plainly_when_a_fragrance_has_no_links(tmp_path, capsys):
 
     assert main(["links", "Obscure Indie Thing", "--db-path", str(db)]) == 0
     assert "no buying links stored" in capsys.readouterr().out
+
+
+# --- the corpus stays what it is -------------------------------------------
+
+
+def test_products_do_not_enter_the_committed_corpus(curated, tmp_path):
+    """`data/corpus/` is for what cost money or human judgement.
+
+    Feed rows cost neither: they are re-downloadable on demand, they go
+    stale within a day, and committing prices and stock URLs would republish
+    a retailer's catalogue rather than preserve anything that cannot be
+    regenerated. Retailers carry an affiliate id, which is configuration.
+
+    The property under test is stronger than "products are excluded": an
+    unchanged corpus must still produce an empty diff after commerce runs,
+    or every feed import shows up as noise in the review of the files that
+    actually matter.
+    """
+    from fragrance_graph.corpus import export_corpus
+
+    first = tmp_path / "before"
+    export_corpus(curated, first)
+    baseline = {p.name: p.read_bytes() for p in sorted(first.glob("*.jsonl"))}
+
+    import_fixture(curated, CSV_FEED, "Example Scent Co")
+    import_fixture(curated, XML_FEED, "Example Parfumerie")
+
+    second = tmp_path / "after"
+    export_corpus(curated, second)
+    assert {p.name: p.read_bytes() for p in sorted(second.glob("*.jsonl"))} == baseline
