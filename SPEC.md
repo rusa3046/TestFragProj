@@ -613,7 +613,56 @@ cannot tell which is which, and the aggregate is smoother and more
 confident-looking than eleven people disagreeing — so it wins by default.
 That is the "an API said this" failure arriving through a side door.
 
+`Purchase URL` is a fourth trap and the docs name it plainly: "a direct
+**affiliate link**". Shipping it would hand Fragella the commission Phase C
+exists to earn, and would put an undisclosed affiliate link on a page whose
+trust rules require disclosure inline at the link.
+
 The dictionary needs three fields. Store three.
+
+#### What the published methodology settles (2026-08-10)
+
+Reading the API docs removed the remaining doubt about using this as a
+similarity source. Fragella states:
+
+> "For fields where this data is sparse, we employ machine learning models
+> to analyze related data and **predict missing values (like Accords and
+> Notes) with an estimated 80% confidence level**."
+
+alongside a claimed fill rate of "Notes & Main Accords: 100% complete."
+A total fill rate over an admittedly sparse source means the gaps are
+model output. `/fragrances/similar` then scores "based on shared accords
+(primary) and notes (secondary)" — **computed similarity over partly
+imputed data**, two inference layers from anything a person said.
+
+Set against `evidence_verified`, which checks a quoted span against the
+comment body at write time, this is not a close comparison. It is also the
+answer to "does Fragella make the corpus redundant": no, and the docs are
+the argument.
+
+#### Ubiquity is the commercial reason, not just the principled one
+
+Fragella's own product is a `<script>` tag that renders notes, accords,
+ratings and bottle images into any Shopify or WooCommerce store, billed per
+shopper pageview. Their data is designed to be everywhere.
+
+**Differentiation cannot be built on something sold as a drop-in widget.**
+A page showing Fragella data competes with every store that pasted two
+lines of HTML. A page showing what named people wrote, with links, competes
+with nothing, because nobody else has the corpus.
+
+#### One field earns its keep beyond the dictionary
+
+`Popularity` (tiers by user count: "Very high" = 1,000+ users) and
+`/brands/:brandName?limit=50` are usable for **ingest targeting** — listing
+what is popular, then checking which of those the corpus holds no claims
+about, and pointing YouTube collection at the gaps. That closes the bias
+recorded in `data/corpus/PROVENANCE.md`, where six of eight search queries
+contained "dupe" and the corpus skewed heavily to Parfums de Marly.
+
+This uses Fragella to decide *what to go and collect evidence about*. It
+never puts their data in front of a reader, which is the line that
+matters.
 
 The forbidden two compute similarity from notes and accords. That is
 precisely the approach this SPEC dropped, for reasons recorded at the top:
