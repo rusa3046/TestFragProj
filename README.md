@@ -198,6 +198,48 @@ obviously correct once raised run-to-run variance sixfold and broke evidence
 verification for the first time in the project; it had to be reverted. SPEC.md
 records the measurements.
 
+### Drafting labels with a stronger model
+
+Most comments assert nothing, so most of a labelling session is typing empty
+lists. A stronger model (Claude Opus 5) can draft the labels so you *review*
+rather than author — roughly 3× faster.
+
+**A drafted label is not ground truth.** The extractor is Haiku 4.5; if a model
+writes the answer key, the score measures agreement between models rather than
+accuracy, and their errors correlate. Two safeguards make drafts usable:
+
+```bash
+# 1. Draft. Costs ~$0.15 for 50 comments.
+uv run python -m fragrance_graph.evals.autolabel draft labels-draft.json --sample 50
+
+# 2. Pull a calibration set — same comments, claims stripped.
+uv run python -m fragrance_graph.evals.autolabel blind labels-draft.json labels-blind.json --n 15
+
+# 3. Label labels-blind.json BY HAND, without opening labels-draft.json.
+uv run python -m fragrance_graph.evals.labels import labels-blind.json --labeler you
+uv run python -m fragrance_graph.evals.labels import labels-draft.json --labeler opus5-draft
+
+# 4. Measure how far the drafter is from you, on those 15.
+uv run python -m fragrance_graph.evals.autolabel agreement --human you
+```
+
+High agreement earns the right to lean on the drafts for the rest. Low
+agreement means label everything by hand — and you've learned that cheaply.
+Skipping step 3 is how pre-filled annotation quietly turns a model's opinion
+into "ground truth": the drafts look plausible, so they get rubber-stamped.
+
+Drafts import under their own labeler (`opus5-draft`), never a person's name.
+`eval_labels` is keyed on `(comment_id, labeler)`, so a draft can never
+overwrite or be mistaken for a human judgement, and `score --labeler` picks
+which one to trust.
+
+`--pronoun-policy` is an explicit choice, not a default to ignore. Two of three
+comments sampled from the live corpus had a pronoun subject (*"It's not a super
+strong fragrance"*), so whether those count as claims materially moves the
+score. `skip` (the default) omits them, since a pronoun can never resolve to a
+bottle; `literal` keeps them. Apply the same rule in your hand labels or the
+disagreement you measure is your own drift.
+
 ## Trust rules
 
 These are product requirements, enforced in code and tests — not guidelines:

@@ -68,7 +68,21 @@ class Score:
             return 0.0
         return self.sentiment_agreements / self.true_positives
 
+    @property
+    def is_vacuous(self) -> bool:
+        """Nothing was claimed by either side, so there is nothing to score.
+
+        Distinct from a score of zero. Most comments assert nothing, so
+        agreeing that a comment is empty is the commonest correct outcome —
+        and reporting it as `P 0.00 R 0.00 F1 0.00` reads as total failure.
+        """
+        return not (
+            self.true_positives or self.false_positives or self.false_negatives
+        )
+
     def line(self, name: str) -> str:
+        if self.is_vacuous:
+            return f"{name:<24} no claims on either side — nothing to score"
         return (
             f"{name:<24} P {self.precision:.2f}  R {self.recall:.2f}  "
             f"F1 {self.f1:.2f}  "

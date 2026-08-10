@@ -345,3 +345,25 @@ def test_sample_larger_than_corpus_returns_everything(conn):
 
     ingest(conn, [make_comment(i, body=f"c{i}") for i in range(5)])
     assert len(export_template(conn, sample=999)) == 5
+
+
+def test_agreeing_that_nothing_was_claimed_is_not_a_zero_score():
+    """Most comments assert nothing; agreeing on that is the common case.
+
+    Reporting it as P 0.00 R 0.00 F1 0.00 reads as total failure.
+    """
+    from fragrance_graph.evals.score import Score
+
+    empty = Score()
+    assert empty.is_vacuous
+    assert "nothing to score" in empty.line("OVERALL")
+    assert "0.00" not in empty.line("OVERALL")
+
+
+def test_a_real_zero_still_reports_zero():
+    from fragrance_graph.evals.score import Score
+
+    missed = Score(false_negatives=3)
+    assert not missed.is_vacuous
+    assert "F1 0.00" in missed.line("OVERALL")
+    assert "fn 3" in missed.line("OVERALL")
