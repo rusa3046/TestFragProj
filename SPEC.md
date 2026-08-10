@@ -141,6 +141,64 @@ from: a comparison type with a FRAGRANCE subject and a FRAGRANCE object.
   window, which changes extraction behaviour, and that cannot be evaluated
   before the eval set exists.
 
+### The first measured prompt change (2026-08-10)
+
+Sharpening `DUPE_OF` — see the taxonomy note above — measured against 13
+human-labelled comments, re-extracted with `--only-labelled --reset`. Two
+runs after the change, one baseline before it:
+
+| | before | after (1) | after (2) |
+|---|---|---|---|
+| OVERALL F1 | 0.50 | **0.62** | **0.62** |
+| `DUPE_OF` recall | 0.33 | **0.67** | **0.67** |
+| `NOTE_DESCRIPTOR` F1 | 0.00 | **0.67** | **0.67** |
+| `BETTER_THAN` F1 | 0.67 | 0.00 | 0.00 |
+| SIMILARITY EDGES F1 | 1.00 | 0.91 | 1.00 |
+| unverified evidence | 0% | 0% | 0% |
+| claims written | — | 22 | 23 |
+
+**Kept.** The target moved and held: `DUPE_OF` recall doubled across both
+runs, and overall F1 rose the same amount twice. Variance stayed at about
+one claim, unlike the reverted v2 edit which raised it sixfold — the two
+runs' OVERALL rows are identical and only the DUPE_OF/SIMILAR_TO split
+jitters by one claim between them.
+
+**The edge guard was mis-specified.** "Edges must stay at 1.00" was set
+before the run; on a five-edge sample one extra claim moves precision by
+0.17, so the guard tripped in run 1 and cleared in run 2 on pure noise. A
+threshold that a single claim can trip is not a threshold. Guards on this
+eval need to be stated in claims, not in F1, until the labelled set is much
+larger.
+
+**`BETTER_THAN` did not regress because of the prompt.** Both runs show
+`BETTER_THAN allows object_kind {FRAGRANCE}, got NONE` in the drop log: the
+model emitted the claim and validation deleted it. See below.
+
+### Validation drops are now the dominant defect
+
+Across the two runs, **21-24% of every claim the model emits is deleted by
+our own validator**, and those deletions account for nearly every remaining
+false negative:
+
+| reason | run 1 | run 2 |
+|---|---|---|
+| `NOTE_DESCRIPTOR … got NONE` | 4 | 3 |
+| `DUPE_OF … got NONE` / `got TAG` | 2 | 2 |
+| `BETTER_THAN … got NONE` | 1 | 1 |
+
+Two different problems wearing one uniform:
+
+- **Objectless descriptors and comparisons** — the model asserts a
+  descriptor with no descriptor, or a dupe with nothing to be a dupe of.
+  Dropping is right; the question is why it emits them.
+- **`DUPE_OF … got TAG`** — the model wants to say a fragrance is a dupe of
+  a *category*. `SIMILAR_TO` already accepts TAG for exactly this reason,
+  so this may be the taxonomy being wrong rather than the model.
+
+The drop breakdown is printed and then lost. Persisting rejected claims is
+the prerequisite for fixing this: right now "which comment, and what did it
+actually say" cannot be answered without re-running extraction.
+
 ### Do not tune the prompt without an eval set
 
 A prompt change that looked obviously correct made things measurably
