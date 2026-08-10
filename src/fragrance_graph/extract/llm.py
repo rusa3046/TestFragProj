@@ -32,6 +32,7 @@ import logging
 import os
 import sqlite3
 import time
+from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -414,13 +415,18 @@ class BatchParseError(Exception):
 
 
 def parse_response(
-    text: str, batch_size: int
+    text: str, batch_size: int, drops: Counter[str] | None = None
 ) -> dict[int, list[Claim]]:
     """Parse a model response into per-comment claim lists.
 
     Raises BatchParseError if the response is unusable as a whole. Claims
     that individually fail validation are dropped with a warning — one bad
     claim must not discard the rest of the batch.
+
+    Pass a `drops` Counter to tally why claims were rejected. Dropping is
+    correct — a claim that violates an invariant is not usable — but a drop
+    rate nobody measures is a defect nobody fixes, and these rejections are
+    the model reporting where the taxonomy and reality disagree.
     """
     try:
         payload = json.loads(text)
@@ -451,10 +457,11 @@ def parse_response(
                 # Expected: the model occasionally emits a claim that
                 # violates an invariant the schema can't express, such as
                 # an object on a NONE-kind claim type.
+                reason = str(exc.errors()[0]["msg"] if exc.errors() else exc)
+                if drops is not None:
+                    drops[reason] += 1
                 log.warning(
-                    "Dropping invalid claim on comment_index=%s: %s",
-                    index,
-                    exc.errors()[0]["msg"] if exc.errors() else exc,
+                    "Dropping invalid claim on comment_index=%s: %s", index, reason
                 )
         by_index[index] = claims
 
@@ -634,6 +641,7 @@ def extract(
     started = time.monotonic()
     total_claims = 0
     total_unverified = 0
+    drops: Counter[str] = Counter()
 
     try:
         for batch in iter_batches(rows, batch_size):
@@ -641,7 +649,7 @@ def extract(
                 text, tokens_in, tokens_out = call_model(
                     client, batch, model=model, max_tokens=max_tokens
                 )
-                by_index = parse_response(text, len(batch))
+                by_index = parse_response(text, len(batch), drops)
             except BatchParseError as exc:
                 # The whole batch is unusable. Leave extracted_at NULL so
                 # these comments are retried, and move on.
@@ -665,7 +673,12 @@ def extract(
             cost.record(tokens_in, tokens_out, len(batch))
 
             if cost.batches % progress_every == 0:
-                log.info("%s | %d claims", cost.summary(), total_claims)
+                log.info(
+                    "%s | %d claims (%d dropped)",
+                    cost.summary(),
+                    total_claims,
+                    sum(drops.values()),
+                )
     except KeyboardInterrupt:
         log.warning("Interrupted. Committing completed batches.")
         raise
@@ -696,6 +709,23 @@ def extract(
         total_unverified,
         100 * total_unverified / total_claims if total_claims else 0.0,
     )
+
+    # The drop breakdown is the most actionable output of a run. Each line
+    # is the model reporting a place where the taxonomy and real comments
+    # disagree — and the rejections are invisible in the database, since
+    # dropped claims are never written.
+    dropped = sum(drops.values())
+    if dropped:
+        emitted = total_claims + dropped
+        log.info(
+            "%d claims dropped in validation (%.1f%% of %d emitted). By reason:",
+            dropped,
+            100 * dropped / emitted if emitted else 0.0,
+            emitted,
+        )
+        for reason, count in drops.most_common():
+            log.info("  %5d  %s", count, reason)
+
     return cost
 
 

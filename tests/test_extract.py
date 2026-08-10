@@ -555,3 +555,37 @@ def test_dry_run_writes_nothing(conn, tmp_path):
         "SELECT count(*) FROM comments WHERE extracted_at IS NOT NULL"
     ).fetchone()[0] == 0
     check.close()
+
+
+# --- drop accounting --------------------------------------------------------
+
+
+def test_drops_are_tallied_by_reason():
+    """A drop rate nobody measures is a defect nobody fixes."""
+    from collections import Counter
+
+    drops = Counter()
+    bad = claim_json(claim_type="NOTE_DESCRIPTOR", object_kind="NONE",
+                     raw_object_text=None)
+    parse_response(response_json(claims=[bad, bad]), batch_size=1, drops=drops)
+
+    assert sum(drops.values()) == 2
+    assert "NOTE_DESCRIPTOR" in next(iter(drops))
+
+
+def test_valid_claims_produce_no_drops():
+    from collections import Counter
+
+    drops = Counter()
+    parse_response(response_json(), batch_size=1, drops=drops)
+
+    assert sum(drops.values()) == 0
+
+
+def test_drops_counter_is_optional():
+    """Existing callers must keep working without passing a counter."""
+    bad = claim_json(claim_type="LONGEVITY", object_kind="TAG",
+                     raw_object_text="sweet")
+    result = parse_response(response_json(claims=[bad]), batch_size=1)
+
+    assert result[0] == []

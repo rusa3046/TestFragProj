@@ -103,9 +103,67 @@ EDGE_CLAIM_TYPES = frozenset(
 )
 
 
+#: Typographic characters folded to their ASCII equivalents before
+#: comparing quoted evidence to a comment body.
+#:
+#: Phone keyboards substitute curly quotes automatically, so a YouTube
+#: comment says "don't" with U+2019 while the model quotes it back with an
+#: ASCII apostrophe. The quote is verbatim; only the glyph differs. Without
+#: this fold, that claim is recorded as a paraphrase and its evidence is
+#: treated as unauditable — which silently inflates the measured paraphrase
+#: rate and, worse, would drop real evidence from the product surface.
+#:
+#: Deliberately limited to punctuation that has a genuine ASCII twin.
+#: Accents are NOT stripped: "Wulóng Chá" and "Wulong Cha" are different
+#: strings and evidence should not match across them.
+_PUNCTUATION_FOLD = str.maketrans(
+    {
+        "‘": "'",  # left single quote
+        "’": "'",  # right single quote / apostrophe
+        "‚": "'",  # single low quote
+        "‛": "'",  # single high-reversed quote
+        "′": "'",  # prime
+        "“": '"',  # left double quote
+        "”": '"',  # right double quote
+        "„": '"',  # double low quote
+        "‟": '"',  # double high-reversed quote
+        "″": '"',  # double prime
+        "‐": "-",  # hyphen
+        "‑": "-",  # non-breaking hyphen
+        "‒": "-",  # figure dash
+        "–": "-",  # en dash
+        "—": "-",  # em dash
+        "―": "-",  # horizontal bar
+        "−": "-",  # minus sign
+    }
+)
+
+
 def normalize_for_match(text: str) -> str:
-    """Collapse whitespace and case so quoting differences don't fail a match."""
-    return " ".join(text.split()).casefold()
+    """Collapse whitespace, case, and typographic punctuation for matching.
+
+    Used only to compare quoted evidence against a comment body. It is
+    deliberately lossy in ways that cannot change meaning, and deliberately
+    conservative everywhere else.
+    """
+    folded = text.translate(_PUNCTUATION_FOLD).replace("…", "...")
+    return " ".join(folded.split()).casefold()
+
+
+def evidence_is_quoted(span: str, body: str) -> bool:
+    """Whether `span` is genuinely quoted from `body`.
+
+    Exact substring first, then a normalized comparison so trivial
+    requoting differences still count. False means the model paraphrased,
+    and the claim's evidence cannot be shown to a reader as something a
+    person actually wrote.
+
+    Lives at module level, not only on `Claim`, so stored rows can be
+    re-verified without reconstructing a full validated model.
+    """
+    if span in body:
+        return True
+    return normalize_for_match(span) in normalize_for_match(body)
 
 
 class Claim(BaseModel):
@@ -161,15 +219,8 @@ class Claim(BaseModel):
         )
 
     def evidence_matches(self, body: str) -> bool:
-        """Whether evidence_span is genuinely quoted from the comment body.
-
-        Exact substring first, then a whitespace/case-normalized comparison
-        so trivial requoting differences still count. A False here means the
-        model paraphrased, and the claim's evidence cannot be audited.
-        """
-        if self.evidence_span in body:
-            return True
-        return normalize_for_match(self.evidence_span) in normalize_for_match(body)
+        """Whether evidence_span is genuinely quoted from the comment body."""
+        return evidence_is_quoted(self.evidence_span, body)
 
 
 class ExtractionResult(BaseModel):
