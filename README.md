@@ -51,16 +51,21 @@ First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PRO
 | | |
 |---|---|
 | Comments | 3,155 across 24 YouTube videos |
-| Claims | 1,391 (0.441 per comment) |
+| Claims | 1,398 (0.443 per comment) |
 | Extraction cost | $1.15 total, $0.3656 per 1k comments |
 | Failed batches | 0 of 158 |
 | Fragrances curated | 0 — nothing is resolved yet |
+| Labelled comments | 50 drafted, 15 verified by hand (13 in train) |
+| Extractor score | `SIMILARITY EDGES` F1 **1.00**; OVERALL F1 0.75 |
 
 What that does **not** yet establish:
 
-- **Extraction accuracy is still unmeasured.** No claim has been scored
-  against a human label. 0.441 claims per comment says nothing about whether
-  they are the right claims.
+- **Extraction accuracy is measured, but on 13 comments.** Every similarity
+  edge in that sample was found and none invented — three times running.
+  But OVERALL F1 has moved 0.50 → 0.62 → 0.75 across code states whose
+  differences account for about one claim each, so the eval currently
+  cannot resolve a change smaller than itself. SPEC.md says which
+  conclusions survive that and which do not.
 - **Nothing is resolved in the committed corpus.** `fragrances.jsonl` is
   empty, so out of the box the claims are edges between strings. 846
   distinct unresolved mentions; the head of that list is short and

@@ -281,6 +281,54 @@ system correctly declining to store things it had not worked out.
 The rejections persistence built alongside this experiment is kept. It is
 what made the experiment legible, and it paid for itself within one run.
 
+### Post-revert baseline, and why it is not good news yet (2026-08-10)
+
+The 50 labelled comments were re-extracted with the reverted schema. The
+result is the project's best score, and it beat the prediction on every
+line, which is the reason to read it carefully rather than bank it.
+
+| | predicted | measured |
+|---|---|---|
+| `SIMILARITY EDGES` F1 | 1.00 | 1.00 |
+| OVERALL F1 | 0.62 | **0.75** |
+| `DUPE_OF` recall | 0.67 | **1.00** |
+| Drop rate | ~20% | **6.7%** (2 of 30) |
+| Unverified evidence | — | **0.0%** |
+| Cost | — | $0.0212 for 50 comments |
+
+Reproduces byte-for-byte from a clean clone of `data/corpus/`.
+
+**What this establishes.** `SIMILARITY EDGES` at 1.00 for the third
+independent time, across the `DUPE_OF` sharpening, the anyOf experiment,
+and the revert. Every edge found, none invented. `DUPE_OF` and
+`SIMILAR_TO` both at perfect precision and recall — the sharpening works.
+Evidence verification at 100%, against 91.4% on the full corpus run.
+
+**What it does not establish.** OVERALL is `tp 6, fp 2, fn 2`; the two runs
+that scored 0.62 were `tp 5, fp 3, fn 3`. That is **one claim**. On 13
+labelled comments one claim is worth ~0.13 of F1, and the code state here
+is identical to the state that scored 0.62 twice. The honest reading is
+that run-to-run variance is wider than two runs suggested, not that the
+extractor improved. The same applies to the drop rate: 20.7% to 6.7% with
+no schema change is four claims.
+
+**This is the eval telling you it is too small.** Every conclusion above is
+one claim from reversing. The instrument, not the extractor, is now the
+limiting factor — 13 verified comments in train, of a 50-comment sample
+that was drafted but never fully reviewed.
+
+Do not tune anything further against 13 comments. Finish the labels first.
+
+**The four surviving errors**, three of them unchanged across every run
+ever measured:
+
+- `LONGEVITY` fp 1 — the magnet type, still absorbing uncertainty
+- `NOTE_DESCRIPTOR` tp 1 / fp 1 / fn 1 — identical in every run to date
+- `BETTER_THAN` fn 1
+- Both drops are `DUPE_OF … got NONE` — the "Al Haramein keeps making
+  perfect clones" shape, a dupe claim naming no target. Taxonomy gap, not
+  a model error. See Deferred decisions.
+
 ### Do not tune the prompt without an eval set
 
 A prompt change that looked obviously correct made things measurably
