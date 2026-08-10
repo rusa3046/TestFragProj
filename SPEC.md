@@ -692,6 +692,38 @@ depends on a third party being up.
   Internal normalisation is one question; putting their data on a public
   page is another, and the answer must be checked before Phase D.
 
+### Two ways "3 people said this" lied (2026-08-10)
+
+The first real query output exposed both. Neither is an extraction defect;
+both are counting defects, and on a product whose entire claim is *how many
+people said it*, they matter more than F1.
+
+**Rows share people.** Results group by (other fragrance, claim type), so
+Aventus/CDNIM rendered as `3 people` DUPE_OF, `2 people` SIMILAR_TO,
+`1 person` BETTER_THAN. A reader adds those to six. It is **five** — one
+commenter called it both a dupe and similar. `Related.pair_commenters` now
+carries distinct people across every claim type for the pair, and that is
+the number a page should lead with.
+
+**Three commenters can be one comment section.** Montblanc Explorer /
+CDNIM showed three distinct commenters, all from video `ZOd2QEVJX8c` —
+possibly replying to each other. "3 people said this" implies three
+independent observations and a single thread cannot support that.
+`Related.sources` counts distinct videos, and `min_sources` filters on it.
+
+Measured on the eight resolved pairs: **two of eight are single-source.**
+A quarter of the graph's current pairs would have implied a consensus that
+does not exist.
+
+`min_sources` defaults to 1, so nothing is hidden by default and the
+number is always visible. **Phase D should generate at `min_sources >= 2`
+alongside the 3-commenter bar** — a thin page is worse than no page, and a
+page built from one comment section is thinner than its count suggests.
+
+Both filters are claim-quality, not commercial, which the trust test
+asserts by naming the full parameter set: neither can express "only
+fragrances we can sell".
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.

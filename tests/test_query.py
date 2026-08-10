@@ -426,8 +426,13 @@ def test_results_are_not_filtered_to_monetizable_options(conn):
 
     params = set(inspect.signature(fn).parameters)
     assert params == {
-        "conn", "fragrance_id", "limit", "quotes", "min_commenters"
+        "conn", "fragrance_id", "limit", "quotes",
+        "min_commenters", "min_sources",
     }, "a new filter parameter needs a trust review, not just a test update"
+
+    # Both filters are claim-quality, not commercial: they ask how many
+    # people said it and how many places they said it. Neither can express
+    # "only fragrances we can sell", which is the property being guarded.
 
 
 def test_evidence_never_exposes_a_display_name(graph):
@@ -486,3 +491,100 @@ def test_cli_reports_an_unknown_fragrance(conn, tmp_path, capsys):
 
     assert main(["Nonexistent", "--db-path", str(db)]) == 1
     assert "No fragrance matches" in capsys.readouterr().out
+
+
+# --- counting people honestly ------------------------------------------------
+
+
+def test_pair_commenters_does_not_double_count_across_claim_types(conn):
+    """A page rendering "3 said dupe, 2 said similar" invites adding them.
+
+    One person calling something both a dupe and similar appears in two
+    rows. Summing `commenters` over the rows over-counts humans, which on
+    an evidence-first product is the one number that must not be inflated.
+    """
+    target = add_fragrance(conn, "Creed Aventus")
+    other = add_fragrance(conn, "Armaf Club de Nuit Intense Man")
+
+    cid = add_comment(conn, 1, body="x", author="alice")
+    add_claim(conn, cid, subject=other, obj=target, claim_type="DUPE_OF")
+    add_claim(conn, cid, subject=other, obj=target, claim_type="SIMILAR_TO")
+    cid2 = add_comment(conn, 2, body="x", author="bob")
+    add_claim(conn, cid2, subject=other, obj=target, claim_type="DUPE_OF")
+
+    results = similar_to(conn, target)
+    assert sum(r.commenters for r in results) == 3, "rows still say 3"
+    assert {r.pair_commenters for r in results} == {2}, "but there are 2 people"
+
+
+def test_sources_counts_distinct_threads(conn):
+    """Three replies in one comment section is not three observations."""
+    target = add_fragrance(conn, "Creed Aventus")
+    other = add_fragrance(conn, "Montblanc Explorer")
+    for i, (author, video) in enumerate(
+        [("alice", "vid1"), ("bob", "vid1"), ("carol", "vid1")]
+    ):
+        ingest(conn, [make_comment(i, body="x", permalink=f"https://e.test/{i}",
+                                   raw_json=json.dumps({"author": author,
+                                                        "videoId": video}))])
+        cid = conn.execute("SELECT id FROM comments WHERE source_id = ?",
+                           (f"t1_fake{i:05d}",)).fetchone()[0]
+        add_claim(conn, cid, subject=other, obj=target)
+
+    (result,) = similar_to(conn, target)
+    assert result.commenters == 3
+    assert result.sources == 1, "all three came from one video"
+
+
+def test_min_sources_hides_single_thread_consensus(conn):
+    """The guard the 3-commenter bar cannot provide on its own."""
+    target = add_fragrance(conn, "Creed Aventus")
+    echo = add_fragrance(conn, "Montblanc Explorer")
+    spread = add_fragrance(conn, "Lattafa Khamrah")
+
+    for i, author in enumerate(["a", "b", "c"]):
+        ingest(conn, [make_comment(i, body="x", permalink=f"https://e.test/{i}",
+                                   raw_json=json.dumps({"author": author,
+                                                        "videoId": "one"}))])
+        cid = conn.execute("SELECT id FROM comments WHERE source_id = ?",
+                           (f"t1_fake{i:05d}",)).fetchone()[0]
+        add_claim(conn, cid, subject=echo, obj=target)
+
+    for i, (author, vid) in enumerate([("d", "v1"), ("e", "v2"), ("f", "v3")], 10):
+        ingest(conn, [make_comment(i, body="x", permalink=f"https://e.test/{i}",
+                                   raw_json=json.dumps({"author": author,
+                                                        "videoId": vid}))])
+        cid = conn.execute("SELECT id FROM comments WHERE source_id = ?",
+                           (f"t1_fake{i:05d}",)).fetchone()[0]
+        add_claim(conn, cid, subject=spread, obj=target)
+
+    both = {r.canonical_name for r in similar_to(conn, target)}
+    assert both == {"Montblanc Explorer", "Lattafa Khamrah"}
+
+    survives = {r.canonical_name for r in similar_to(conn, target, min_sources=2)}
+    assert survives == {"Lattafa Khamrah"}, "one thread is not consensus"
+
+
+def test_evidence_carries_its_source(conn):
+    target = add_fragrance(conn, "Creed Aventus")
+    other = add_fragrance(conn, "Montblanc Explorer")
+    ingest(conn, [make_comment(1, body="x", permalink="https://e.test/1",
+                               raw_json=json.dumps({"author": "a",
+                                                    "videoId": "abc123"}))])
+    cid = conn.execute("SELECT id FROM comments WHERE source_id = ?",
+                       ("t1_fake00001",)).fetchone()[0]
+    add_claim(conn, cid, subject=other, obj=target)
+
+    (result,) = similar_to(conn, target)
+    assert result.evidence[0].source_ref == "abc123"
+
+
+def test_render_shows_sources_and_pair_total(conn):
+    target = add_fragrance(conn, "Creed Aventus")
+    other = add_fragrance(conn, "Montblanc Explorer")
+    cid = add_comment(conn, 1, body="x", author="alice")
+    add_claim(conn, cid, subject=other, obj=target)
+
+    out = render("Creed Aventus", similar_to(conn, target))
+    assert "1 source" in out
+    assert "for the pair" in out

@@ -30,6 +30,19 @@ exist. Counting it would put a real person's name behind the opposite of
 what they wrote — the single worst thing an evidence-first product can do.
 Measured at 7.2% of similarity claims before `polarity` existed.
 
+**Two counts, because one is misleading.** Results are grouped by (other
+fragrance, claim type), so the same person appears in two rows when they
+call something both a dupe and similar. Rendering "3 people said dupe, 2
+said similar" invites a reader to add them. `pair_commenters` is the
+distinct-people count across every claim type for the pair — the number a
+page should lead with.
+
+**Sources are counted separately from people.** Three commenters in one
+video's comment section, possibly replying to each other, is not three
+independent observations, and "3 people said this" implies that it is.
+`sources` records how many distinct videos back a claim so a page can
+decline to imply consensus that a single thread cannot support.
+
 **Evidence is required.** Only claims whose `evidence_span` was verified
 against the comment body are counted. An unverified span is a paraphrase we
 cannot show a reader as something a person wrote, and a result whose
@@ -74,6 +87,9 @@ class Evidence:
     permalink: str
     comment_id: int
     author_id: str
+    #: The video (or subreddit) it was written under. Two quotes from one
+    #: thread are weaker evidence than two from unrelated places.
+    source_ref: str
     sentiment: str
     #: True when this claim names the queried fragrance as its subject.
     #: "X is a dupe of Y" reads differently depending which one you asked
@@ -91,6 +107,12 @@ class Related:
     claim_type: str
     #: Distinct people, not claim rows. This is the ranking key.
     commenters: int
+    #: Distinct people connecting this pair across *every* claim type. Rows
+    #: are per claim type and a person can appear in several, so summing
+    #: `commenters` over the rows for one pair over-counts humans.
+    pair_commenters: int
+    #: Distinct videos/threads backing this row.
+    sources: int
     claims: int
     sentiment: str
     sentiment_counts: dict[str, int]
@@ -149,6 +171,8 @@ SELECT c.id            AS claim_id,
        co.id           AS comment_id,
        co.permalink    AS permalink,
        co.author_id    AS author_id,
+       coalesce(json_extract(co.raw_json, '$.videoId'), co.source_channel)
+                       AS source_ref,
        1               AS outbound,
        f.id            AS other_id,
        f.canonical_name AS other_name,
@@ -166,6 +190,7 @@ UNION ALL
 
 SELECT c.id, c.claim_type, c.sentiment, c.evidence_span, c.confidence,
        co.id, co.permalink, co.author_id,
+       coalesce(json_extract(co.raw_json, '$.videoId'), co.source_channel),
        0 AS outbound,
        f.id, f.canonical_name, f.brand
   FROM claims c
@@ -195,6 +220,7 @@ def similar_to(
     limit: int = 20,
     quotes: int = DEFAULT_QUOTES,
     min_commenters: int = 1,
+    min_sources: int = 1,
 ) -> list[Related]:
     """What the community says smells like (or beats) this fragrance.
 
@@ -204,18 +230,32 @@ def similar_to(
 
     Grouped by (other fragrance, claim type): "a dupe of X" and "similar to
     X" are different strengths of claim and a buyer reads them differently,
-    so they stay separate rows rather than being summed into one.
+    so they stay separate rows rather than being summed into one. Read
+    `pair_commenters`, not the sum of `commenters`, for how many humans
+    connected the two bottles — the rows share people.
+
+    `min_sources` is the guard against a single comment section looking
+    like consensus. It is a claim-quality filter, not a commercial one:
+    nothing here can express "only fragrances we can sell".
     """
     rows = conn.execute(EDGES_SQL, {"fragrance_id": fragrance_id}).fetchall()
 
     grouped: dict[tuple[int, str], list[sqlite3.Row]] = {}
+    # Distinct people per *pair*, ignoring claim type, so a page can state
+    # how many humans connected two bottles without adding up rows that
+    # share people.
+    per_pair: dict[int, set[str]] = {}
     for row in rows:
         grouped.setdefault((row["other_id"], row["claim_type"]), []).append(row)
+        per_pair.setdefault(row["other_id"], set()).add(_commenter_key(row))
 
     results = []
     for (other_id, claim_type), group in grouped.items():
         commenters = {_commenter_key(r) for r in group}
         if len(commenters) < min_commenters:
+            continue
+        sources = {r["source_ref"] for r in group if r["source_ref"]}
+        if len(sources) < min_sources:
             continue
         counts = Counter(r["sentiment"] for r in group)
         results.append(
@@ -225,6 +265,8 @@ def similar_to(
                 brand=group[0]["other_brand"],
                 claim_type=claim_type,
                 commenters=len(commenters),
+                pair_commenters=len(per_pair[other_id]),
+                sources=len(sources),
                 claims=len(group),
                 sentiment=aggregate_sentiment(counts),
                 sentiment_counts=dict(counts),
@@ -257,6 +299,7 @@ def _pick_evidence(rows: list[sqlite3.Row], quotes: int) -> list[Evidence]:
             permalink=row["permalink"],
             comment_id=row["comment_id"],
             author_id=row["author_id"],
+            source_ref=row["source_ref"] or "",
             sentiment=row["sentiment"],
             outbound=bool(row["outbound"]),
         )
@@ -364,9 +407,11 @@ def render(subject: str, results: list[Related]) -> str:
 
     for r in results:
         people = "person" if r.commenters == 1 else "people"
+        src = "source" if r.sources == 1 else "sources"
         lines.append(
             f"{r.commenters:>3} {people}  {r.claim_type:<11} "
-            f"{r.canonical_name}  [{r.sentiment.lower()}]"
+            f"{r.canonical_name}  [{r.sentiment.lower()}]  "
+            f"({r.sources} {src}; {r.pair_commenters} for the pair)"
         )
         for ev in r.evidence:
             arrow = "→" if ev.outbound else "←"
@@ -389,6 +434,12 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
         help="Hide results supported by fewer than N distinct people",
     )
+    parser.add_argument(
+        "--min-sources",
+        type=int,
+        default=1,
+        help="Hide results backed by fewer than N distinct videos/threads",
+    )
     parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -409,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             quotes=args.quotes,
             min_commenters=args.min_commenters,
+            min_sources=args.min_sources,
         )
         print(render(row["canonical_name"], results))
     finally:

@@ -280,8 +280,17 @@ recommendation.
 
 **Ranking is distinct commenters, never claim rows.** One person saying
 "BR540 dupe" in four threads is one person, and counting rows would render
-a loud minority as consensus. `--min-commenters N` hides results thinner
-than N people.
+a loud minority as consensus.
+
+Each row also reports `(N sources; M for the pair)`:
+
+- **sources** — how many distinct videos back it. Three commenters in one
+  comment section is not three independent observations, and two of the
+  eight currently resolved pairs are single-source. `--min-sources 2`
+  filters them out.
+- **for the pair** — distinct people connecting the two bottles across
+  *all* claim types. Rows share people, so summing the per-row counts
+  over-counts humans: Aventus/CDNIM reads 3 + 2 + 1 but is 5 people, not 6.
 
 ## Measuring extraction quality
 
