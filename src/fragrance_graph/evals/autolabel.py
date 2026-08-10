@@ -70,10 +70,12 @@ DEFAULT_CALIBRATION = 15
 #: drift. It is an explicit input rather than a silent default.
 PRONOUN_POLICIES = {
     "skip": (
-        "If the subject of a claim is a pronoun or a bare reference "
-        '("it", "this", "that one") and the fragrance it refers to is not '
-        "named anywhere in the comment, do NOT emit a claim. Such a claim "
-        "cannot be resolved to a bottle and is useless downstream."
+        'If the subject or object is a pronoun ("it", "this", "that one"): '
+        "when the fragrance it refers to is named elsewhere in the same "
+        "comment, use that name, spelled as the commenter spelled it. When "
+        "the fragrance is named nowhere in the comment, do NOT emit the "
+        "claim at all — it can never be resolved to a bottle, so it cannot "
+        "become an edge."
     ),
     "literal": (
         "If the subject of a claim is a pronoun or a bare reference "

@@ -216,6 +216,7 @@ uv run python -m fragrance_graph.evals.autolabel draft labels-draft.json --sampl
 uv run python -m fragrance_graph.evals.autolabel blind labels-draft.json labels-blind.json --n 15
 
 # 3. Label labels-blind.json BY HAND, without opening labels-draft.json.
+#    See docs/LABELLING.md for what a claim is and worked examples.
 uv run python -m fragrance_graph.evals.labels import labels-blind.json --labeler you
 uv run python -m fragrance_graph.evals.labels import labels-draft.json --labeler opus5-draft
 
