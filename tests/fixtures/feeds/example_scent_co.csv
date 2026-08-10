@@ -1,0 +1,32 @@
+# SYNTHETIC FIXTURE — NOT A REAL RETAILER FEED.
+# Every row below is invented for tests. "Example Scent Co" is not a shop,
+# the SKUs are made up, the prices are made up, and the URLs point at the
+# reserved .test TLD so they can never resolve. Nothing here was obtained
+# from a retailer, an affiliate network, or by scraping anything.
+#
+# Shaped after a ShareASale-style CSV datafeed: comma delimited, one row per
+# listing, columns named the way that network names them.
+#
+# It is deliberately not all matchable. Five of the fourteen rows cannot be
+# resolved against the curated dictionary, for four different reasons that
+# the importer's tests each pin down:
+#   - Dior Sauvage Elixir      a different bottle from Dior Sauvage
+#   - Baccarat Rouge 540 Extrait   likewise; "Extrait" is never stripped
+#   - PDM Herod                an abbreviation, which only an alias can fix
+#   - Zara Red Temptation      simply not curated yet
+#   - Rasasi Hawas Ice         likewise
+productid,name,merchantcategory,price,currency,link,instock
+FRG-1001,Lattafa Khamrah Eau de Parfum 3.4 oz Spray Unisex,Fragrance > Unisex,32.95,GBP,https://shop.example-scent.test/p/1001,yes
+FRG-1002,Armaf Club de Nuit Intense Man EDT 105ml Spray,Fragrance > Men,41.00,GBP,https://shop.example-scent.test/p/1002,yes
+FRG-1003,Creed Aventus EDP 100ml,Fragrance > Men,235.00,GBP,https://shop.example-scent.test/p/1003,yes
+FRG-1004,Parfums de Marly Layton Eau de Parfum 125 ml,Fragrance > Men,255.00,GBP,https://shop.example-scent.test/p/1004,yes
+FRG-1005,Dior Sauvage Elixir 60ml,Fragrance > Men,98.00,GBP,https://shop.example-scent.test/p/1005,yes
+FRG-1006,Zara Red Temptation 100ml,Fragrance > Men,17.99,GBP,https://shop.example-scent.test/p/1006,yes
+FRG-1007,Tom Ford Oud Wood EDP 50ml Spray,Fragrance > Unisex,175.00,GBP,https://shop.example-scent.test/p/1007,no
+FRG-1008,Maison Francis Kurkdjian Baccarat Rouge 540 Extrait de Parfum 70ml,Fragrance > Unisex,395.00,GBP,https://shop.example-scent.test/p/1008,yes
+FRG-1009,Montblanc Explorer EDT 100ml,Fragrance > Men,44.50,GBP,https://shop.example-scent.test/p/1009,yes
+FRG-1010,Mancera Cedrat Boise EDP 120ml,Fragrance > Unisex,89.00,GBP,https://shop.example-scent.test/p/1010,yes
+FRG-1011,Kilian Angels Share Eau de Parfum 50ml,Fragrance > Unisex,215.00,GBP,https://shop.example-scent.test/p/1011,yes
+FRG-1012,Rasasi Hawas Ice EDP 100ml,Fragrance > Men,54.00,GBP,https://shop.example-scent.test/p/1012,yes
+FRG-1013,PDM Herod 125ml Spray,Fragrance > Men,225.00,GBP,https://shop.example-scent.test/p/1013,yes
+FRG-1014,Dior Sauvage Eau de Toilette 60ml,Fragrance > Men,72.00,GBP,https://shop.example-scent.test/p/1014,yes

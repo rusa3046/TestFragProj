@@ -724,6 +724,58 @@ Both filters are claim-quality, not commercial, which the trust test
 asserts by naming the full parameter set: neither can express "only
 fragrances we can sell".
 
+### Commerce: feeds, not scraping (2026-08-10)
+
+`products` and `retailers` (migration 0008), a feed importer, and a
+template-driven link builder. Nothing real has been imported: the only
+feeds read so far are the invented fixtures in `tests/fixtures/feeds/`.
+
+**Matching is `resolve/names.py`, not a second implementation.** Mapping
+`Lattafa Khamrah EDP 100ml Spray Unisex` to a bottle is the same problem as
+mapping `BR540`, and two definitions of "same fragrance" drifting apart —
+with the commerce one choosing which buy link appears on a page — is a
+worse outcome than any accuracy loss from sharing one.
+
+**Which words may be stripped from a feed name is the load-bearing
+decision.** `EDP`, `EDT`, `EDC` and the phrase *eau de parfum* are never
+part of a fragrance's name, so they come off before matching. `Elixir`,
+`Extrait`, `Parfum` and `Cologne` are each a concentration *and* a common
+part of a name, so they stay:
+
+| stripping it | consequence |
+|---|---|
+| `Elixir` | `Dior Sauvage Elixir` becomes `Dior Sauvage` — a £110 bottle's buy link under a £75 one |
+| `Parfum` | `Parfums de Marly` stops existing, taking the largest house in this corpus with it |
+
+The cost is paid on purpose: `Baccarat Rouge 540 Extrait de Parfum` does
+not match the curated `Baccarat Rouge 540` and lands in the unmatched
+report. That is the same trade as the 0.88 fuzzy threshold — a visible miss
+over a silent false merge — and here a false merge sells someone the wrong
+bottle rather than corrupting a count.
+
+**Measured on the fixtures**: 13 of 20 rows matched (65%) against the 16
+seeded fragrances — 9 of 14 in the CSV, 4 of 6 in the XML. The seven
+misses are four distinct causes, one of which (`PDM Herod`) is an
+abbreviation only a curated alias can reach, exactly as with mention text.
+
+**Unmatched rows are stored, never dropped**, and matching re-runs on every
+import, so curating a name later resolves rows already imported with no
+re-download. Same bargain `claims.subject_frag_id` makes.
+
+**Products are not in `data/corpus/`.** The corpus holds what cost API
+quota, money or human judgement. Feed rows cost none of those, go stale in
+a day, and are a retailer's catalogue rather than something irreplaceable.
+A test asserts the export is byte-identical before and after an import, so
+commerce cannot make the committed files churn.
+
+**The trust rules are now measured rather than asserted.** The end-to-end
+ranking test the earlier structural guard asked for exists: the same
+corpus, with three listings on the *weakest* result and none on the
+strongest, returns results identical to the same corpus with the product
+rows deleted — and identical again after the retailer itself is removed.
+Result-filtering is tested separately, because filtering to sellable
+options is the version of this failure that leaves the order untouched.
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.
@@ -792,11 +844,9 @@ frequency, so effort goes where the corpus actually is. Workflow:
   Ranked by distinct commenter count, so one prolific commenter cannot
   manufacture an edge.
 - **Sentiment rollup** from claim level to fragrance level.
-- **Commerce.** `products` / `retailers` tables kept separate from
-  `fragrances` (one fragrance, many products), populated from affiliate
-  network product feeds — CSV/XML, never scraping. Feed product names get
-  matched with `resolve/names.py`; this is the same entity-resolution
-  problem, second instance.
+- **Commerce.** Built — see below. `products` / `retailers` are separate
+  from `fragrances`, populated from affiliate network product feeds, and
+  feed names are matched with `resolve/names.py`.
 - **Comparison pages.** One static page per pair, generated from the query
   layer, gated at 3+ distinct commenters. Thin pages are worse than none.
 - Any web UI, TikTok or other social sources.

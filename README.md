@@ -116,7 +116,11 @@ What that does **not** yet establish:
   so the graph is unaffected, but "dupe" is a stronger claim than "similar"
   and page copy will repeat it. Unmeasured — the eval scores `DUPE_OF`
   precision 1.00 on 13 comments and cannot see this.
-- There is no product, price, or retailer data of any kind.
+- **No real product, price, or retailer data has been imported.** The
+  tables, the feed importer and the link builder exist and are tested, but
+  the only feeds they have ever read are the invented fixtures under
+  `tests/fixtures/feeds/`, which import at a 65% match rate against the 16
+  seeded fragrances. No affiliate account has been opened.
 
 New to the project? [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) explains
 the two systems — the pipeline that builds the product, and the eval that
@@ -320,6 +324,42 @@ Each row also reports `(N sources; M for the pair)`:
   *all* claim types. Rows share people, so summing the per-row counts
   over-counts humans: Aventus/CDNIM reads 3 + 2 + 1 but is 5 people, not 6.
 
+## Buying links
+
+Where a bottle can be bought, from affiliate-network product feeds. **This
+is not scraping.** Retailers, Fragrantica and Parfumo are off limits because
+their terms forbid it; a network feed is licensed data published to its
+publishers, fetched from a URL the network hands you.
+
+```bash
+uv run python -m fragrance_graph.commerce.links retailer add "Example Scent Co" \
+    --network shareasale --affiliate-id aff-2 \
+    --url-template 'https://network.test/r.cfm?b={external_id}&u={affiliate_id}&urllink={raw_url}'
+
+uv run python -m fragrance_graph.commerce.feeds import feed.csv --retailer "Example Scent Co"
+uv run python -m fragrance_graph.commerce.feeds unmatched
+uv run python -m fragrance_graph.commerce.links links "Creed Aventus"
+```
+
+```
+tests/fixtures/feeds/example_scent_co.csv: 14 rows, 14 new, 0 updated;
+9 matched a curated fragrance (64.3%), 5 unmatched
+```
+
+**The match rate is the number to watch.** Feed names are messy — `Lattafa
+Khamrah EDP 100ml Spray Unisex` — and matching them to bottles is the same
+entity-resolution problem as `BR540`, solved by the same code in
+`resolve/names.py`. An importer that silently drops a third of a feed looks
+exactly like one that imported all of it, so every unmatched name is logged
+and `unmatched` ranks them by how many listings curating each would unlock.
+
+Unmatched rows are stored, not discarded. Matching runs on every import, so
+an alias added today resolves rows imported last month with no re-download.
+
+Products are deliberately **not** part of `data/corpus/`. Feed rows are
+re-downloadable, go stale within a day, and are a retailer's catalogue
+rather than something that cost money or judgement to obtain.
+
 ## Measuring extraction quality
 
 Extraction quality is judged against hand-written labels, not by reading output
@@ -397,16 +437,31 @@ disagreement you measure is your own drift.
 
 ## Trust rules
 
-These are product requirements, enforced in code and tests — not guidelines:
+These are product requirements, enforced in code and tests — not guidelines.
+Each names the test that would fail:
 
 - **Ranking never considers commercial relationships.** Result order is
-  computed with no knowledge of which fragrances are monetizable.
+  computed with no knowledge of which fragrances are monetizable. Measured
+  end to end: the same corpus ranked with product rows on the *weakest*
+  result and none on the strongest returns results identical to the same
+  corpus with those rows deleted —
+  `test_ranking_is_identical_with_and_without_products`. A structural test
+  alongside it names every table the ranking queries may touch.
 - **Results are never filtered to monetizable options.** A fragrance with no
-  buying link ranks exactly as high as one with three.
+  buying link ranks exactly as high as one with three —
+  `test_a_fragrance_with_no_buying_link_ranks_as_high_as_one_with_three`.
+  Filtering is the version of this failure that leaves the order untouched,
+  so it is tested separately.
 - **Affiliate links are disclosed inline, at the link** — not once in a page
-  footer where nobody reads it.
+  footer where nobody reads it. The disclosure is a field on the link
+  object, so no renderer can obtain a URL without also holding the words
+  that go beside it.
 - **Text only.** Naming a fragrance identifies it; using a brand's logo or
-  imagery borrows its authority.
+  imagery borrows its authority. No table has a column that could hold an
+  image, and nothing in the codebase emits markup.
+- **Nothing that ranks can be sorted by what it pays.** There is no
+  commission column anywhere in the schema, which makes the rule a missing
+  capability rather than a promise.
 
 ## Development
 
