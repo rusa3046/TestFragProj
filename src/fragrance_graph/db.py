@@ -18,6 +18,20 @@ DEFAULT_DB_PATH = os.environ.get("FRAGRANCE_DB_PATH", "fragrance_graph.db")
 
 
 def get_connection(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    """Open (creating if needed) the database at `db_path`.
+
+    Missing parent directories are created. sqlite3 will happily create a
+    database file but not the directory holding it, and the error it raises
+    when the directory is absent — "unable to open database file" — names
+    neither the path nor the actual problem. The documented default lives
+    at `data/fragrance_graph.db`, so a fresh clone hits this immediately.
+    """
+    parent = Path(db_path).expanduser().parent
+    # ":memory:" and similar have no meaningful parent; Path(...).parent of
+    # a bare filename is ".", which always exists.
+    if str(parent) not in ("", "."):
+        parent.mkdir(parents=True, exist_ok=True)
+
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
