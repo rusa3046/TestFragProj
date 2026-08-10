@@ -72,7 +72,37 @@ uv run python -m fragrance_graph.db init
 ```
 
 The database path comes from `FRAGRANCE_DB_PATH` (default
-`fragrance_graph.db` in the repo root), or `--db-path` on any command.
+`fragrance_graph.db` in the repo root), or `--db-path` on any command. The
+working corpus lives at **`data/fragrance_graph.db`**:
+
+```bash
+export FRAGRANCE_DB_PATH=data/fragrance_graph.db
+```
+
+### The database is disposable; the corpus is not
+
+`*.db` is gitignored, and on a remote container the whole filesystem is
+reclaimed when the session ends. Comments cost API quota, claims cost real
+money, and curated aliases cost human judgement — none of that should die with
+a container. So the durable form is newline-delimited JSON under
+**`data/corpus/`**, which *is* committed:
+
+```bash
+uv run python -m fragrance_graph.corpus export    # db  → data/corpus/*.jsonl
+uv run python -m fragrance_graph.corpus import    # db  ← data/corpus/*.jsonl
+```
+
+Three files: `comments.jsonl`, `claims.jsonl`, `fragrances.jsonl`. They diff
+line by line in review, are readable without SQLite, and round-trip losslessly
+— rows link by natural keys (`source` + `source_id`, and `canonical_name`),
+never by autoincrement id, so a rebuilt database re-numbering its rows cannot
+silently reattach a claim to the wrong comment. Export is byte-stable, so an
+unchanged corpus produces an empty diff. Import is idempotent.
+
+Export after any run that costs money or judgement, and commit the result.
+Note that these files contain other people's comment text, retained under the
+source platform's API terms — committing the export is republication, so treat
+it as such.
 
 Ingest YouTube comments:
 
