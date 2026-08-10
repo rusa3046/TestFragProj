@@ -12,3 +12,6 @@ __pycache__/
 seed/local-*.txt
 labels*.json
 *.db.stray
+
+# Subagent worktrees — separate checkouts, not part of this tree
+.claude/worktrees/
