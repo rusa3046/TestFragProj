@@ -97,7 +97,13 @@ Comparisons between two things:
   The object may be another fragrance ("smells just like Baccarat 540"),
   a house ("a bit of a Serge Lutens vibe"), or a material or thing
   ("smells remarkably similar to cocoa pyrazine", "smells like a bakery").
-- DUPE_OF: the subject is a cheaper substitute for the object.
+- DUPE_OF: the subject is a cheaper stand-in for the object. Fragrance
+  discussion signals this with "dupe", "clone", "impression of",
+  "interpretation of", "take on", or "inspired by". The price gap is
+  carried by the brands and is almost never stated out loud, so do not
+  require the comment to mention cost. Use SIMILAR_TO instead when the
+  comment reports a resemblance without implying substitution — "smells
+  like", "reminds me of", "gives me X vibes".
 - BETTER_THAN: the subject is preferred over the object.
 
 Descriptions of one fragrance:
@@ -509,6 +515,42 @@ ORDER BY id
 LIMIT ?
 """
 
+#: Only comments someone has labelled. Re-extracting just these makes a
+#: prompt change measurable for a couple of cents instead of the price of
+#: the whole corpus — and every comment it touches is one the eval can
+#: actually score.
+SELECT_PENDING_LABELLED_SQL = """
+SELECT c.id, c.body FROM comments c
+WHERE c.extracted_at IS NULL
+  AND EXISTS (SELECT 1 FROM eval_labels l WHERE l.comment_id = c.id)
+ORDER BY c.id
+LIMIT ?
+"""
+
+
+def reset_extraction(conn: sqlite3.Connection, *, labelled_only: bool = True) -> int:
+    """Delete claims and clear extracted_at so comments re-extract.
+
+    Destructive by design: a before/after comparison needs the "after" to
+    replace the "before", not stack on top of it. Claims are derived data
+    and `comments.body` is retained, so the cost of being wrong is one
+    re-run — but point this at a scratch database built by `corpus import`
+    rather than the working corpus, or the run you are comparing against
+    is the one you just deleted.
+    """
+    where = (
+        "WHERE EXISTS (SELECT 1 FROM eval_labels l WHERE l.comment_id = comments.id)"
+        if labelled_only
+        else ""
+    )
+    conn.execute(
+        "DELETE FROM claims WHERE comment_id IN "
+        f"(SELECT id FROM comments {where})"
+    )
+    cursor = conn.execute(f"UPDATE comments SET extracted_at = NULL {where}")
+    conn.commit()
+    return cursor.rowcount
+
 
 def write_claims(
     conn: sqlite3.Connection,
@@ -564,10 +606,11 @@ def write_claims(
 
 
 def pending_comments(
-    conn: sqlite3.Connection, limit: int
+    conn: sqlite3.Connection, limit: int, *, labelled_only: bool = False
 ) -> list[sqlite3.Row]:
     """Comments that have never been extracted, oldest first."""
-    return conn.execute(SELECT_PENDING_SQL, (limit,)).fetchall()
+    sql = SELECT_PENDING_LABELLED_SQL if labelled_only else SELECT_PENDING_SQL
+    return conn.execute(sql, (limit,)).fetchall()
 
 
 def iter_batches(
@@ -645,9 +688,10 @@ def extract(
     model: str = MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     progress_every: int = 5,
+    labelled_only: bool = False,
 ) -> CostTracker:
     """Extract claims for up to `limit` un-extracted comments."""
-    rows = pending_comments(conn, limit)
+    rows = pending_comments(conn, limit, labelled_only=labelled_only)
     if not rows:
         log.info("No comments pending extraction.")
         return CostTracker()
@@ -778,6 +822,19 @@ def main(argv: list[str] | None = None) -> int:
             f"Default: {DEFAULT_OUTPUT_TOKENS_PER_COMMENT}"
         ),
     )
+    parser.add_argument(
+        "--only-labelled",
+        action="store_true",
+        help="Extract only comments that carry an eval label",
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help=(
+            "Delete existing claims and re-extract. Destructive — point it "
+            "at a scratch database, not the working corpus."
+        ),
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Debug logging")
     args = parser.parse_args(argv)
 
@@ -796,12 +853,22 @@ def main(argv: list[str] | None = None) -> int:
     conn = get_connection(args.db_path)
     migrate(conn)
 
+    if args.reset:
+        cleared = reset_extraction(conn, labelled_only=args.only_labelled)
+        log.warning(
+            "Reset %d comment(s): their claims are deleted and they will be "
+            "re-extracted.",
+            cleared,
+        )
+
     # The estimate runs before the credential check on purpose: deciding
     # whether a run is affordable should not require holding a key.
     if args.dry_run:
         try:
             estimate = estimate_cost(
-                pending_comments(conn, args.limit),
+                pending_comments(
+                    conn, args.limit, labelled_only=args.only_labelled
+                ),
                 batch_size=args.batch_size,
                 output_tokens_per_comment=args.assume_output_tokens,
                 model=args.model,
@@ -818,6 +885,7 @@ def main(argv: list[str] | None = None) -> int:
             conn,
             client,
             limit=args.limit,
+            labelled_only=args.only_labelled,
             batch_size=args.batch_size,
             model=args.model,
             max_tokens=args.max_tokens,

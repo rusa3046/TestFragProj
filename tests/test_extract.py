@@ -589,3 +589,79 @@ def test_drops_counter_is_optional():
     result = parse_response(response_json(claims=[bad]), batch_size=1)
 
     assert result[0] == []
+
+
+# --- re-measuring a prompt change -------------------------------------------
+
+
+def test_dupe_signal_words_appear_in_both_prompts():
+    """The extractor and the label drafter must encode the same boundary.
+
+    If only one is sharpened, every future draft disagrees with the human
+    on exactly the claims the change was meant to fix.
+    """
+    from fragrance_graph.evals.autolabel import build_prompt
+    from fragrance_graph.extract.llm import SYSTEM_PROMPT
+    from fragrance_graph.models import DUPE_SIGNAL_WORDS
+
+    labeller = build_prompt()
+    for word in DUPE_SIGNAL_WORDS:
+        assert word in SYSTEM_PROMPT, f"extractor prompt missing {word!r}"
+        assert word in labeller, f"labeller prompt missing {word!r}"
+
+
+def test_dupe_guidance_does_not_require_a_stated_price():
+    """The old definition made both models look for a price signal."""
+    from fragrance_graph.extract.llm import SYSTEM_PROMPT
+
+    assert "almost never stated" in SYSTEM_PROMPT
+    assert "cheaper substitute" not in SYSTEM_PROMPT
+
+
+def test_only_labelled_selects_just_the_labelled_comments(conn):
+    from fragrance_graph.evals.labels import export_template, import_labels
+
+    seed(conn, n=5)
+    entries = export_template(conn)
+    import_labels(conn, entries[:2], labeler="aanya")
+
+    assert len(pending_comments(conn, 100)) == 5
+    assert len(pending_comments(conn, 100, labelled_only=True)) == 2
+
+
+def test_reset_clears_claims_and_marks_comments_pending(conn):
+    from fragrance_graph.evals.labels import export_template, import_labels
+    from fragrance_graph.extract.llm import reset_extraction
+
+    (comment_id,) = seed(conn)
+    claims = parse_response(response_json(), batch_size=1)[0]
+    write_claims(conn, comment_id, BODY, claims)
+    import_labels(conn, export_template(conn), labeler="aanya")
+
+    assert conn.execute("SELECT count(*) FROM claims").fetchone()[0] == 1
+    assert pending_comments(conn, 10) == []
+
+    cleared = reset_extraction(conn, labelled_only=True)
+
+    assert cleared == 1
+    assert conn.execute("SELECT count(*) FROM claims").fetchone()[0] == 0
+    assert len(pending_comments(conn, 10)) == 1
+
+
+def test_reset_leaves_unlabelled_comments_alone(conn):
+    """A scratch re-run must not delete the rest of the corpus's claims."""
+    from fragrance_graph.evals.labels import export_template, import_labels
+    from fragrance_graph.extract.llm import reset_extraction
+
+    ids = seed(conn, n=2)
+    for comment_id in ids:
+        write_claims(
+            conn, comment_id, BODY, parse_response(response_json(), batch_size=1)[0]
+        )
+    entries = [e for e in export_template(conn)][:1]
+    import_labels(conn, entries, labeler="aanya")
+
+    reset_extraction(conn, labelled_only=True)
+
+    assert conn.execute("SELECT count(*) FROM claims").fetchone()[0] == 1
+    assert len(pending_comments(conn, 10)) == 1

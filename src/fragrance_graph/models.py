@@ -102,6 +102,27 @@ EDGE_CLAIM_TYPES = frozenset(
     {ClaimType.SIMILAR_TO, ClaimType.DUPE_OF, ClaimType.BETTER_THAN}
 )
 
+#: The language fragrance discussion uses to mean "a cheaper stand-in",
+#: which is what DUPE_OF records.
+#:
+#: The first eval measured a one-directional confusion, three times out of
+#: three: the human labelled DUPE_OF where both the extractor and the Opus
+#: drafter said SIMILAR_TO, and never the reverse. The cause is the old
+#: definition — "a cheaper substitute" — which made both models look for a
+#: price signal. Commenters never state the price gap; it is carried by
+#: the brands, and these words are how they say it instead.
+#:
+#: Lives here, not in either prompt, because the extractor and the label
+#: drafter must encode the same boundary. A test asserts both prompts
+#: carry every word, so the two cannot drift apart silently.
+DUPE_SIGNAL_WORDS = (
+    "dupe",
+    "clone",
+    "impression of",
+    "interpretation of",
+    "inspired by",
+)
+
 
 #: Typographic characters folded to their ASCII equivalents before
 #: comparing quoted evidence to a comment body.

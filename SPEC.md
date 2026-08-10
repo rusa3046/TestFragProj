@@ -168,7 +168,34 @@ in ways that cannot be predicted by reading the prompt, and that a
 three-run sample plus one person's reading is too coarse an instrument to
 tune against. **Build the eval set first** — see Deferred decisions.
 
-### DUPE_OF vs SIMILAR_TO — watch, don't merge yet
+### DUPE_OF vs SIMILAR_TO — sharpened, not merged (2026-08-10)
+
+**Resolved.** The trigger fired: on the 13 human-labelled comments in
+train, `SIMILARITY EDGES` scored a perfect 1.00 while every single
+comparison-type error was this confusion. Three occurrences, all one
+directional — the human said `DUPE_OF` where both the extractor and the
+Opus drafter said `SIMILAR_TO`, never the reverse.
+
+That direction is the diagnosis. The old definition read *"a cheaper
+substitute"*, so both models looked for a price signal; commenters never
+state the price gap, because it is carried by the brands. The words they
+use instead are "dupe", "clone", "impression of", "interpretation of",
+"inspired by" — now `DUPE_SIGNAL_WORDS` in `models.py`, with a test
+asserting both the extractor prompt and the label-drafter prompt carry
+every one, so the two cannot drift.
+
+The types were **not** merged. "Is this a cheap alternative" and "does this
+smell similar" are different buyer questions, and merging would discard a
+distinction the product wants. The `SIMILARITY EDGES` line already covers
+the case where only the edge matters.
+
+**This is the first prompt change the project has been allowed to make**,
+and it changes exactly one thing — unlike the reverted v2 edit, which
+addressed three defects at once and made attribution impossible.
+
+#### Historic note — the original observation
+
+
 
 The first calibration run surfaced exactly one disagreement between the
 human labeller and the Opus drafter, on this comment:

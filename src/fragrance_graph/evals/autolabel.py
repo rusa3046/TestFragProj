@@ -144,6 +144,12 @@ that everything else is measured against.
 
 - Subject and object are the commenter's own words, copied verbatim.
   Do not expand, correct, or normalise names: "BR540" stays "BR540".
+- DUPE_OF means the subject is a cheaper stand-in for the object.
+  Fragrance discussion signals that with "dupe", "clone", "impression of",
+  "interpretation of", or "inspired by" — the price gap is carried by the
+  brands and is almost never stated, so do not require the comment to
+  mention cost. Use SIMILAR_TO when a resemblance is reported without
+  implying substitution: "smells like", "reminds me of", "X vibes".
 - One subject per claim. A sentence naming three fragrances is three
   claims, never one claim with three names crammed into the subject.
 - {policy_text}
