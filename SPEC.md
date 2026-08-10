@@ -195,11 +195,12 @@ Two different problems wearing one uniform:
   a *category*. `SIMILAR_TO` already accepts TAG for exactly this reason,
   so this may be the taxonomy being wrong rather than the model.
 
-The drop breakdown is printed and then lost. Persisting rejected claims is
-the prerequisite for fixing this: right now "which comment, and what did it
-actually say" cannot be answered without re-running extraction.
+The drop breakdown used to be printed and then lost. It is now persisted to
+`rejected_claims` and readable with `extract.rejects report` / `show`, which
+is what made the next section possible: "which comment, and what did it
+actually say" no longer costs an extraction run to answer.
 
-### NOTE_DESCRIPTOR became the new magnet (2026-08-10)
+### NOTE_DESCRIPTOR became the new magnet — and the fix was reverted (2026-08-10)
 
 Reading the persisted rejections settled what the counts could not. Of six
 drops in one run, three were claims the model saw content for and lost, and
@@ -220,24 +221,65 @@ the model lands when it senses a comment says something about a fragrance
 but has not worked out what**, exactly as `LONGEVITY_COMPLAINT` did in v1.
 The failure is lexical again, not conceptual.
 
-**Fixed in the schema, not the prompt.** The prompt already said "if a
-claim would need an object and there is no identifiable one, omit the claim
-entirely" — this was an instruction being ignored, not a missing one, and
-repeating it louder is the change that raised variance sixfold. The
-response schema now carries two claim shapes discriminated on
-`claim_type`, so a type that needs an object gets `raw_object_text:
-{"type": "string"}` and cannot emit the null at all.
+**The fix was attempted in the schema, not the prompt.** The prompt already
+said "if a claim would need an object and there is no identifiable one, omit
+the claim entirely" — an instruction being ignored, not a missing one, and
+repeating it louder is the change that raised variance sixfold. So the
+response schema was split into two claim shapes discriminated on
+`claim_type`: a type that needs an object got `raw_object_text: {"type":
+"string"}` and could not emit the null at all. Split by object requirement
+rather than one variant per type, because per-type variants cost 1,703
+schema tokens against 474 — on every call, forever, against the cheapness
+constraint — to prevent a `DUPE_OF … got TAG` violation seen once in three
+runs.
 
-**Split by object requirement, not one variant per type.** Per-type
-variants would also encode which object *kinds* each type permits, but cost
-1,703 schema tokens against 474 — on every call, forever, against a
-constraint SPEC already sets ("extraction must be cheap") — to prevent a
-`DUPE_OF … got TAG` violation seen once in three runs. Pydantic still
-catches that one. The schema only has to stop the failure that actually
-happens.
+**It worked exactly as designed, and it was still worse.** Three runs on the
+13 human-labelled train comments:
 
-Both lists are derived from `ALLOWED_OBJECT_KINDS`, so the schema and the
-validator cannot drift.
+| | before | run 1 | run 2 | run 3 |
+|---|---|---|---|---|
+| `… got NONE` drops | 6 | 0 | 0 | 0 |
+| Total dropped | 6 (20.7%) | 2 (7.4%) | 1 (3.7%) | 1 (3.8%) |
+| Claims emitted | 29 | 27 | 27 | 26 |
+| Claims written | 23 | 25 | 26 | 25 |
+| OVERALL F1 | 0.62 | 0.59 | 0.59 | 0.59 |
+| SIMILARITY EDGES F1 | 1.00 | 0.91 | 0.91 | 0.91 |
+| `LONGEVITY` false positives | 1 | 2 | 2 | 2 |
+| `NOTE_DESCRIPTOR` | tp 1 / fn 1 | tp 1 / fn 1 | tp 1 / fn 1 | tp 1 / fn 1 |
+
+The mechanism is not in question. The objectless claim became
+unrepresentable and vanished; the model invented nothing to replace it —
+emitted claims *fell*, 29 to 26. Reproducible across three runs.
+
+But every eval metric that moved, moved down, and the two rows that did not
+move say why:
+
+- **`NOTE_DESCRIPTOR` is unchanged at tp 1 / fn 1.** The premise was that
+  "overwhelming" and "just like water" were recoverable content — that
+  forced to choose, the model would find PROJECTION and SIMILAR_TO. It did
+  not. Those comments were not scored better; they were scored the same,
+  by a different route.
+- **`LONGEVITY` false positives rose 1 → 2.** The magnet did not disappear.
+  It moved to the objectless types, which the schema left free. Closing one
+  drain in a taxonomy that absorbs uncertainty relocates the uncertainty.
+
+`SIMILARITY EDGES` falling from 1.00 to 0.91 is the cost stated plainly: the
+one metric the product actually sells got worse.
+
+**Reverted.** `raw_object_text` is nullable again on every claim type, with
+a test asserting it so the split is not re-applied without reading this.
+
+The generalisable lesson, and the reason this is recorded at length:
+**forcing a valid shape does not create knowledge — it converts a visible
+failure into an invisible one.** A drop is logged, counted, and inspectable
+in `rejected_claims`. A claim coerced into a legal shape is stored as fact
+and indistinguishable from a good one. For a product whose entire pitch is
+"here is what people actually said", the honest refusal is worth more than
+the plausible guess, and the 20.7% drop rate was never waste — it was the
+system correctly declining to store things it had not worked out.
+
+The rejections persistence built alongside this experiment is kept. It is
+what made the experiment legible, and it paid for itself within one run.
 
 ### Do not tune the prompt without an eval set
 
