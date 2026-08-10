@@ -581,6 +581,47 @@ denials should eventually be labelled and scored in their own right — they
 are real information, and nothing currently measures whether the extractor
 finds them.
 
+### Fragella is a dictionary, never a similarity source (2026-08-10)
+
+An external fragrance API (Fragella) is under evaluation for resolving
+mention text to canonical bottles. Two of its endpoints are off limits and
+this is a product boundary, not a preference:
+
+| endpoint | use |
+|---|---|
+| `/fragrances?search=` | **allowed** — is "Khamrah" a real bottle, and whose? |
+| `/brands/{brand}` | **allowed** — same question from the other end |
+| `/fragrances/similar?name=` | **forbidden** |
+| `/fragrances/match?accords=` | **forbidden** |
+
+The forbidden two compute similarity from notes and accords. That is
+precisely the approach this SPEC dropped, for reasons recorded at the top:
+similarity here is asserted by people, and the evidence is the product. A
+result sourced from an accord overlap cannot be backed by a quote, so it
+would turn "31 people said this" into "an API said this" and delete the
+only thing that distinguishes this from every other fragrance site.
+
+The temptation will be real, because those endpoints return results for
+pairs the corpus has no claims about. Filling a thin page with computed
+similarity is exactly the failure the 3-commenter threshold exists to
+prevent.
+
+**One-time enrichment, not a runtime dependency.** Whatever the API
+returns is written into `fragrances` and committed to
+`data/corpus/fragrances.jsonl`. If the service changes terms, raises
+prices, or disappears, the dictionary survives — and the graph never
+depends on a third party being up.
+
+**Open before adopting:**
+
+- Coverage of the clone houses the corpus actually discusses. Run
+  `scripts/probe_fragella.py` first; it costs 10 of the free tier's 20
+  monthly requests and reports designer and clone-house hit rates
+  separately.
+- Terms of use for storing and redistributing canonical names and brands.
+  Internal normalisation is one question; putting their data on a public
+  page is another, and the answer must be checked before Phase D.
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.
