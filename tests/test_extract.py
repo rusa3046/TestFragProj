@@ -763,3 +763,91 @@ def test_reset_clears_rejections_too(conn):
     reset_extraction(conn, labelled_only=True)
 
     assert conn.execute("SELECT count(*) FROM rejected_claims").fetchone()[0] == 0
+
+
+# --- the schema enforces the object rule ------------------------------------
+
+
+def variants():
+    from fragrance_graph.extract.llm import RESPONSE_SCHEMA
+
+    return RESPONSE_SCHEMA["properties"]["results"]["items"]["properties"][
+        "claims"
+    ]["items"]["anyOf"]
+
+
+def variant_for(claim_type):
+    for v in variants():
+        if claim_type in v["properties"]["claim_type"]["enum"]:
+            return v
+    raise AssertionError(f"{claim_type} is in neither variant")
+
+
+def test_object_requiring_types_cannot_emit_a_null_object():
+    """The defect this exists to stop: NOTE_DESCRIPTOR with no descriptor.
+
+    `["string", "null"]` let the model decline to choose; a plain string
+    forces it to find the object or pick a different claim type.
+    """
+    for claim_type in ("NOTE_DESCRIPTOR", "DUPE_OF", "BETTER_THAN", "SIMILAR_TO"):
+        prop = variant_for(claim_type)["properties"]["raw_object_text"]
+        assert prop == {"$ref": "#/$defs/text"}, claim_type
+
+
+def test_objectless_types_cannot_emit_an_object():
+    for claim_type in ("LONGEVITY", "PROJECTION", "DEVELOPMENT", "REFORMULATION"):
+        variant = variant_for(claim_type)
+        assert variant["properties"]["raw_object_text"] == {"type": "null"}
+        assert variant["properties"]["object_kind"]["enum"] == ["NONE"]
+
+
+def test_every_claim_type_belongs_to_exactly_one_variant():
+    """A type in neither is unemittable; a type in both defeats the split."""
+    from fragrance_graph.models import ClaimType
+
+    for claim_type in ClaimType:
+        matches = [
+            v for v in variants()
+            if claim_type.value in v["properties"]["claim_type"]["enum"]
+        ]
+        assert len(matches) == 1, f"{claim_type.value} in {len(matches)} variants"
+
+
+def test_the_split_is_derived_from_the_validator():
+    """Hand-listing the types would let the schema and validator diverge."""
+    from fragrance_graph.extract.llm import OBJECT_TYPES, OBJECTLESS_TYPES
+    from fragrance_graph.models import ALLOWED_OBJECT_KINDS, ClaimType, ObjectKind
+
+    for claim_type in ClaimType:
+        objectless = ALLOWED_OBJECT_KINDS[claim_type] == {ObjectKind.NONE}
+        expected = OBJECTLESS_TYPES if objectless else OBJECT_TYPES
+        assert claim_type.value in expected
+
+
+def test_schema_stays_small_enough_to_send_every_call():
+    """It rides in the input tokens of every request, forever.
+
+    Per-type variants would encode more but cost 1,700 tokens against 474,
+    to prevent a violation seen once in three runs.
+    """
+    from fragrance_graph.extract.llm import RESPONSE_SCHEMA, estimate_tokens
+
+    assert estimate_tokens(json.dumps(RESPONSE_SCHEMA)) < 800
+
+
+def test_pydantic_still_enforces_the_per_type_object_kinds():
+    """The schema only stops the failure that actually happens; the
+    validator remains the backstop for the ones it doesn't encode."""
+    text = json.dumps(
+        {
+            "results": [
+                {
+                    "comment_index": 0,
+                    "claims": [
+                        claim_json(object_kind="TAG", raw_object_text="barbershop")
+                    ],
+                }
+            ]
+        }
+    )
+    assert parse_response(text, batch_size=1)[0] == [], "DUPE_OF must refuse TAG"

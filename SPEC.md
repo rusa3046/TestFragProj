@@ -199,6 +199,46 @@ The drop breakdown is printed and then lost. Persisting rejected claims is
 the prerequisite for fixing this: right now "which comment, and what did it
 actually say" cannot be answered without re-running extraction.
 
+### NOTE_DESCRIPTOR became the new magnet (2026-08-10)
+
+Reading the persisted rejections settled what the counts could not. Of six
+drops in one run, three were claims the model saw content for and lost, and
+three were genuinely unusable:
+
+| comment | text | verdict |
+|---|---|---|
+| "The OG can be a bit **overwhelming**" | object present | lost |
+| "it's just **like water**" | object present | lost |
+| "tom ford bitter (dupe lol)" | subject unnamed | correct drop |
+| "better than **I imagined**" | object is an expectation | correct drop |
+| "Al Haramein keeps making perfect **clones**" | clones of nothing named | correct drop |
+
+The lost ones are the tell. "Overwhelming" is PROJECTION; "just like water"
+is SIMILAR_TO. Neither is a note descriptor — yet both were emitted as
+`NOTE_DESCRIPTOR` with a null object. **NOTE_DESCRIPTOR had become where
+the model lands when it senses a comment says something about a fragrance
+but has not worked out what**, exactly as `LONGEVITY_COMPLAINT` did in v1.
+The failure is lexical again, not conceptual.
+
+**Fixed in the schema, not the prompt.** The prompt already said "if a
+claim would need an object and there is no identifiable one, omit the claim
+entirely" — this was an instruction being ignored, not a missing one, and
+repeating it louder is the change that raised variance sixfold. The
+response schema now carries two claim shapes discriminated on
+`claim_type`, so a type that needs an object gets `raw_object_text:
+{"type": "string"}` and cannot emit the null at all.
+
+**Split by object requirement, not one variant per type.** Per-type
+variants would also encode which object *kinds* each type permits, but cost
+1,703 schema tokens against 474 — on every call, forever, against a
+constraint SPEC already sets ("extraction must be cheap") — to prevent a
+`DUPE_OF … got TAG` violation seen once in three runs. Pydantic still
+catches that one. The schema only has to stop the failure that actually
+happens.
+
+Both lists are derived from `ALLOWED_OBJECT_KINDS`, so the schema and the
+validator cannot drift.
+
 ### Do not tune the prompt without an eval set
 
 A prompt change that looked obviously correct made things measurably

@@ -42,6 +42,7 @@ from pydantic import ValidationError
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 from fragrance_graph.models import (
+    ALLOWED_OBJECT_KINDS,
     Claim,
     ClaimType,
     ObjectKind,
@@ -167,10 +168,98 @@ does not make a claim about longevity:
   the claim entirely rather than emitting an empty string.
 """
 
+#: Properties every claim variant shares, hoisted into $defs so the enums
+#: are written once rather than eleven times. The whole schema rides in the
+#: input tokens of every call, so its size is a running cost.
+CLAIM_DEFS: dict[str, Any] = {
+    "subject_kind": {"type": "string", "enum": [k.value for k in SubjectKind]},
+    "sentiment": {"type": "string", "enum": [s.value for s in Sentiment]},
+    # Structured outputs support neither string constraints (minLength) nor
+    # numeric ones (minimum/maximum) — adding them is rejected and every
+    # batch fails. Empty and out-of-range values are caught by the Pydantic
+    # contract in parse_response instead, which is where they belong.
+    "text": {"type": "string"},
+    "confidence": {"type": "number"},
+}
+
+CLAIM_PROPERTY_NAMES = (
+    "claim_type",
+    "subject_kind",
+    "raw_subject_text",
+    "object_kind",
+    "raw_object_text",
+    "sentiment",
+    "confidence",
+    "evidence_span",
+)
+
+
+#: Claim types split by whether they take an object. Derived from
+#: ALLOWED_OBJECT_KINDS so the schema and the Pydantic validator cannot
+#: disagree about which side a type falls on.
+OBJECTLESS_TYPES = tuple(
+    t.value for t in ClaimType if ALLOWED_OBJECT_KINDS[t] == {ObjectKind.NONE}
+)
+OBJECT_TYPES = tuple(
+    t.value for t in ClaimType if ALLOWED_OBJECT_KINDS[t] != {ObjectKind.NONE}
+)
+
+
+def claim_variant(*, objectless: bool) -> dict[str, Any]:
+    """One of the two claim shapes, discriminated on `claim_type`.
+
+    The whole point is the object rule: a type that needs an object gets
+    `raw_object_text: {"type": "string"}` — not `["string", "null"]`. The
+    model cannot emit the null, so it must either find the object or pick a
+    different claim type, which is exactly the decision it was skipping.
+
+    Split by object requirement rather than one variant per type. Per-type
+    variants would also encode which *kinds* each type permits, but that
+    costs 1,700 schema tokens against 450 — on every call, forever — to
+    prevent a violation seen once in three runs. Pydantic still catches it;
+    the schema only has to stop the failure that actually happens.
+    """
+    kinds = [ObjectKind.NONE.value] if objectless else [
+        k.value for k in ObjectKind if k is not ObjectKind.NONE
+    ]
+    return {
+        "type": "object",
+        "properties": {
+            "claim_type": {
+                "type": "string",
+                "enum": list(OBJECTLESS_TYPES if objectless else OBJECT_TYPES),
+            },
+            "subject_kind": {"$ref": "#/$defs/subject_kind"},
+            "raw_subject_text": {"$ref": "#/$defs/text"},
+            "object_kind": {"type": "string", "enum": sorted(kinds)},
+            "raw_object_text": (
+                {"type": "null"} if objectless else {"$ref": "#/$defs/text"}
+            ),
+            "sentiment": {"$ref": "#/$defs/sentiment"},
+            "confidence": {"$ref": "#/$defs/confidence"},
+            "evidence_span": {"$ref": "#/$defs/text"},
+        },
+        "required": list(CLAIM_PROPERTY_NAMES),
+        "additionalProperties": False,
+    }
+
+
 #: Response schema. Claims are nested under a comment index so results map
 #: back without the model echoing comment text.
+#:
+#: Two claim shapes rather than one permissive shape. Before this, the
+#: model emitted claims like NOTE_DESCRIPTOR with a null object about six
+#: times per fifty comments — 21-24% of everything it produced was deleted
+#: in validation, and NOTE_DESCRIPTOR had become a magnet type the way
+#: LONGEVITY_COMPLAINT was in v1: where it landed when it sensed the
+#: comment said something without working out what.
+#:
+#: The prompt already forbade it in as many words. Saying it louder is the
+#: change that raised variance sixfold and had to be reverted — so this
+#: makes the shape unrepresentable instead, which prose cannot do.
 RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
+    "$defs": CLAIM_DEFS,
     "properties": {
         "results": {
             "type": "array",
@@ -181,47 +270,10 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                     "claims": {
                         "type": "array",
                         "items": {
-                            "type": "object",
-                            "properties": {
-                                "claim_type": {
-                                    "type": "string",
-                                    "enum": [t.value for t in ClaimType],
-                                },
-                                "subject_kind": {
-                                    "type": "string",
-                                    "enum": [k.value for k in SubjectKind],
-                                },
-                                # Structured outputs support neither string
-                                # constraints (minLength) nor numeric ones
-                                # (minimum/maximum) — adding them is rejected
-                                # and every batch fails. Empty and
-                                # out-of-range values are caught by the
-                                # Pydantic contract in parse_response
-                                # instead, which is where they belong.
-                                "raw_subject_text": {"type": "string"},
-                                "object_kind": {
-                                    "type": "string",
-                                    "enum": [k.value for k in ObjectKind],
-                                },
-                                "raw_object_text": {"type": ["string", "null"]},
-                                "sentiment": {
-                                    "type": "string",
-                                    "enum": [s.value for s in Sentiment],
-                                },
-                                "confidence": {"type": "number"},
-                                "evidence_span": {"type": "string"},
-                            },
-                            "required": [
-                                "claim_type",
-                                "subject_kind",
-                                "raw_subject_text",
-                                "object_kind",
-                                "raw_object_text",
-                                "sentiment",
-                                "confidence",
-                                "evidence_span",
-                            ],
-                            "additionalProperties": False,
+                            "anyOf": [
+                                claim_variant(objectless=True),
+                                claim_variant(objectless=False),
+                            ]
                         },
                     },
                 },
