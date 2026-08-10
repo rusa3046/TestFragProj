@@ -151,6 +151,18 @@ One claim, not two.
 making it — do not record it. Note `khamrah` stays lowercase: their spelling,
 not yours.
 
+> **Why your labels have no denials in them but the database does.** The
+> extractor now records denials explicitly, as a claim with
+> `polarity: "DENIED"`. That is not a contradiction of the rule above: a
+> denied claim is excluded from the graph *and* from scoring, so leaving it
+> out of your labels and the extractor marking it DENIED are the same
+> answer arrived at two ways. Keep dropping them.
+>
+> This exists because 36 of the corpus's 499 similarity claims were denials
+> stored as assertions — *"it is nothing like angel share"* filed as a dupe
+> edge, which would have quoted that person as evidence for the claim they
+> rejected.
+
 ---
 
 **"Lattafa debuted a new version of their OG Khamrah scent called 'Qahwa'... it's basically Lattafa Khamrah but with an additional coffee note."**
@@ -199,7 +211,10 @@ is unusable too. Both ends have to be attachable.
 | Looks like a claim | Why it isn't |
 |---|---|
 | *"isn't a clone of X"* | A denial. They're rejecting the claim, not making it. |
+| *"nothing like X"*, *"not even similar to X"* | Same — a denial, however phrased. |
 | *"is this similar to X?"* | A question. Nothing is asserted. |
+| *"What about X as a clone of Y?"* | Still a question, even with the comparison inside it. Asking is not claiming. |
+| *"if X smells like Y then I'll stay away"* | A hypothetical. They have not said it does. |
 | *"I bought Khamrah today"* | About the purchase, not the smell. |
 | *"I don't like sweet fragrances"* | About the person, not a fragrance. |
 | *"$32 bucks"*, *"packaging is nicer"* | Price and packaging aren't smell. |
