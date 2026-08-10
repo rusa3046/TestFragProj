@@ -368,6 +368,24 @@ def agreement(
             f"No comment carries labels from both {human!r} and {drafter!r}. "
             "Import the blind set and the drafts before comparing."
         )
+
+    # A side with no claims at all makes the comparison vacuous: every
+    # drafted claim becomes a false positive and the report reads as a
+    # catastrophic score rather than as "one side is unlabelled". The
+    # overwhelmingly likely cause is a blind template that was imported
+    # before it was filled in.
+    if not any(human_labels[k] for k in overlap):
+        raise SystemExit(
+            f"{human!r} has no claims on any of the {len(overlap)} shared "
+            f"comments, so there is nothing to compare — every drafted claim "
+            f"would score as a false positive.\n\n"
+            f"If the blind set is still unedited, fill in its claims lists "
+            f"and re-import as {human!r} (importing replaces, so nothing is "
+            f"lost). If you genuinely judged all of them to assert nothing, "
+            f"widen the calibration set instead: a sample with no claims in "
+            f"it cannot tell you whether the drafter finds claims correctly."
+        )
+
     return score(
         {k: v for k, v in draft_labels.items() if k in overlap},
         {k: v for k, v in human_labels.items() if k in overlap},

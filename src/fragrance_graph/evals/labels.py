@@ -163,6 +163,20 @@ def import_labels(
             legacy,
         )
 
+    # An exported template arrives with every claims list empty, so an
+    # import with no claims anywhere is far more likely to be an unedited
+    # file than a corpus where nothing is asserted. It still imports —
+    # "nothing here asserts a claim" is a legitimate judgement on a small
+    # sample — but it must not pass silently: scoring against it produces
+    # a plausible-looking scoreboard of pure false positives.
+    if len(entries) > 2 and not any(entry.get("claims") for entry in entries):
+        log.warning(
+            "None of the %d entries has any claims. If you meant to fill "
+            "them in by hand, edit the file and re-import — this import "
+            "replaces your previous labels, so nothing is lost.",
+            len(entries),
+        )
+
     for comment_id, payload in resolved:
         conn.execute(
             "INSERT INTO eval_labels (comment_id, labeled_json, labeler, created_at) "

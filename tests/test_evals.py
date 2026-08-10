@@ -367,3 +367,32 @@ def test_a_real_zero_still_reports_zero():
     assert not missed.is_vacuous
     assert "F1 0.00" in missed.line("OVERALL")
     assert "fn 3" in missed.line("OVERALL")
+
+
+def test_importing_an_unedited_template_warns(conn, caplog):
+    """An exported template has empty claims everywhere; importing it
+    unedited is far more likely a mistake than a corpus-wide judgement."""
+    import logging
+
+    ingest(conn, [make_comment(i) for i in range(5)])
+    entries = export_template(conn)
+
+    with caplog.at_level(logging.WARNING):
+        import_labels(conn, entries, labeler="aanya")
+
+    assert "None of the 5 entries has any claims" in "\n".join(
+        r.getMessage() for r in caplog.records
+    )
+
+
+def test_a_partly_filled_import_does_not_warn(conn, caplog):
+    import logging
+
+    ingest(conn, [make_comment(i) for i in range(5)])
+    entries = export_template(conn)
+    entries[0]["claims"] = [label()]
+
+    with caplog.at_level(logging.WARNING):
+        import_labels(conn, entries, labeler="aanya")
+
+    assert "None of the" not in "\n".join(r.getMessage() for r in caplog.records)

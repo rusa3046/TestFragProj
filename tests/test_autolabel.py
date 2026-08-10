@@ -338,3 +338,31 @@ def test_unknown_pronoun_policy_raises(conn):
     downstream would notice the rule had gone missing."""
     with pytest.raises(ValueError, match="Unknown pronoun policy"):
         build_prompt("whatever")
+
+
+def test_agreement_refuses_an_unlabelled_human_side(conn):
+    """The blind template imports with empty claims; comparing against it
+    yields a scoreboard of pure false positives that reads as a real score.
+    """
+    entries = seeded_entries(conn, n=3)
+    import_labels(conn, [dict(e, claims=[claim()]) for e in entries],
+                  labeler=DRAFT_LABELER)
+    import_labels(conn, [dict(e, claims=[]) for e in entries], labeler="aanya")
+
+    with pytest.raises(SystemExit, match="nothing to compare"):
+        agreement(conn, human="aanya")
+
+
+def test_agreement_allows_a_human_who_labelled_some_comments_empty(conn):
+    """Most comments assert nothing — only an all-empty side is refused."""
+    entries = seeded_entries(conn, n=3)
+    import_labels(conn, [dict(e, claims=[claim()]) for e in entries],
+                  labeler=DRAFT_LABELER)
+    human = [dict(entries[0], claims=[claim()])] + [
+        dict(e, claims=[]) for e in entries[1:]
+    ]
+    import_labels(conn, human, labeler="aanya")
+
+    report = agreement(conn, human="aanya")
+    assert report.overall.true_positives == 1
+    assert report.overall.false_positives == 2
