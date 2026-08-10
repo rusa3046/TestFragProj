@@ -107,12 +107,15 @@ it as such.
 Ingest YouTube comments:
 
 ```bash
-# by video id — cheap: 1 quota unit per 100 comments
-uv run python -m fragrance_graph.ingest.youtube --video VIDEO_ID --limit 500
+# by video id — cheap: 1 quota unit per 100 comments. Repeat --video freely.
+uv run python -m fragrance_graph.ingest.youtube --video dQw4w9WgXcQ --limit 500
 
 # or search first — costs 100 quota units per search
 uv run python -m fragrance_graph.ingest.youtube --query "baccarat rouge dupe" --max-videos 5
 ```
+
+A video id is the 11-character string after `v=` in a watch URL —
+`youtube.com/watch?v=dQw4w9WgXcQ` → `dQw4w9WgXcQ`. Not the title, not the URL.
 
 The daily YouTube quota is 10,000 units and the ingest tracks spend as it goes.
 Ingest is idempotent and commits in batches, so interrupting it loses nothing

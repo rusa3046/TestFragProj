@@ -223,3 +223,105 @@ def test_bad_key_exits_with_the_apis_message():
 
     with pytest.raises(SystemExit, match="400.*API key not valid"):
         _get(Http(), "commentThreads", {})
+
+
+# --- credential leaks -------------------------------------------------------
+
+
+SECRET = "AIzaSyEXAMPLEKEYVALUE1234567890abcdef"
+
+
+def test_redact_key_removes_the_credential():
+    from fragrance_graph.ingest.youtube import redact_key
+
+    url = f"https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&key={SECRET}"
+    redacted = redact_key(url)
+
+    assert SECRET not in redacted
+    assert "key=REDACTED" in redacted
+
+
+def test_redact_key_handles_a_key_mid_query_string():
+    from fragrance_graph.ingest.youtube import redact_key
+
+    redacted = redact_key(f"?key={SECRET}&videoId=abc")
+    assert SECRET not in redacted
+    assert "videoId=abc" in redacted
+
+
+def test_redact_key_leaves_ordinary_text_alone():
+    from fragrance_graph.ingest.youtube import redact_key
+
+    assert redact_key("no credential here") == "no credential here"
+
+
+def test_unhandled_status_never_prints_the_url():
+    """The exact leak: raise_for_status() embeds the key-bearing URL.
+
+    A 500 has no special handling, so it takes the generic path — which
+    must not be httpx's own exception.
+    """
+    from fragrance_graph.ingest.youtube import _get
+
+    class R:
+        status_code = 500
+        text = "Internal Error"
+
+        def json(self):
+            raise ValueError("not json")
+
+        def raise_for_status(self):
+            raise AssertionError("must not reach httpx's raise_for_status")
+
+    class Http:
+        def get(self, url, params=None):
+            return R()
+
+    with pytest.raises(SystemExit) as caught:
+        _get(Http(), "commentThreads", {"key": SECRET})
+
+    assert SECRET not in str(caught.value)
+    assert "500" in str(caught.value)
+
+
+def test_error_body_echoing_the_key_is_redacted():
+    from fragrance_graph.ingest.youtube import _get
+
+    class R:
+        status_code = 400
+        text = ""
+
+        def json(self):
+            return {"error": {"message": f"Bad request for key={SECRET}"}}
+
+    class Http:
+        def get(self, url, params=None):
+            return R()
+
+    with pytest.raises(SystemExit) as caught:
+        _get(Http(), "commentThreads", {})
+
+    assert SECRET not in str(caught.value)
+
+
+def test_missing_video_names_the_placeholder_problem():
+    """Observed: the README's literal 'VIDEO_ID' produced a raw traceback."""
+    from fragrance_graph.ingest.youtube import _get
+
+    class R:
+        status_code = 404
+        text = ""
+
+        def json(self):
+            return {"error": {"message": "Not Found"}}
+
+    class Http:
+        def get(self, url, params=None):
+            return R()
+
+    with pytest.raises(SystemExit) as caught:
+        _get(Http(), "commentThreads", {"videoId": "VIDEO_ID"})
+
+    message = str(caught.value)
+    assert "VIDEO_ID" in message
+    assert "11-character" in message
