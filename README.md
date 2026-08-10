@@ -92,7 +92,8 @@ uv run python -m fragrance_graph.corpus export    # db  → data/corpus/*.jsonl
 uv run python -m fragrance_graph.corpus import    # db  ← data/corpus/*.jsonl
 ```
 
-Three files: `comments.jsonl`, `claims.jsonl`, `fragrances.jsonl`. They diff
+Four files: `comments.jsonl`, `claims.jsonl`, `fragrances.jsonl`, and
+`eval_labels.jsonl`. They diff
 line by line in review, are readable without SQLite, and round-trip losslessly
 — rows link by natural keys (`source` + `source_id`, and `canonical_name`),
 never by autoincrement id, so a rebuilt database re-numbering its rows cannot
