@@ -329,6 +329,96 @@ ever measured:
   perfect clones" shape, a dupe claim naming no target. Taxonomy gap, not
   a model error. See Deferred decisions.
 
+### The polarity re-extraction, and a badly chosen threshold (2026-08-10)
+
+Full corpus re-extracted with `polarity`. 3,155 comments, $1.30, 0 failed
+batches. **The fix worked and the eval fell**, and untangling those took
+longer than building it.
+
+#### The fix worked
+
+| | before | after |
+|---|---|---|
+| Denial-shaped evidence flagged | 34 | 38 |
+| Stored as DENIED (correct) | 0 | **35 (92%)** |
+| Denials the regex never flagged, found by the model | — | **32** |
+
+The real denial count is ~67, not the 36 enumeration found. The model
+catches roughly twice what the pattern can, which retires the worry that
+`extract.polarity audit` was measuring its own regex.
+
+**It costs four false denials**, read by hand out of the 32:
+
+| quote | marked | actually |
+|---|---|---|
+| *"Maison Alhambra Delilah **is identical**…"* | DENIED | an assertion |
+| *"It's **exactly the same** as the original Exclusif"* | DENIED | an assertion |
+| *"No thats **a clone of pegasus** mate"* | DENIED | "No" opens it; it asserts |
+| *"you said it was amazing, **better than delina**"* | DENIED | reported speech |
+
+Four genuine edges lost against ~63 backwards ones excluded. Favourable,
+and a new failure mode that did not exist before.
+
+#### The eval fell, and the threshold was the wrong instrument
+
+OVERALL F1 0.75 -> 0.50, against a pre-registered "stop below 0.65". By
+that criterion the run failed. The criterion was badly chosen, and that is
+worth recording more than the number is.
+
+Comparing claim types across the two corpora by identical `evidence_span`:
+
+| movement | claims |
+|---|---|
+| `SIMILAR_TO` -> `DUPE_OF` | **37** |
+| `SIMILAR_TO` -> `NOTE_DESCRIPTOR` | 7 |
+| `NOTE_DESCRIPTOR` -> `SIMILAR_TO` | 5 |
+| `DUPE_OF` -> `SIMILAR_TO` | 4 |
+
+**`SIMILAR_TO` and `DUPE_OF` are both edges.** The dominant movement is
+invisible to the graph and invisible to `SIMILARITY EDGES` — which is the
+line that exists precisely to see past this distinction, and which SPEC
+already records as a confusion the project tolerates rather than merges.
+
+OVERALL F1 mixes that distinction back in. Setting the stop-threshold on
+it meant the test fired on exactly the noise it was designed to ignore.
+**A threshold on an aggregate that averages over a known-tolerated
+ambiguity cannot detect anything else.** Future gates go on
+`SIMILARITY EDGES` and on the specific defect being fixed.
+
+The graph itself:
+
+| | before | after |
+|---|---|---|
+| Similarity claims | 499 | 521 |
+| Of which usable as edges | ~463 (36 were backwards) | **456, denials excluded** |
+
+Flat in size, materially more correct in content.
+
+#### Two real regressions, neither worth reverting for
+
+**`DUPE_OF` is over-firing.** Of the 37 claims that moved from
+`SIMILAR_TO`, only 14 carry a `DUPE_SIGNAL_WORD`. Reading the other 23,
+several are plainly similarity rather than substitution — *"how close this
+is to Oud Wood"*, *"he asked me are you wearing Creed Aventus"*. This is a
+hand reading, not a measurement: on the 13 labelled comments `DUPE_OF`
+scored precision 1.00, so the eval does not see it. It matters because
+"dupe" is a stronger claim than "similar" and page copy will repeat it.
+
+**`NOTE_DESCRIPTOR` leaked 7 similarity claims** — but four of those are
+*improvements*: *"Layton smells like a dentist"*, *"smells like cough
+medicine"*, *"like hawaiian tropic tanning spray"* are descriptors, not
+fragrance comparisons, and were wrong before. The genuine losses are
+*"Eternal Oud … (smells like Grand Soir)"* and two copies of *"fusion of
+ultra male and tabbaco vanilla"*, where the object is a real bottle.
+
+That single Grand Soir row is the entire `SIMILARITY EDGES` regression
+(1.00 -> 0.89, fn 1). One claim.
+
+**Kept.** The change removes ~63 backwards edges and costs one real edge
+plus four false denials, on a graph that stayed the same size. The
+per-type churn is the DUPE_OF/SIMILAR_TO ambiguity the taxonomy already
+declines to resolve.
+
 ### Do not tune the prompt without an eval set
 
 A prompt change that looked obviously correct made things measurably

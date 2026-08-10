@@ -51,12 +51,13 @@ First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PRO
 | | |
 |---|---|
 | Comments | 3,155 across 24 YouTube videos |
-| Claims | 1,398 (0.443 per comment) |
+| Claims | 1,409 (0.447 per comment) |
 | Extraction cost | $1.15 total, $0.3656 per 1k comments |
 | Failed batches | 0 of 158 |
 | Fragrances curated | 0 — nothing is resolved yet |
 | Labelled comments | 50 drafted, 15 verified by hand (13 in train) |
-| Extractor score | `SIMILARITY EDGES` F1 **1.00**; OVERALL F1 0.75 |
+| Extractor score | `SIMILARITY EDGES` F1 **0.89**; OVERALL F1 0.50 |
+| Denials caught | 35 of 38 flagged (92%), plus 32 the pattern missed |
 
 What that does **not** yet establish:
 
@@ -71,12 +72,11 @@ What that does **not** yet establish:
   distinct unresolved mentions; the head of that list is short and
   repetitive (Layton 99, Khamrah 44, Aventus 57 across casings), so the
   first hour of curation is worth far more than the last.
-- **Denials in the committed corpus are still stored as assertions.** ~7%
-  of similarity claims: *"it is nothing like angel share"* recorded as a
-  dupe edge. `polarity` now exists and `query.similar_to()` excludes
-  denials, but the corpus predates the field, so those 34 rows stay wrong
-  until re-extracted. `extract.polarity audit` lists them and exits
-  non-zero while any remain.
+- **`DUPE_OF` is over-firing since the polarity re-extraction.** 37 claims
+  moved from `SIMILAR_TO`, and only 14 carry dupe language. Both are edges
+  so the graph is unaffected, but "dupe" is a stronger claim than "similar"
+  and page copy will repeat it. Unmeasured — the eval scores `DUPE_OF`
+  precision 1.00 on 13 comments and cannot see this.
 - There is no product, price, or retailer data of any kind.
 
 [AUDIT.md](./AUDIT.md) is a read-only assessment of what is real, what is
