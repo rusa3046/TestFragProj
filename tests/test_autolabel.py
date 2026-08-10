@@ -366,3 +366,49 @@ def test_agreement_allows_a_human_who_labelled_some_comments_empty(conn):
     report = agreement(conn, human="aanya")
     assert report.overall.true_positives == 1
     assert report.overall.false_positives == 2
+
+
+# --- diagnosing the disagreements -------------------------------------------
+
+
+def test_disagreements_name_the_claims_not_just_the_count(conn):
+    """An F1 is a verdict; acting on it needs the specific claims."""
+    from fragrance_graph.evals.autolabel import disagreements
+
+    entries = seeded_entries(conn, n=2)
+    import_labels(conn, [dict(e, claims=[claim()]) for e in entries],
+                  labeler=DRAFT_LABELER)
+    human = [
+        dict(entries[0], claims=[claim(claim_type="SIMILAR_TO")]),
+        dict(entries[1], claims=[claim()]),
+    ]
+    import_labels(conn, human, labeler="aanya")
+
+    rows = disagreements(conn, human="aanya")
+
+    assert len(rows) == 1, "the agreeing comment must not be listed"
+    assert rows[0]["only_yours"][0]["claim_type"] == "SIMILAR_TO"
+    assert rows[0]["only_drafted"][0]["claim_type"] == "DUPE_OF"
+    assert rows[0]["body"]
+
+
+def test_disagreements_are_empty_when_both_sides_match(conn):
+    from fragrance_graph.evals.autolabel import disagreements
+
+    entries = seeded_entries(conn, n=2)
+    labelled = [dict(e, claims=[claim()]) for e in entries]
+    import_labels(conn, labelled, labeler=DRAFT_LABELER)
+    import_labels(conn, labelled, labeler="aanya")
+
+    assert disagreements(conn, human="aanya") == []
+
+
+def test_render_claim_shows_objectless_types_without_an_arrow():
+    from fragrance_graph.evals.autolabel import render_claim
+
+    rendered = render_claim(
+        {"claim_type": "LONGEVITY", "raw_subject_text": "Khamrah",
+         "raw_object_text": None, "sentiment": "NEGATIVE"}
+    )
+    assert "->" not in rendered
+    assert "LONGEVITY: Khamrah" in rendered and "NEGATIVE" in rendered

@@ -38,7 +38,7 @@ from typing import Any
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 from fragrance_graph.evals.labels import export_template, load_labels
-from fragrance_graph.evals.score import score
+from fragrance_graph.evals.score import match_key, score
 from fragrance_graph.models import ALLOWED_OBJECT_KINDS, EDGE_CLAIM_TYPES, ClaimType
 
 log = logging.getLogger("fragrance_graph.evals.autolabel")
@@ -394,6 +394,51 @@ def agreement(
     )
 
 
+def disagreements(
+    conn: sqlite3.Connection, *, human: str, drafter: str = DRAFT_LABELER
+) -> list[dict]:
+    """The specific claims the two sides differ on, per comment.
+
+    An F1 is a verdict, not a diagnosis. A false positive and a false
+    negative on the same comment usually mean the two sides picked
+    different types for one assertion — a boundary disagreement worth
+    resolving — while a lone false positive means the drafter invented a
+    claim. The counts cannot tell those apart; this can.
+    """
+    human_labels = load_labels(conn, labeler=human)
+    draft_labels = load_labels(conn, labeler=drafter)
+    bodies = {
+        row["id"]: row["body"]
+        for row in conn.execute("SELECT id, body FROM comments")
+    }
+
+    out = []
+    for comment_id in sorted(set(human_labels) & set(draft_labels)):
+        mine = {match_key(comment_id, c): c for c in human_labels[comment_id]}
+        theirs = {match_key(comment_id, c): c for c in draft_labels[comment_id]}
+        missed = [c for k, c in mine.items() if k not in theirs]
+        invented = [c for k, c in theirs.items() if k not in mine]
+        if missed or invented:
+            out.append(
+                {
+                    "comment_id": comment_id,
+                    "body": bodies.get(comment_id, ""),
+                    "only_yours": missed,
+                    "only_drafted": invented,
+                }
+            )
+    return out
+
+
+def render_claim(claim: dict) -> str:
+    obj = claim.get("raw_object_text")
+    arrow = f" -> {obj}" if obj else ""
+    return (
+        f"{claim['claim_type']}: {claim.get('raw_subject_text')}{arrow} "
+        f"[{claim.get('sentiment', 'NEUTRAL')}]"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Draft eval labels with a stronger model, for human review."
@@ -424,6 +469,11 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("agreement", help="Compare a human labeler to the drafter")
     a.add_argument("--human", required=True, help="The human labeler's name")
     a.add_argument("--drafter", default=DRAFT_LABELER)
+    a.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Counts only. By default the differing claims are printed too.",
+    )
 
     for p in (d, b, a):
         p.add_argument("--db-path", default=DEFAULT_DB_PATH)
@@ -457,6 +507,23 @@ def main(argv: list[str] | None = None) -> int:
             report = agreement(conn, human=args.human, drafter=args.drafter)
             print(f"Drafter {args.drafter!r} vs human {args.human!r}")
             print(report.render())
+
+            if not args.quiet:
+                differing = disagreements(
+                    conn, human=args.human, drafter=args.drafter
+                )
+                print(f"\n--- {len(differing)} comment(s) you disagree on ---")
+                for row in differing:
+                    print(f"\ncomment {row['comment_id']}: {row['body'][:160]}")
+                    for claim in row["only_yours"]:
+                        print(f"  you  only: {render_claim(claim)}")
+                    for claim in row["only_drafted"]:
+                        print(f"  draft only: {render_claim(claim)}")
+                if differing:
+                    print(
+                        "\nA 'you only' and a 'draft only' on the same comment "
+                        "is one assertion typed two ways, not a miss."
+                    )
             return 0
 
         entries = export_template(conn, sample=args.sample)
