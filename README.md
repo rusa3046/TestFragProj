@@ -274,6 +274,11 @@ uv run python -m fragrance_graph.resolve.entities backfill
 One request per mention. Pronouns and single-mention names are skipped, since
 neither can ever name a bottle that clears a 3-commenter bar.
 
+See [docs/CURATION.md](./docs/CURATION.md) for what you are actually judging
+— in short, "is this the bottle the commenters meant?", and the failure that
+really happens is flankers (`Layton` vs `Layton Exclusif`). Each row carries
+two real comment spans so the quotes can settle it.
+
 **A name the catalogue never returned cannot be written.** Every proposal is
 a row it actually returned, and `approved` starts null so an unreviewed file
 adds nothing. Only `Name`, `Brand` and `Year` are kept — the response also

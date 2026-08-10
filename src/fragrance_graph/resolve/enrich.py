@@ -105,6 +105,13 @@ class Proposal:
     #: Other catalogue rows for the same query, so a reviewer can correct
     #: without a second lookup.
     alternatives: list[dict] = field(default_factory=list)
+    #: A couple of real comment spans using this mention, so the reviewer
+    #: can see how people meant it. The dangerous case is flankers — a
+    #: house ships Layton and Layton Exclusif, Khamrah and Khamrah Qahwa,
+    #: Club de Nuit Intense Man and four siblings — and a fuzzy search
+    #: returns whichever it likes. What people wrote is the only evidence
+    #: of which one they meant.
+    examples: list[str] = field(default_factory=list)
     #: Set by a human during review. Nothing is written without it.
     approved: bool | None = None
     note: str = ""
@@ -115,11 +122,35 @@ def _kept(record: dict) -> dict:
     return {f: record.get(f) for f in KEPT_FIELDS}
 
 
+EXAMPLES_SQL = """
+SELECT DISTINCT c.evidence_span AS span
+  FROM claims c
+ WHERE c.raw_subject_text = :mention OR c.raw_object_text = :mention
+ ORDER BY length(c.evidence_span) DESC
+ LIMIT 2
+"""
+
+
+def examples_for(conn: sqlite3.Connection, mention: str) -> list[str]:
+    """Real spans using this mention, longest first.
+
+    Longest rather than most recent: a longer span carries more context,
+    and context is exactly what distinguishes "Club de Nuit" the Intense
+    Man from "Club de Nuit" the Sillage.
+    """
+    return [
+        row["span"]
+        for row in conn.execute(EXAMPLES_SQL, {"mention": mention})
+    ]
+
+
 def propose_for(
-    mention: str, count: int, results: list[dict]
+    mention: str, count: int, results: list[dict], *,
+    examples: list[str] | None = None,
 ) -> Proposal:
     """Build a review row. Pure, so it is testable without a network."""
-    proposal = Proposal(mention=mention, count=count)
+    proposal = Proposal(mention=mention, count=count,
+                        examples=list(examples or []))
     if not results:
         proposal.note = "no catalogue match"
         return proposal
@@ -207,7 +238,12 @@ def propose(
     with httpx.Client(timeout=30.0) as client:
         for mention, count in wanted:
             proposals.append(
-                propose_for(mention, count, _search(client, key, mention))
+                propose_for(
+                    mention,
+                    count,
+                    _search(client, key, mention),
+                    examples=examples_for(conn, mention),
+                )
             )
 
     write_review(out_path, proposals)
@@ -320,6 +356,8 @@ def main(argv: list[str] | None = None) -> int:
                 name = p.canonical_name or "(no match)"
                 print(f"{mark} {p.count:>4}x  {p.mention[:26]:<27} -> "
                       f"{p.brand or '?'} / {name}")
+            print("\n?? = the catalogue's name differs from what people "
+                  "wrote. Read those first.")
             print(f"\nWrote {args.out}. Set \"approved\": true or false on each "
                   f"row, then:\n"
                   f"  python -m fragrance_graph.resolve.enrich apply {args.out}")
