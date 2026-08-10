@@ -2,9 +2,31 @@
 
 ## What we're building
 
-A system that ingests fragrance discussion from Reddit, uses an LLM to
-extract structured claims about fragrance similarity, and builds a weighted
-graph answering: "I love X — what else smells like it?"
+Given a fragrance, return the fragrances the community says are dupes or
+smell similar — ranked, each backed by verbatim quotes and links to the
+comments they came from.
+
+**Amendment (2026-08-10).** This previously read "builds a weighted graph"
+answering the same question, with weight intended to come from note
+overlap. That goal is dropped.
+
+Similarity is **asserted, never computed.** The system does not model what
+a fragrance smells like; it extracts what people claimed and counts how
+many distinct people claimed it. Two reasons, and the second matters more:
+
+1. Structured note data (top/mid/base pyramids) is only available from
+   sites whose terms forbid scraping — see Constraints — so the input for
+   note overlap cannot be obtained legitimately.
+2. Note overlap answers a question buyers were not asking. Someone
+   deciding on a £120 bottle is not served by a similarity score of 0.87;
+   they are served by "31 people called this a dupe of Baccarat Rouge 540,
+   and here is what nine of them said." The evidence is the product.
+   Ranking is only how the evidence gets sorted.
+
+Consequences that follow, and that later phases must respect: evidence
+spans and permalinks are load-bearing rather than diagnostic, ranking is
+by **distinct commenter count** rather than row count, and a pair with too
+few distinct commenters is not a weak result — it is not a result.
 
 ## Stack
 
@@ -191,12 +213,29 @@ frequency, so effort goes where the corpus actually is. Workflow:
 
 ### Phase 3 and beyond (not built yet)
 
-- The similarity graph itself (weights, transitivity, symmetry)
-- Ranking / scoring
-- Any web UI
-- TikTok or other social sources
+- **The query layer.** `similar_to(conn, fragrance_id)` — the missing
+  product surface. `resolved_edges()` takes no fragrance argument, so
+  there is currently no way to ask the question the project exists to
+  answer. DUPE_OF and SIMILAR_TO are symmetric (an A→B edge must surface
+  when querying B); BETTER_THAN is a preference claim and stays separate.
+  Ranked by distinct commenter count, so one prolific commenter cannot
+  manufacture an edge.
+- **Sentiment rollup** from claim level to fragrance level.
+- **Commerce.** `products` / `retailers` tables kept separate from
+  `fragrances` (one fragrance, many products), populated from affiliate
+  network product feeds — CSV/XML, never scraping. Feed product names get
+  matched with `resolve/names.py`; this is the same entity-resolution
+  problem, second instance.
+- **Comparison pages.** One static page per pair, generated from the query
+  layer, gated at 3+ distinct commenters. Thin pages are worse than none.
+- Any web UI, TikTok or other social sources.
 
-If work drifts into these areas while doing Phase 2, stop.
+**Trust requirements, enforced in code:** ranking never considers
+affiliate status or commission — there is a test asserting result order is
+identical with product links stripped. Results always include options with
+no affiliate relationship. Affiliate links are disclosed inline at the
+link, not in a footer. Pages are text only: naming a fragrance identifies
+it, using brand imagery borrows its authority.
 
 ## Constraints
 
