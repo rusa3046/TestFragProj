@@ -105,6 +105,10 @@ What that does **not** yet establish:
   precision 1.00 on 13 comments and cannot see this.
 - There is no product, price, or retailer data of any kind.
 
+New to the project? [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) explains
+the two systems — the pipeline that builds the product, and the eval that
+measures it — and which parts need a human.
+
 [AUDIT.md](./AUDIT.md) is a read-only assessment of what is real, what is
 stubbed, and what has never been measured. It predates this corpus, so its
 data-layer findings are now out of date; its architectural ones are not.

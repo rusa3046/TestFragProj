@@ -1,0 +1,162 @@
+# How the pieces fit together
+
+Written because the project has two separate systems that look like one, and
+the commands for both get run from the same terminal in the same session.
+Confusing them is the default state, not a lapse.
+
+## There are two systems
+
+**System 1 builds the product.** Comments in, ranked answers out.
+
+```
+YouTube comments  →  claims  →  fragrance dictionary  →  ranked answers
+     3,155            1,409         0 curated                 0
+    (ingest)        (extract)       (resolve)               (query)
+```
+
+**System 2 asks whether System 1 is any good.** It never touches the product.
+
+```
+50 sampled comments  →  drafted labels  →  15 checked by hand  →  a score
+                          (autolabel)         (blind)             (score)
+```
+
+You can have a perfect System 2 and no product. You can have a product built
+on garbage and a System 2 that tells you so. They are measured separately
+because they answer different questions.
+
+## System 1, piece by piece
+
+### Comments (`comments` table, `data/corpus/comments.jsonl`)
+
+What people wrote, verbatim, with a permalink back to the original. Costs
+YouTube API quota. Never edited.
+
+### Claims (`claims` table)
+
+What each comment asserts, extracted by Claude Haiku. One comment yields
+zero, one, or several. Most yield none — that is the expected result, not a
+failure.
+
+A claim is:
+
+| field | example |
+|---|---|
+| `claim_type` | `DUPE_OF` |
+| `raw_subject_text` | `"CDNIM"` — the commenter's own words |
+| `raw_object_text` | `"Aventus"` |
+| `sentiment` | how they feel about it |
+| `polarity` | whether they are claiming it **or denying it** |
+| `evidence_span` | the exact words they used, verified against the body |
+
+Costs money — about $0.40 per 1,000 comments. Fully automatic.
+
+### The fragrance dictionary (`fragrances` table)
+
+**This is the piece people misread as a scope limit. It is not.**
+
+Your corpus contains `BR540`, `540`, `Baccarat Rouge 540`, `baccarat 540`.
+To a database those are four unrelated strings. A dictionary entry says:
+these four are one bottle, and its name is Maison Francis Kurkdjian
+Baccarat Rouge 540.
+
+Without it you have claims about *strings*. With it you have claims about
+*bottles*, which is the first point at which a page can exist.
+
+Adding one is a single line, any time, with no re-extraction and no cost:
+
+```bash
+uv run python -m fragrance_graph.resolve.entities add "Lattafa Asad" --alias Asad
+uv run python -m fragrance_graph.resolve.entities backfill
+```
+
+Curating more never invalidates work already done. `backfill` is idempotent
+and only fills in what is newly resolvable.
+
+### Answers (`query.similar_to`)
+
+Given a fragrance, the fragrances people said smell like it — ranked by how
+many **distinct people** said so, each with up to three verbatim quotes and
+links. Fully automatic once the dictionary exists.
+
+## System 2, piece by piece
+
+### Why it exists
+
+The extractor is a language model reading slang. Nothing about its output
+proves it read correctly. The only way to know is to write down what a
+comment *should* yield and compare.
+
+### The files, and why there are three
+
+| file | what it is |
+|---|---|
+| `labels-draft.json` | Claude Opus's guess at the right answers for 50 comments |
+| `labels-blind.json` | the same comments with the answers stripped out |
+| `eval_labels.jsonl` | both, committed, tagged by who wrote them |
+
+The blind step is the whole point. If you read Opus's drafts before writing
+your own, you would agree with most of them — and the score would measure
+how much two models agree rather than whether either is right. Filling in
+the blind copy first is what makes your labels ground truth.
+
+Labels are stored under the name of whoever wrote them, so a draft can
+never be mistaken for a human judgement.
+
+### What a score means
+
+```
+SIMILARITY EDGES  P 1.00  R 0.80  F1 0.89   (tp 4, fp 0, fn 1)
+```
+
+Of the similarity edges in the labelled comments, the extractor found 4,
+invented 0, and missed 1. `SIMILARITY EDGES` collapses `DUPE_OF` and
+`SIMILAR_TO`, because both build the same edge and the product's question
+is whether the connection was found at all.
+
+**A score is only as sharp as the number of labels behind it.** At 13
+comments, one claim moves F1 by 0.13, so a change smaller than one claim
+cannot be measured. SPEC.md records a threshold that misfired for exactly
+this reason.
+
+## What needs a human, and how much
+
+Automatic, every time: ingest, extraction, evidence verification, denial
+detection, ranking, scoring.
+
+Human, and **bounded**:
+
+**Curating the dictionary.** Measured on this corpus — 603 distinct
+fragrance names across 1,123 mention slots in comparison claims:
+
+| curate top N | coverage | est. resolvable claims |
+|---|---|---|
+| 20 | 29% | ~49 |
+| 50 | 40% | ~97 |
+| 100 | 51% | ~152 |
+| 200 | 64% | ~243 |
+
+The curve flattens because **452 of the 603 names are mentioned exactly
+once** — 75% of the list is a tail that can never clear a 3-commenter bar.
+Fifty entries is most of the value; a few hundred is the whole job, ever.
+A new corpus needs only a top-up, since existing aliases keep resolving.
+
+**Labelling.** Fifty comments is a working eval; the project has 15
+verified. This does not scale with corpus size — you label a sample, not
+the corpus. Growing past ~50 only matters if the taxonomy changes or a
+defect appears that the current sample cannot see.
+
+Neither is a treadmill. Both are front-loaded.
+
+## Where the money goes
+
+| | cost |
+|---|---|
+| Ingest | free (YouTube quota, 10,000 units/day) |
+| Extraction | ~$0.40 per 1,000 comments |
+| Label drafting | ~$0.15 per 50 comments (Opus) |
+| Curation, scoring, ranking, pages | free |
+
+Re-extracting the whole corpus is ~$1.30, which is what a prompt change
+costs to evaluate properly. Re-extracting only the labelled comments is
+~$0.02, which is what most experiments should use.
