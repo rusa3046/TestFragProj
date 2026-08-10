@@ -594,6 +594,27 @@ this is a product boundary, not a preference:
 | `/fragrances/similar?name=` | **forbidden** |
 | `/fragrances/match?accords=` | **forbidden** |
 
+The response payload needs the same fence, because the allowed endpoint
+returns far more than a name:
+
+| field | use |
+|---|---|
+| `Name`, `Brand`, `Year` | **allowed** — this is the dictionary |
+| `General Notes`, `Main Accords` | **forbidden** — computed-similarity inputs |
+| `Image URL`, `Image URL Transparent` | **forbidden** — trust rules are text only |
+| `Longevity`, `Sillage`, `rating`, `Price Value` | **forbidden** — see below |
+| `Price` | **forbidden** — not a retailer price; Phase C feeds carry the real one |
+
+`Longevity: "Moderate"` and `Sillage: "Moderate"` deserve their own note,
+because they look harmless and are not. They are aggregated opinion, and
+they would sit on a page beside `LONGEVITY` and `PROJECTION` claims
+extracted from named commenters with quotes and permalinks. A reader
+cannot tell which is which, and the aggregate is smoother and more
+confident-looking than eleven people disagreeing — so it wins by default.
+That is the "an API said this" failure arriving through a side door.
+
+The dictionary needs three fields. Store three.
+
 The forbidden two compute similarity from notes and accords. That is
 precisely the approach this SPEC dropped, for reasons recorded at the top:
 similarity here is asserted by people, and the evidence is the product. A

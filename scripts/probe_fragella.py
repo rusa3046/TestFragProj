@@ -108,8 +108,11 @@ def main() -> int:
             if results:
                 hits[kind] += 1
                 top = results[0]
-                brand = top.get("brand") or top.get("brand_name") or "?"
-                title = top.get("name") or top.get("title") or "?"
+                # Fragella capitalises its field names. Guessing lowercase
+                # printed "?" for every row and hid whether the search was
+                # filtering at all.
+                brand = top.get("Brand") or "?"
+                title = top.get("Name") or "?"
                 print(f"  {name:<26} -> {brand} / {title}   ({len(results)} hits)")
             else:
                 print(f"  {name:<26} -> NOT FOUND")
