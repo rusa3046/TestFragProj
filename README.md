@@ -59,6 +59,32 @@ First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PRO
 | Extractor score | `SIMILARITY EDGES` F1 **0.89**; OVERALL F1 0.50 |
 | Denials caught | 35 of 38 flagged (92%), plus 32 the pattern missed |
 
+### The edge funnel — where the graph actually is
+
+Measured from the committed corpus, 2026-08-10:
+
+```
+1,409  all claims
+  639  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
+  591  FRAGRANCE -> FRAGRANCE
+  529  ASSERTED              (-62 denials)
+  524  evidence verified     (-5)
+    0  both ends resolved    <- nothing is curated
+```
+
+**Zero queryable edges out of the box.** Every filter works; none of it
+reaches a reader, because an edge needs *both* its subject and its object
+to be a curated bottle.
+
+Curating 18 fragrances by hand (not committed) turns that 0 into 19 claims,
+**5 distinct pairs, 2 of which clear Phase D's 3-commenter bar.** Twelve of
+the eighteen return nothing.
+
+Resolution compounds: ~40% of mention slots resolved yields 3% of
+comparison claims fully resolved, because both ends must land. That is why
+curation is the bottleneck and why its payoff accelerates — each new
+fragrance can pair with every one already curated.
+
 What that does **not** yet establish:
 
 - **Extraction accuracy is measured, but on 13 comments.** Every similarity
