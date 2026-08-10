@@ -164,9 +164,10 @@ uv run python -m fragrance_graph.extract.llm --limit 500
 ```
 
 Extraction drops claims that violate an invariant the JSON schema cannot
-express. Those are persisted, not just logged — measured at 21-24% of
-everything emitted, and accounting for nearly every false negative in the
-eval:
+express. Those are persisted, not just logged. The rate has ranged from
+6.7% to 24% of everything emitted across runs of the same code, which is
+itself worth knowing — and the drops account for most remaining false
+negatives in the eval:
 
 ```bash
 uv run python -m fragrance_graph.extract.rejects report              # by reason
