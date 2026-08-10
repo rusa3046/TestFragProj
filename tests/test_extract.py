@@ -560,29 +560,30 @@ def test_dry_run_writes_nothing(conn, tmp_path):
 # --- drop accounting --------------------------------------------------------
 
 
-def test_drops_are_tallied_by_reason():
-    """A drop rate nobody measures is a defect nobody fixes."""
-    from collections import Counter
+def test_drops_are_collected_with_their_payload():
+    """A drop rate nobody measures is a defect nobody fixes — and a reason
+    without the claim that caused it cannot be acted on."""
+    from fragrance_graph.extract.llm import Rejection
 
-    drops = Counter()
+    rejections: list[Rejection] = []
     bad = claim_json(claim_type="NOTE_DESCRIPTOR", object_kind="NONE",
                      raw_object_text=None)
-    parse_response(response_json(claims=[bad, bad]), batch_size=1, drops=drops)
+    parse_response(response_json(claims=[bad, bad]), batch_size=1, rejections=rejections)
 
-    assert sum(drops.values()) == 2
-    assert "NOTE_DESCRIPTOR" in next(iter(drops))
+    assert len(rejections) == 2
+    assert "NOTE_DESCRIPTOR" in rejections[0].reason
+    assert rejections[0].raw["claim_type"] == "NOTE_DESCRIPTOR"
+    assert rejections[0].comment_index == 0
 
 
 def test_valid_claims_produce_no_drops():
-    from collections import Counter
+    rejections = []
+    parse_response(response_json(), batch_size=1, rejections=rejections)
 
-    drops = Counter()
-    parse_response(response_json(), batch_size=1, drops=drops)
-
-    assert sum(drops.values()) == 0
+    assert rejections == []
 
 
-def test_drops_counter_is_optional():
+def test_rejection_collection_is_optional():
     """Existing callers must keep working without passing a counter."""
     bad = claim_json(claim_type="LONGEVITY", object_kind="TAG",
                      raw_object_text="sweet")
@@ -681,3 +682,84 @@ def test_only_labelled_says_so_when_there_are_no_labels(conn, tmp_path):
 
     with pytest.raises(SystemExit, match="no eval labels"):
         main(["--only-labelled", "--reset", "--db-path", str(db)])
+
+
+# --- persisting the rejections ----------------------------------------------
+
+
+def rejected_claim():
+    return claim_json(
+        claim_type="NOTE_DESCRIPTOR", object_kind="NONE", raw_object_text=None
+    )
+
+
+def test_rejections_are_persisted_with_the_payload(conn):
+    """The reason alone cannot tell you whether the model or the taxonomy
+    is wrong; the claim it emitted can."""
+    from fragrance_graph.extract.llm import write_rejections
+
+    (comment_id,) = seed(conn)
+    rejections = []
+    parse_response(
+        response_json(claims=[rejected_claim()]), batch_size=1, rejections=rejections
+    )
+    write_rejections(conn, comment_id, rejections)
+
+    row = conn.execute("SELECT * FROM rejected_claims").fetchone()
+    assert row["comment_id"] == comment_id
+    assert "NOTE_DESCRIPTOR" in row["reason"]
+    assert json.loads(row["raw_json"])["claim_type"] == "NOTE_DESCRIPTOR"
+    assert row["extraction_model"]
+
+
+def test_extract_persists_rejections_alongside_claims(conn):
+    """The whole run loop, with one good claim and one refused."""
+    text = json.dumps(
+        {
+            "results": [
+                {"comment_index": 0, "claims": [claim_json(), rejected_claim()]}
+            ]
+        }
+    )
+    seed(conn, n=1)
+    client = FakeClient([FakeResponse(text)])
+    extract(conn, client, limit=10, batch_size=20)
+
+    assert conn.execute("SELECT count(*) FROM claims").fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM rejected_claims").fetchone()[0] == 1
+
+
+def test_rejections_attach_to_the_right_comment(conn):
+    """Rejections are keyed by batch index; the write path must map them."""
+    text = json.dumps(
+        {
+            "results": [
+                {"comment_index": 0, "claims": []},
+                {"comment_index": 1, "claims": [rejected_claim()]},
+            ]
+        }
+    )
+    ids = seed(conn, n=2)
+    client = FakeClient([FakeResponse(text)])
+    extract(conn, client, limit=10, batch_size=20)
+
+    row = conn.execute("SELECT comment_id FROM rejected_claims").fetchone()
+    assert row["comment_id"] == ids[1]
+
+
+def test_reset_clears_rejections_too(conn):
+    """A before/after comparison must not accumulate the previous run's."""
+    from fragrance_graph.evals.labels import export_template, import_labels
+    from fragrance_graph.extract.llm import reset_extraction, write_rejections
+
+    (comment_id,) = seed(conn)
+    rejections = []
+    parse_response(
+        response_json(claims=[rejected_claim()]), batch_size=1, rejections=rejections
+    )
+    write_rejections(conn, comment_id, rejections)
+    import_labels(conn, export_template(conn), labeler="aanya")
+
+    reset_extraction(conn, labelled_only=True)
+
+    assert conn.execute("SELECT count(*) FROM rejected_claims").fetchone()[0] == 0

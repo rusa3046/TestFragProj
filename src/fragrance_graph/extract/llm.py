@@ -436,8 +436,54 @@ class BatchParseError(Exception):
     """The model's response could not be turned into claims."""
 
 
+@dataclass(frozen=True)
+class Rejection:
+    """A claim the model emitted that validation refused.
+
+    Carries the payload verbatim. A Claim is precisely what it failed to
+    become, so parsing it into one on the way out would discard the shape
+    that explains the rejection.
+    """
+
+    comment_index: int
+    reason: str
+    raw: dict
+
+
+INSERT_REJECTION_SQL = """
+INSERT INTO rejected_claims (
+    comment_id, reason, raw_json, extraction_model, created_at
+) VALUES (?, ?, ?, ?, ?)
+"""
+
+
+def write_rejections(
+    conn: sqlite3.Connection,
+    comment_id: int,
+    rejections: Sequence[Rejection],
+    *,
+    model: str = MODEL,
+) -> int:
+    """Persist the claims validation refused, for later diagnosis."""
+    now = datetime.now(UTC).isoformat()
+    conn.executemany(
+        INSERT_REJECTION_SQL,
+        [
+            (
+                comment_id,
+                rejection.reason,
+                json.dumps(rejection.raw, sort_keys=True),
+                model,
+                now,
+            )
+            for rejection in rejections
+        ],
+    )
+    return len(rejections)
+
+
 def parse_response(
-    text: str, batch_size: int, drops: Counter[str] | None = None
+    text: str, batch_size: int, rejections: list[Rejection] | None = None
 ) -> dict[int, list[Claim]]:
     """Parse a model response into per-comment claim lists.
 
@@ -445,10 +491,11 @@ def parse_response(
     that individually fail validation are dropped with a warning — one bad
     claim must not discard the rest of the batch.
 
-    Pass a `drops` Counter to tally why claims were rejected. Dropping is
-    correct — a claim that violates an invariant is not usable — but a drop
-    rate nobody measures is a defect nobody fixes, and these rejections are
-    the model reporting where the taxonomy and reality disagree.
+    Pass a `rejections` list to collect the claims that were refused, with
+    the payload that caused it. Dropping is correct — a claim violating an
+    invariant is not usable — but a drop rate nobody measures is a defect
+    nobody fixes, and these rejections are the model reporting where the
+    taxonomy and reality disagree.
     """
     try:
         payload = json.loads(text)
@@ -480,8 +527,8 @@ def parse_response(
                 # violates an invariant the schema can't express, such as
                 # an object on a NONE-kind claim type.
                 reason = str(exc.errors()[0]["msg"] if exc.errors() else exc)
-                if drops is not None:
-                    drops[reason] += 1
+                if rejections is not None and isinstance(raw, dict):
+                    rejections.append(Rejection(index, reason, raw))
                 log.warning(
                     "Dropping invalid claim on comment_index=%s: %s", index, reason
                 )
@@ -543,10 +590,11 @@ def reset_extraction(conn: sqlite3.Connection, *, labelled_only: bool = True) ->
         if labelled_only
         else ""
     )
-    conn.execute(
-        "DELETE FROM claims WHERE comment_id IN "
-        f"(SELECT id FROM comments {where})"
-    )
+    for table in ("claims", "rejected_claims"):
+        conn.execute(
+            f"DELETE FROM {table} WHERE comment_id IN "
+            f"(SELECT id FROM comments {where})"
+        )
     cursor = conn.execute(f"UPDATE comments SET extracted_at = NULL {where}")
     conn.commit()
     return cursor.rowcount
@@ -702,6 +750,7 @@ def extract(
     total_claims = 0
     total_unverified = 0
     drops: Counter[str] = Counter()
+    total_rejected = 0
 
     try:
         for batch in iter_batches(rows, batch_size):
@@ -709,7 +758,9 @@ def extract(
                 text, tokens_in, tokens_out = call_model(
                     client, batch, model=model, max_tokens=max_tokens
                 )
-                by_index = parse_response(text, len(batch), drops)
+                rejections: list[Rejection] = []
+                by_index = parse_response(text, len(batch), rejections)
+                drops.update(r.reason for r in rejections)
             except BatchParseError as exc:
                 # The whole batch is unusable. Leave extracted_at NULL so
                 # these comments are retried, and move on.
@@ -728,6 +779,12 @@ def extract(
                 )
                 total_claims += written
                 total_unverified += unverified
+                total_rejected += write_rejections(
+                    conn,
+                    row["id"],
+                    [r for r in rejections if r.comment_index == index],
+                    model=model,
+                )
 
             conn.commit()
             cost.record(tokens_in, tokens_out, len(batch))
@@ -785,6 +842,10 @@ def extract(
         )
         for reason, count in drops.most_common():
             log.info("  %5d  %s", count, reason)
+        log.info(
+            "Stored in rejected_claims. Inspect with: "
+            "python -m fragrance_graph.extract.rejects show"
+        )
 
     return cost
 

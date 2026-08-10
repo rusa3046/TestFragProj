@@ -153,6 +153,20 @@ Extract claims:
 uv run python -m fragrance_graph.extract.llm --limit 500
 ```
 
+Extraction drops claims that violate an invariant the JSON schema cannot
+express. Those are persisted, not just logged — measured at 21-24% of
+everything emitted, and accounting for nearly every false negative in the
+eval:
+
+```bash
+uv run python -m fragrance_graph.extract.rejects report              # by reason
+uv run python -m fragrance_graph.extract.rejects show --reason DUPE_OF
+```
+
+`show` prints the comment alongside the claim the model emitted, which is
+what decides whether a rejection is the model being wrong or the taxonomy
+being wrong.
+
 Resolve names to bottles:
 
 ```bash
