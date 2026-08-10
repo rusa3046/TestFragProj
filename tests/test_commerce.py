@@ -30,6 +30,16 @@ from fragrance_graph.commerce.feeds import (
     parse_xml_feed,
     unmatched_products,
 )
+from fragrance_graph.commerce.links import (
+    Link,
+    Retailer,
+    TemplateError,
+    build_url,
+    buying_links,
+    render_link,
+    validate_template,
+)
+from fragrance_graph.commerce.links import add_retailer as add_retailer_validated
 from fragrance_graph.resolve.entities import add_fragrance, load_candidates
 from scripts.seed_fragrances import SEED
 
@@ -541,3 +551,197 @@ def test_cli_gates_on_match_rate_when_asked(tmp_path, capsys):
     assert main([*args, "--min-match-rate", "0.5"]) == 0
     assert main([*args, "--min-match-rate", "0.9"]) == 1
     assert "below the required" in capsys.readouterr().out
+
+
+# --- outbound links --------------------------------------------------------
+
+
+RAKUTEN_TEMPLATE = (
+    "https://click.example-network.test/deeplink?id={affiliate_id}&murl={url}"
+)
+SHAREASALE_TEMPLATE = (
+    "https://example-network.test/r.cfm"
+    "?b={external_id}&u={affiliate_id}&urllink={raw_url}"
+)
+
+
+def test_link_construction_is_template_driven(conn):
+    """Two networks, two shapes, one code path.
+
+    The failure guarded is the first `if retailer.name == ...`: after one,
+    the disclosure and ranking rules end up enforced in nineteen places.
+    """
+    rakuten = Retailer(1, "Example Parfumerie", "rakuten", "aff-1", RAKUTEN_TEMPLATE)
+    shareasale = Retailer(2, "Example Scent Co", "shareasale", "aff-2",
+                          SHAREASALE_TEMPLATE)
+
+    assert build_url(rakuten, "https://shop.test/p/1") == (
+        "https://click.example-network.test/deeplink?id=aff-1"
+        "&murl=https%3A%2F%2Fshop.test%2Fp%2F1"
+    )
+    assert build_url(shareasale, "https://shop.test/p/2", "SKU-2") == (
+        "https://example-network.test/r.cfm?b=SKU-2&u=aff-2"
+        "&urllink=https://shop.test/p/2"
+    )
+
+
+def test_the_destination_is_percent_encoded_for_query_use(conn):
+    """A raw '&' in the destination truncates it into the tracker's own
+    query string, and the reader lands on the shop's home page."""
+    retailer = Retailer(1, "R", "rakuten", "a", RAKUTEN_TEMPLATE)
+    url = build_url(retailer, "https://shop.test/p?id=1&size=100")
+    assert "murl=https%3A%2F%2Fshop.test%2Fp%3Fid%3D1%26size%3D100" in url
+
+
+def test_a_template_without_a_tracking_id_is_refused():
+    """It works, the click happens, and the report is empty at month end."""
+    with pytest.raises(TemplateError, match="affiliate_id"):
+        validate_template("https://shop.test/p?u={url}")
+
+
+def test_a_template_without_a_destination_is_refused():
+    """Every product would link to the same page, and look fine doing it."""
+    with pytest.raises(TemplateError, match="destination"):
+        validate_template("https://click.test/?id={affiliate_id}")
+
+
+def test_an_unknown_placeholder_is_refused():
+    with pytest.raises(TemplateError, match="commission"):
+        validate_template("https://click.test/?id={affiliate_id}&c={commission}&u={url}")
+
+
+def test_a_bad_template_is_rejected_before_it_is_stored(conn):
+    """Found at render time, it has already built every link rendered so far."""
+    with pytest.raises(TemplateError):
+        add_retailer_validated(
+            conn, "Broken", network="rakuten", affiliate_id="a",
+            url_template="https://shop.test/{url}",
+        )
+    assert conn.execute("SELECT count(*) FROM retailers").fetchone()[0] == 0
+
+
+# --- disclosure and text-only ----------------------------------------------
+
+
+def test_a_link_cannot_be_obtained_without_its_disclosure(conn):
+    """Not a constant a renderer is trusted to remember."""
+    link = Link(url="https://click.test/x", retailer="R", product_name="p")
+    assert link.disclosure == "affiliate link"
+
+
+def test_the_disclosure_is_inline_at_the_link_not_in_a_footer(conn):
+    """A footer disclosure is one nobody reads."""
+    link = Link(url="https://click.test/x", retailer="Example Scent Co",
+                product_name="Creed Aventus EDP 100ml", price=235.0,
+                currency="GBP", size_ml=100.0, concentration="EDP")
+    rendered = render_link(link)
+
+    assert "(affiliate link)" in rendered
+    assert rendered.count("\n") == 0, "the disclosure is on the link's own line"
+    assert rendered.index("affiliate link") < rendered.index(link.url), (
+        "read before the thing it describes, not after"
+    )
+
+
+def test_rendering_emits_no_markup_and_no_imagery(conn):
+    """Text only: a brand's logo beside its name borrows its authority."""
+    link = Link(url="https://click.test/x", retailer="R",
+                product_name="Creed Aventus", price=1.0, currency="GBP")
+    rendered = render_link(link)
+    for token in ("<img", "<a ", "<", ">", "src=", "logo"):
+        assert token not in rendered.lower()
+
+
+# --- reading buying links --------------------------------------------------
+
+
+@pytest.fixture
+def shop(conn):
+    """One fragrance, three listings at two retailers, plus a bare fragrance."""
+    frag = add_fragrance(conn, "Creed Aventus")
+    add_fragrance(conn, "Obscure Indie Thing")
+
+    a = add_retailer_validated(conn, "Example Scent Co", network="shareasale",
+                               affiliate_id="aff-2",
+                               url_template=SHAREASALE_TEMPLATE)
+    b = add_retailer_validated(conn, "Example Parfumerie", network="rakuten",
+                               affiliate_id="aff-1", url_template=RAKUTEN_TEMPLATE)
+    for retailer, sku, price in ((a, "S-1", 235.0), (b, "R-1", 219.0), (a, "S-2", None)):
+        conn.execute(
+            "INSERT INTO products (fragrance_id, retailer_id, name, external_id, "
+            "                      price, currency, url, last_seen) "
+            "VALUES (?, ?, 'Creed Aventus EDP 100ml', ?, ?, 'GBP', "
+            "        'https://shop.test/p', '2026-08-10')",
+            (frag, retailer, sku, price),
+        )
+    conn.commit()
+    return conn, frag
+
+
+def test_buying_links_are_cheapest_first(shop):
+    """Ordered by what a buyer pays. There is no column for what we earn."""
+    conn, frag = shop
+    links = buying_links(conn, frag)
+    assert [link.price for link in links] == [219.0, 235.0, None]
+
+
+def test_every_buying_link_is_tracked_and_disclosed(shop):
+    conn, frag = shop
+    for link in buying_links(conn, frag):
+        assert "example-network.test" in link.url, "goes through the network"
+        assert link.disclosure
+
+
+def test_a_fragrance_with_no_listings_is_not_an_error(shop):
+    """No buying link is a normal state, not a missing one."""
+    conn, _ = shop
+    other = conn.execute(
+        "SELECT id FROM fragrances WHERE canonical_name = 'Obscure Indie Thing'"
+    ).fetchone()["id"]
+    assert buying_links(conn, other) == []
+
+
+def test_ordering_by_commission_is_not_expressible(conn):
+    """The strongest form of the trust rule: not a promise, a missing column."""
+    from fragrance_graph.commerce.links import BUYING_LINKS_SQL
+
+    forbidden = ("commission", "payout", "epc", "revenue", "margin")
+    assert not any(word in BUYING_LINKS_SQL.lower() for word in forbidden)
+    assert not any(
+        word in column.lower()
+        for column in columns(conn, "retailers") | columns(conn, "products")
+        for word in forbidden
+    )
+
+
+# --- links CLI -------------------------------------------------------------
+
+
+def test_cli_registers_a_retailer_and_refuses_a_bad_template(tmp_path, capsys):
+    from fragrance_graph.commerce.links import main
+
+    db = tmp_path / "cli.db"
+    ok = main(["retailer", "add", "Example Scent Co", "--network", "shareasale",
+               "--affiliate-id", "aff-2", "--url-template", RAKUTEN_TEMPLATE,
+               "--db-path", str(db)])
+    assert ok == 0
+
+    bad = main(["retailer", "add", "Broken", "--network", "x",
+                "--affiliate-id", "y", "--url-template", "https://shop.test/{url}",
+                "--db-path", str(db)])
+    assert bad == 1
+    assert "Refusing that template" in capsys.readouterr().out
+
+
+def test_cli_says_plainly_when_a_fragrance_has_no_links(tmp_path, capsys):
+    from fragrance_graph.commerce.links import main
+    from fragrance_graph.db import get_connection, migrate
+
+    db = tmp_path / "cli.db"
+    setup = get_connection(db)
+    migrate(setup)
+    add_fragrance(setup, "Obscure Indie Thing")
+    setup.close()
+
+    assert main(["links", "Obscure Indie Thing", "--db-path", str(db)]) == 0
+    assert "no buying links stored" in capsys.readouterr().out
