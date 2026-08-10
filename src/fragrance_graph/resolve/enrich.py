@@ -103,8 +103,13 @@ class Proposal:
     #: True when the reviewer is confirming rather than deciding.
     confident: bool = False
     #: Other catalogue rows for the same query, so a reviewer can correct
-    #: without a second lookup.
+    #: without a second lookup. Each carries `corpus_mentions`: how often
+    #: the corpus uses the words that distinguish it from the mention.
+    #: -1 means the name adds no word, i.e. it *is* the plain bottle.
     alternatives: list[dict] = field(default_factory=list)
+    #: Same count for the top match. 0 is the loud signal: the catalogue
+    #: proposed a bottle whose distinguishing word nobody ever wrote.
+    corpus_mentions: int = -1
     #: A couple of real comment spans using this mention, so the reviewer
     #: can see how people meant it. The dangerous case is flankers — a
     #: house ships Layton and Layton Exclusif, Khamrah and Khamrah Qahwa,
@@ -120,6 +125,45 @@ class Proposal:
 def _kept(record: dict) -> dict:
     """Strip a catalogue row to the three fields the product may store."""
     return {f: record.get(f) for f in KEPT_FIELDS}
+
+
+def distinguishing_words(mention: str, candidate: str) -> list[str]:
+    """The words in a catalogue name that the mention does not have.
+
+    For mention "Club de Nuit" against "Club de Nuit Sillage" this is
+    ["sillage"] — the word that makes it a different bottle. Flankers are
+    the failure that actually happens in review, and the extra word is
+    what separates them.
+    """
+    mention_words = set(normalize_name(mention).split())
+    return [w for w in normalize_name(candidate).split() if w not in mention_words]
+
+
+def corpus_support(conn: sqlite3.Connection, words: list[str]) -> int:
+    """How many corpus mentions contain every distinguishing word.
+
+    This is the signal that settles a flanker without fragrance knowledge.
+    If the catalogue offers "Club de Nuit Sillage" and nobody in the corpus
+    has ever written "sillage", people are not talking about that bottle —
+    and no amount of staring at the proposed name would tell you.
+
+    Deliberately corpus-grounded rather than expertise-grounded: a reviewer
+    should not need to know which Club de Nuit is the famous Aventus clone.
+    """
+    if not words:
+        # No distinguishing word means the catalogue name is the mention.
+        return -1
+    rows = conn.execute(
+        "SELECT raw_subject_text AS t FROM claims WHERE raw_subject_text IS NOT NULL"
+        " UNION ALL "
+        "SELECT raw_object_text FROM claims WHERE raw_object_text IS NOT NULL"
+    ).fetchall()
+    n = 0
+    for row in rows:
+        normalized = normalize_name(row["t"])
+        if all(w in normalized for w in words):
+            n += 1
+    return n
 
 
 EXAMPLES_SQL = """
@@ -147,13 +191,19 @@ def examples_for(conn: sqlite3.Connection, mention: str) -> list[str]:
 def propose_for(
     mention: str, count: int, results: list[dict], *,
     examples: list[str] | None = None,
+    support: dict[str, int] | None = None,
 ) -> Proposal:
-    """Build a review row. Pure, so it is testable without a network."""
+    """Build a review row. Pure, so it is testable without a network.
+
+    `support` maps a catalogue name to how often the corpus uses the words
+    distinguishing it from the mention — see `corpus_support`.
+    """
     proposal = Proposal(mention=mention, count=count,
                         examples=list(examples or []))
     if not results:
         proposal.note = "no catalogue match"
         return proposal
+    support = support or {}
 
     top = _kept(results[0])
     proposal.canonical_name = top["Name"]
@@ -161,9 +211,27 @@ def propose_for(
     proposal.year = top["Year"]
     proposal.score = round(similarity(mention, top["Name"] or ""), 3)
     proposal.confident = proposal.score >= CONFIDENT
-    proposal.alternatives = [_kept(r) for r in results[1:4]]
+    proposal.corpus_mentions = support.get(top["Name"], -1)
+    proposal.alternatives = [
+        {**_kept(r), "corpus_mentions": support.get(r.get("Name"), -1)}
+        for r in results[1:4]
+    ]
+
+    notes = []
     if not proposal.confident:
-        proposal.note = "name differs from the mention — check this one"
+        notes.append("name differs from the mention")
+    if proposal.corpus_mentions == 0:
+        # The decisive one. A flanker whose distinguishing word appears
+        # nowhere in the corpus is a bottle nobody was talking about.
+        better = [a for a in proposal.alternatives
+                  if a["corpus_mentions"] != 0]
+        notes.append(
+            "nobody in the corpus wrote "
+            f"{' '.join(distinguishing_words(mention, top['Name'] or ''))!r}"
+            + (f" — see alternatives ({len(better)} better supported)"
+               if better else "")
+        )
+    proposal.note = "; ".join(notes)
     return proposal
 
 
@@ -210,6 +278,22 @@ def _search(client, key: str, mention: str, *, limit: int = 4) -> list[dict]:
     return payload if isinstance(payload, list) else payload.get("data", [])
 
 
+def _propose_one(conn, client, key: str, mention: str, count: int) -> Proposal:
+    results = _search(client, key, mention)
+    support = {
+        r["Name"]: corpus_support(conn, distinguishing_words(mention, r["Name"]))
+        for r in results
+        if r.get("Name")
+    }
+    return propose_for(
+        mention,
+        count,
+        results,
+        examples=examples_for(conn, mention),
+        support=support,
+    )
+
+
 def propose(
     conn: sqlite3.Connection, out_path: Path, *, limit: int, min_count: int
 ) -> list[Proposal]:
@@ -238,12 +322,7 @@ def propose(
     with httpx.Client(timeout=30.0) as client:
         for mention, count in wanted:
             proposals.append(
-                propose_for(
-                    mention,
-                    count,
-                    _search(client, key, mention),
-                    examples=examples_for(conn, mention),
-                )
+                _propose_one(conn, client, key, mention, count)
             )
 
     write_review(out_path, proposals)

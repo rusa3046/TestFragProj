@@ -176,7 +176,7 @@ def test_a_distant_name_asks_to_be_read():
     quietly attaches the wrong bottle."""
     p = propose_for("Oajan", 8, [catalogue_row("Ocean Breeze")])
     assert not p.confident
-    assert "check this one" in p.note
+    assert "name differs from the mention" in p.note
 
 
 def test_alternatives_are_carried_so_a_fix_needs_no_second_lookup():
@@ -298,3 +298,86 @@ def test_proposal_equality_is_by_value():
     b = propose_for("Khamrah", 25, [catalogue_row("Lattafa Khamrah")])
     assert a == b
     assert isinstance(a, Proposal)
+
+
+# --- settling flankers without fragrance knowledge ---------------------------
+
+
+def test_distinguishing_words_isolates_the_flanker_word():
+    from fragrance_graph.resolve.enrich import distinguishing_words
+
+    assert distinguishing_words("Club de Nuit", "Club de Nuit Sillage") == ["sillage"]
+    assert distinguishing_words("Layton", "Layton Exclusif") == ["exclusif"]
+    assert distinguishing_words("Khamrah", "Lattafa Khamrah") == ["lattafa"]
+    assert distinguishing_words("Layton", "Layton") == []
+
+
+def test_corpus_support_counts_who_actually_wrote_the_word(conn):
+    """The signal that settles a flanker without knowing any fragrance trivia.
+
+    A reviewer should not need to know which Club de Nuit is the famous
+    Aventus clone. They need to know that nobody in their corpus ever
+    wrote "sillage".
+    """
+    from fragrance_graph.resolve.enrich import corpus_support
+
+    target = add_fragrance(conn, "Creed Aventus")
+    for i, subject in enumerate(
+        ["club de nuit", "Club de Nuit Intense Man", "CDNIM"]
+    ):
+        cid = add_comment(conn, i, body="x", author=f"a{i}")
+        conn.execute(
+            """INSERT INTO claims
+               (comment_id, claim_type, subject_kind, raw_subject_text,
+                object_kind, raw_object_text, object_frag_id, sentiment,
+                confidence, evidence_span, evidence_verified,
+                extraction_model, created_at)
+               VALUES (?, 'DUPE_OF', 'FRAGRANCE', ?, 'FRAGRANCE', 'Aventus',
+                       ?, 'POSITIVE', 0.9, 'e', 1, 't', 'd')""",
+            (cid, subject, target),
+        )
+    conn.commit()
+
+    assert corpus_support(conn, ["sillage"]) == 0, "nobody wrote it"
+    assert corpus_support(conn, ["intense", "man"]) == 1
+    assert corpus_support(conn, []) == -1, "no distinguishing word at all"
+
+
+def test_a_flanker_nobody_mentions_is_flagged_loudly(conn):
+    """The case the doc's first draft got wrong.
+
+    Explaining this via "the Aventus clone is Intense Man" needs outside
+    knowledge. The corpus count needs none: the catalogue proposed
+    Sillage, and the word "sillage" appears nowhere.
+    """
+    p = propose_for(
+        "Club de Nuit",
+        7,
+        [
+            catalogue_row("Club de Nuit Sillage", brand="Armaf"),
+            catalogue_row("Club de Nuit Intense Man", brand="Armaf"),
+        ],
+        support={"Club de Nuit Sillage": 0, "Club de Nuit Intense Man": 9},
+    )
+
+    assert p.corpus_mentions == 0
+    assert "nobody in the corpus wrote" in p.note
+    assert "better supported" in p.note
+    assert p.alternatives[0]["corpus_mentions"] == 9
+
+
+def test_a_well_supported_match_is_not_flagged(conn):
+    p = propose_for(
+        "Khamrah", 25, [catalogue_row("Lattafa Khamrah")],
+        support={"Lattafa Khamrah": 12},
+    )
+    assert "nobody in the corpus wrote" not in p.note
+
+
+def test_a_name_adding_nothing_is_the_plain_bottle(conn):
+    """-1 means the catalogue name is the mention, so there is no flanker
+    question to answer."""
+    p = propose_for("Layton", 83, [catalogue_row("Layton", brand="Parfums de Marly")],
+                    support={"Layton": -1})
+    assert p.corpus_mentions == -1
+    assert "nobody in the corpus wrote" not in p.note

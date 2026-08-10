@@ -40,9 +40,13 @@ when the top match is a flanker you can usually correct it without another
 lookup: copy the right `Name` and `Brand` up into `canonical_name` and
 `brand`, then approve.
 
-## Read `examples` first
+## The signal that settles it: `corpus_mentions`
 
-Every row carries up to two real spans people wrote using that mention:
+A name alone cannot tell you which sibling people meant, and neither can
+fragrance knowledge you may not have. **Your own corpus can.**
+
+Every catalogue name is scored by how often the corpus uses the words that
+*distinguish it from the mention*:
 
 ```json
 {
@@ -50,19 +54,49 @@ Every row carries up to two real spans people wrote using that mention:
   "count": 7,
   "canonical_name": "Club de Nuit Sillage",
   "brand": "Armaf",
-  "confident": false,
-  "examples": [
-    "club de nuit is the best aventus clone for the money",
-    "I have club de nuit intense man and it lasts all day"
+  "corpus_mentions": 0,
+  "note": "nobody in the corpus wrote 'sillage' — see alternatives (1 better supported)",
+  "alternatives": [
+    {"Name": "Club de Nuit Intense Man", "Brand": "Armaf", "corpus_mentions": 9}
   ],
-  "alternatives": [{"Name": "Club de Nuit Intense Man", "Brand": "Armaf", ...}],
+  "examples": ["I have club de nuit intense man and it lasts all day"],
   "approved": null
 }
 ```
 
-The examples settle it. People are talking about the Aventus clone, which
-is Intense Man — so the top match is wrong, and the fix is in
-`alternatives`. Without the quotes you would be guessing from a name.
+Read it as arithmetic, not expertise:
+
+- The catalogue proposed **Sillage**. The word that makes it Sillage rather
+  than plain Club de Nuit is `"sillage"`. **That word appears zero times in
+  your corpus** — nobody discussing this has ever typed it.
+- The alternative adds `"intense man"`, and **those words appear 9 times.**
+
+So people are not talking about Sillage. Copy `Club de Nuit Intense Man`
+into `canonical_name` and approve. You needed no knowledge of fragrance,
+only two counts from your own data.
+
+`corpus_mentions` values:
+
+| value | meaning |
+|---|---|
+| `-1` | the name adds no word — it *is* the plain bottle, no flanker question |
+| `0` | **the loud one.** A bottle whose distinguishing word nobody wrote |
+| `n` | that many corpus mentions use the distinguishing words |
+
+## `examples` are context, not proof
+
+Each row also carries up to two real spans people wrote:
+
+```json
+"examples": ["club de nuit is the best aventus clone for the money"]
+```
+
+Useful for seeing how a word gets used — but **often it will not settle
+anything.** That quote only identifies the bottle if you happen to know
+which Club de Nuit is the famous Aventus clone, and you should not have to.
+Treat the examples as colour and `corpus_mentions` as the evidence.
+
+When neither settles it, reject. See below.
 
 ## How to work through the file
 
