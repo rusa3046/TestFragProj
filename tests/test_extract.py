@@ -665,3 +665,19 @@ def test_reset_leaves_unlabelled_comments_alone(conn):
 
     assert conn.execute("SELECT count(*) FROM claims").fetchone()[0] == 1
     assert len(pending_comments(conn, 10)) == 1
+
+
+def test_only_labelled_says_so_when_there_are_no_labels(conn, tmp_path):
+    """"Reset 0 comments" is true and useless; the cause is usually a
+    scratch database rebuilt from a corpus export that predates labelling."""
+    from fragrance_graph.db import get_connection, migrate
+
+    db = tmp_path / "nolabels.db"
+    conn.close()
+    fresh = get_connection(db)
+    migrate(fresh)
+    ingest(fresh, [make_comment(1, body=BODY)])
+    fresh.close()
+
+    with pytest.raises(SystemExit, match="no eval labels"):
+        main(["--only-labelled", "--reset", "--db-path", str(db)])

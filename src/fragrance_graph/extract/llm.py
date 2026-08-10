@@ -853,6 +853,24 @@ def main(argv: list[str] | None = None) -> int:
     conn = get_connection(args.db_path)
     migrate(conn)
 
+    if args.only_labelled:
+        # "Reset 0 comments" and "No comments pending" are both true when a
+        # database simply has no labels in it, and neither says so. The
+        # usual cause is a scratch database rebuilt from a corpus export
+        # that predates the labelling.
+        labelled = conn.execute("SELECT count(*) FROM eval_labels").fetchone()[0]
+        if not labelled:
+            conn.close()
+            raise SystemExit(
+                "--only-labelled was passed but this database holds no eval "
+                "labels, so there is nothing to extract.\n\n"
+                "If this is a scratch database, the corpus export it was "
+                "built from predates the labels. Re-export from the database "
+                "that has them, then rebuild:\n"
+                "  python -m fragrance_graph.corpus export --db-path <real.db>\n"
+                "  python -m fragrance_graph.corpus import --db-path <scratch.db>"
+            )
+
     if args.reset:
         cleared = reset_extraction(conn, labelled_only=args.only_labelled)
         log.warning(
