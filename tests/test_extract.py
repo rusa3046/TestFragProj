@@ -12,8 +12,10 @@ from fragrance_graph.extract.llm import (
     BatchParseError,
     CostTracker,
     call_model,
+    estimate_cost,
     extract,
     iter_batches,
+    main,
     parse_response,
     pending_comments,
     render_batch,
@@ -450,3 +452,106 @@ def test_unverified_evidence_log_is_not_truncated(conn, caplog):
     logged = "\n".join(r.getMessage() for r in caplog.records)
     assert long_span in logged, "full span needed to diagnose the mismatch"
     assert "unrelated body text" in logged, "body needed for comparison"
+
+
+# --- cost estimation --------------------------------------------------------
+
+
+def test_estimate_charges_the_fixed_prompt_once_per_batch(conn):
+    """The whole argument for batching, expressed as a test."""
+    seed(conn, n=20)
+    rows = pending_comments(conn, 20)
+
+    one_call = estimate_cost(rows, batch_size=20)
+    twenty_calls = estimate_cost(rows, batch_size=1)
+
+    assert one_call.batches == 1
+    assert twenty_calls.batches == 20
+    assert twenty_calls.input_tokens > one_call.input_tokens * 5
+
+
+def test_estimate_output_scales_with_comment_count(conn):
+    seed(conn, n=10)
+    rows = pending_comments(conn, 10)
+
+    estimate = estimate_cost(rows, output_tokens_per_comment=100)
+    assert estimate.output_tokens == 1000
+
+
+def test_estimate_output_assumption_is_overridable(conn):
+    seed(conn, n=4)
+    rows = pending_comments(conn, 4)
+
+    low = estimate_cost(rows, output_tokens_per_comment=10)
+    high = estimate_cost(rows, output_tokens_per_comment=1000)
+
+    assert high.cost_usd > low.cost_usd
+
+
+def test_estimate_of_nothing_costs_nothing():
+    estimate = estimate_cost([])
+
+    assert (estimate.comments, estimate.batches, estimate.cost_usd) == (0, 0, 0.0)
+    assert estimate.cost_per_1k_comments == 0.0
+    assert "Nothing to estimate" in estimate.render()
+
+
+def test_estimate_longer_comments_cost_more(conn):
+    ingest(conn, [make_comment(1, body="short")])
+    short = estimate_cost(pending_comments(conn, 1))
+    ingest(conn, [make_comment(2, body="word " * 500)])
+    both = estimate_cost(pending_comments(conn, 2))
+
+    assert both.input_tokens > short.input_tokens
+
+
+def test_render_labels_itself_an_estimate_and_states_assumptions(conn):
+    """A projected number that reads like a measurement is a trap."""
+    seed(conn, n=3)
+    rendered = estimate_cost(pending_comments(conn, 3)).render()
+
+    assert "ESTIMATE" in rendered
+    assert "no API call was made" in rendered
+    assert "Assumptions:" in rendered
+    assert "per 1k comments" in rendered
+
+
+def test_dry_run_needs_no_api_key(conn, tmp_path, monkeypatch, capsys):
+    """The reason this path exists: cost before credentials."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    db = tmp_path / "dry.db"
+    conn.close()
+
+    from fragrance_graph.db import get_connection, migrate
+
+    fresh = get_connection(db)
+    migrate(fresh)
+    ingest(fresh, [make_comment(i, body=BODY) for i in range(3)])
+    fresh.close()
+
+    assert main(["--dry-run", "--db-path", str(db)]) == 0
+
+    out = capsys.readouterr().out
+    assert "ESTIMATE" in out
+    assert "comments pending        3" in out
+
+
+def test_dry_run_writes_nothing(conn, tmp_path):
+    db = tmp_path / "dry2.db"
+    conn.close()
+
+    from fragrance_graph.db import get_connection, migrate
+
+    fresh = get_connection(db)
+    migrate(fresh)
+    ingest(fresh, [make_comment(1, body=BODY)])
+    fresh.close()
+
+    main(["--dry-run", "--db-path", str(db)])
+
+    check = get_connection(db)
+    assert check.execute("SELECT count(*) FROM claims").fetchone()[0] == 0
+    assert check.execute(
+        "SELECT count(*) FROM comments WHERE extracted_at IS NOT NULL"
+    ).fetchone()[0] == 0
+    check.close()

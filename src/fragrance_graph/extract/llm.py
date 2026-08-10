@@ -281,6 +281,130 @@ class CostTracker:
 
 
 # --------------------------------------------------------------------------
+# Cost estimation (no API call)
+#
+# The point of this path is to answer "what will this run cost?" before
+# spending anything, on a machine that may hold no API key at all. That
+# rules out `client.messages.count_tokens`, which is free but still a
+# network call against a credentialed endpoint.
+#
+# What is left is arithmetic over character counts, which is an estimate
+# and is labelled as one everywhere it surfaces. Input is the solid half:
+# the exact text sent is known. Output is a genuine assumption, because it
+# depends on how many claims the comments turn out to assert.
+# --------------------------------------------------------------------------
+
+#: Characters per token for English prose. A rule of thumb, not a
+#: tokenizer — expect a few percent of error, more on comments dense with
+#: emoji, CJK, or brand names that fragment into many tokens.
+CHARS_PER_TOKEN = 4.0
+
+#: Per-call input tokens that are not the prompt or the comments: message
+#: envelope, role markers, and the structured-output plumbing around the
+#: schema. Small and roughly constant.
+PER_CALL_OVERHEAD_TOKENS = 40
+
+#: Output tokens per comment, averaged over comments that assert nothing
+#: and comments that assert several claims.
+#:
+#: Derived, not measured directly: SPEC.md records $1.14-$1.22 per 1k
+#: comments on the v2 Reddit sample, where output tokens dominate. Backing
+#: that out at $5/Mtok output lands near this figure. It is the weakest
+#: number in this module and the only one that is a guess.
+#:
+#: `extract()` logs the true input/output split on every real run — once a
+#: run over the real corpus exists, recalibrate this from that log rather
+#: than trusting the derivation.
+DEFAULT_OUTPUT_TOKENS_PER_COMMENT = 160
+
+
+def estimate_tokens(text: str) -> int:
+    """Approximate token count for a string. See CHARS_PER_TOKEN."""
+    return int(len(text) / CHARS_PER_TOKEN)
+
+
+@dataclass(frozen=True)
+class CostEstimate:
+    """A projected run cost. Every field is an estimate, not a measurement."""
+
+    comments: int
+    batches: int
+    input_tokens: int
+    output_tokens: int
+    output_tokens_per_comment: int
+    model: str
+
+    @property
+    def cost_usd(self) -> float:
+        return (
+            self.input_tokens / 1_000_000 * PRICE_INPUT_PER_MTOK
+            + self.output_tokens / 1_000_000 * PRICE_OUTPUT_PER_MTOK
+        )
+
+    @property
+    def cost_per_1k_comments(self) -> float:
+        if not self.comments:
+            return 0.0
+        return self.cost_usd / self.comments * 1000
+
+    def render(self) -> str:
+        if not self.comments:
+            return "No comments pending extraction. Nothing to estimate."
+        return "\n".join(
+            [
+                f"ESTIMATE — no API call was made. Model: {self.model}",
+                "",
+                f"  comments pending        {self.comments}",
+                f"  batches                 {self.batches}",
+                f"  input tokens  (est.)    {self.input_tokens:,}",
+                f"  output tokens (est.)    {self.output_tokens:,}",
+                "",
+                f"  projected cost          ${self.cost_usd:.4f}",
+                f"  per 1k comments         ${self.cost_per_1k_comments:.4f}",
+                "",
+                "Assumptions:",
+                f"  {CHARS_PER_TOKEN} chars/token; "
+                f"{self.output_tokens_per_comment} output tokens per comment",
+                "  Output volume scales with how many claims the comments assert,",
+                "  so treat this as an order of magnitude, not a quote.",
+            ]
+        )
+
+
+def estimate_cost(
+    rows: Sequence[sqlite3.Row],
+    *,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    output_tokens_per_comment: int = DEFAULT_OUTPUT_TOKENS_PER_COMMENT,
+    model: str = MODEL,
+) -> CostEstimate:
+    """Project the cost of extracting `rows`, without calling the API.
+
+    The fixed cost per call — system prompt plus the JSON schema, which
+    structured outputs sends as input on every request — is charged once
+    per batch, which is the whole argument for batching in the first place.
+    """
+    schema_tokens = estimate_tokens(json.dumps(RESPONSE_SCHEMA))
+    prompt_tokens = estimate_tokens(SYSTEM_PROMPT)
+    fixed_per_call = schema_tokens + prompt_tokens + PER_CALL_OVERHEAD_TOKENS
+
+    input_tokens = 0
+    batches = 0
+    for batch in iter_batches(rows, batch_size):
+        input_tokens += fixed_per_call + estimate_tokens(render_batch(batch))
+        batches += 1
+
+    return CostEstimate(
+        comments=len(rows),
+        batches=batches,
+        input_tokens=input_tokens,
+        output_tokens=len(rows) * output_tokens_per_comment,
+        output_tokens_per_comment=output_tokens_per_comment,
+        model=model,
+    )
+
+
+# --------------------------------------------------------------------------
 # Parsing
 # --------------------------------------------------------------------------
 
@@ -593,6 +717,21 @@ def main(argv: list[str] | None = None) -> int:
         "--max-tokens", type=int, default=DEFAULT_MAX_TOKENS, help="Output cap per call"
     )
     parser.add_argument("--db-path", default=DEFAULT_DB_PATH, help="SQLite database path")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Estimate cost and exit. Makes no API call and needs no API key.",
+    )
+    parser.add_argument(
+        "--assume-output-tokens",
+        type=int,
+        default=DEFAULT_OUTPUT_TOKENS_PER_COMMENT,
+        metavar="N",
+        help=(
+            "Output tokens per comment assumed by --dry-run. "
+            f"Default: {DEFAULT_OUTPUT_TOKENS_PER_COMMENT}"
+        ),
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Debug logging")
     args = parser.parse_args(argv)
 
@@ -610,6 +749,22 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = get_connection(args.db_path)
     migrate(conn)
+
+    # The estimate runs before the credential check on purpose: deciding
+    # whether a run is affordable should not require holding a key.
+    if args.dry_run:
+        try:
+            estimate = estimate_cost(
+                pending_comments(conn, args.limit),
+                batch_size=args.batch_size,
+                output_tokens_per_comment=args.assume_output_tokens,
+                model=args.model,
+            )
+        finally:
+            conn.close()
+        print(estimate.render())
+        return 0
+
     client = build_client()
 
     try:
