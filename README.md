@@ -76,14 +76,27 @@ Measured from the committed corpus, 2026-08-10:
 reaches a reader, because an edge needs *both* its subject and its object
 to be a curated bottle.
 
-Curating 18 fragrances by hand (not committed) turns that 0 into 19 claims,
-**5 distinct pairs, 2 of which clear Phase D's 3-commenter bar.** Twelve of
-the eighteen return nothing.
+**How far curation has to go**, measured on the 467 edge-eligible claims
+whose two ends are both nameable — not modelled, counted:
 
-Resolution compounds: ~40% of mention slots resolved yields 3% of
-comparison claims fully resolved, because both ends must land. That is why
-curation is the bottleneck and why its payoff accelerates — each new
-fragrance can pair with every one already curated.
+| curate top N | claims resolved | distinct pairs |
+|---|---|---|
+| 16 (`scripts/seed_fragrances.py`) | 10 | 4 |
+| 25 | 29 | 14 |
+| 40 | 46 | 26 |
+| 60 | 74 | 45 |
+| 80 | 97 | 61 |
+| 120 | 148 | 97 |
+| 200 | 217 | 161 |
+
+Both ends must land, so the yield is superlinear and the first entries are
+worth the least. **16 sits at the bottom of a steep curve** — it exists to
+make the pipeline demonstrable end to end, not to be a result. Sixty to
+eighty is where this becomes a product.
+
+An earlier version of this table estimated the yield as coverage squared
+and overshot by roughly 3x, because mentions cluster by video rather than
+pairing independently. The numbers above are counted.
 
 What that does **not** yet establish:
 
