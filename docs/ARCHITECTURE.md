@@ -148,6 +148,52 @@ defect appears that the current sample cannot see.
 
 Neither is a treadmill. Both are front-loaded.
 
+## Is this training? No.
+
+**Nothing in this system learns from human input.** There is no
+fine-tuning step, and the labels never reach the extractor. They are a
+ruler, not a teacher: they measure whether it read a comment correctly and
+have no effect on how it reads the next one.
+
+That matters for predicting the ongoing cost, because maintenance and
+training have very different shapes.
+
+**Curation is permanent but incremental.** A dictionary needs new words
+when new words appear. A fragrance launches, someone mentions it, you add
+one line — once. Existing entries are never re-checked; "Layton = Parfums
+de Marly Layton" stays true. The effort scales with **new releases
+entering conversation**, not with corpus size: ingest 100,000 more
+comments about fragrances already curated and the manual work is zero.
+Spelling variants are handled automatically by fuzzy matching (58 of 474
+resolutions in one run), so what gets curated is the bottle, not every way
+people type it.
+
+**Labels do not expire.** They test reading comprehension — does the model
+understand "X is a dupe of Y" — not which bottles exist. A comment about a
+2027 release parses the same way as one about Aventus. Revisit them when
+the taxonomy changes, the model changes, or the instrument needs to be
+sharper. Not on a schedule.
+
+**Skipping curation degrades gracefully.** An uncurated fragrance simply
+does not appear in results; its claims are still extracted and stored,
+waiting. Curate the name a year later and every claim about it lights up
+retroactively — `backfill` is idempotent and applies to everything already
+in the database, with no re-extraction and no cost. Nothing deferred is
+lost.
+
+### The lever, if curation ever becomes a burden
+
+Most curation is mechanical rather than a judgement call — "Khamrah" ->
+"Lattafa Khamrah" is a lookup. A stronger model could draft canonical
+names and brands for unresolved mentions, with a human approving or
+correcting, exactly as `autolabel` does for labels.
+
+Not built, deliberately. It needs the same safeguard labelling needed: a
+model confidently inventing a brand is worse than an empty dictionary, so
+it would want a blind-check step measuring drafter-to-human agreement
+before the drafts could be trusted in bulk. Worth building at a few
+hundred entries. Not worth it at fifty.
+
 ## Where the money goes
 
 | | cost |
