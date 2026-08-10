@@ -160,6 +160,25 @@ _PUNCTUATION_FOLD = str.maketrans(
 )
 
 
+def author_from_payload(payload: dict) -> str:
+    """The comment author's stable pseudonymous id, or '' if absent.
+
+    Every source hides this somewhere different — YouTube under
+    `authorChannelId.value`, Reddit under `author`. Both are checked for
+    every payload rather than dispatching on source, so a corpus exported
+    before this existed re-imports identically to a fresh ingest.
+
+    Returns the platform id, never the display name. Ranking needs to know
+    two comments came from one person; it does not need to know who, and a
+    display name is the field that ends up on a public page by accident.
+    """
+    channel = payload.get("authorChannelId")
+    if isinstance(channel, dict) and channel.get("value"):
+        return str(channel["value"])
+    author = payload.get("author")
+    return str(author) if author else ""
+
+
 def normalize_for_match(text: str) -> str:
     """Collapse whitespace, case, and typographic punctuation for matching.
 

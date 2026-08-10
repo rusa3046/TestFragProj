@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.models import author_from_payload
 
 log = logging.getLogger("fragrance_graph.ingest.reddit")
 
@@ -43,9 +44,11 @@ DEFAULT_USER_AGENT = (
 
 INSERT_SQL = """
 INSERT INTO comments
-    (source, source_id, body, permalink, created_utc, source_channel, score, raw_json)
+    (source, source_id, body, permalink, created_utc, source_channel, score,
+     author_id, raw_json)
 VALUES
-    (:source, :source_id, :body, :permalink, :created_utc, :source_channel, :score, :raw_json)
+    (:source, :source_id, :body, :permalink, :created_utc, :source_channel, :score,
+     :author_id, :raw_json)
 ON CONFLICT (source, source_id) DO NOTHING
 """
 
@@ -101,7 +104,20 @@ def ingest(
     started = time.monotonic()
     try:
         for row in comments:
-            cur = conn.execute(INSERT_SQL, {"source": source, **row})
+            # author_id is derived here rather than in each source's
+            # normalizer, so it cannot depend on which code path built the
+            # row. A row whose payload names no author is unknown-author,
+            # which the ranking counts as its own distinct commenter.
+            cur = conn.execute(
+                INSERT_SQL,
+                {
+                    "source": source,
+                    "author_id": author_from_payload(
+                        json.loads(row.get("raw_json") or "{}")
+                    ),
+                    **row,
+                },
+            )
             if cur.rowcount:
                 stats.new += 1
             else:

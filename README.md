@@ -40,9 +40,11 @@ YouTube comments  →  LLM claim extraction  →  entity resolution  →  ranked
 
 ## Status
 
-**Steps 1 and 2 are built and have run on real data. Step 3 is built but
-uncurated. Step 4 does not exist.** There is currently no way to ask "what is
-similar to X" — the only query dumps every edge in the database.
+**Steps 1, 2 and 4 are built and have run on real data. Step 3 is built but
+uncurated**, which is the only thing standing between the corpus and real
+answers: 18 fragrances curated in a scratch database resolved 504 of the
+corpus's mentions and produced the `query` output shown below. None of that
+curation is committed — see `resolve.entities report`.
 
 First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
 
@@ -59,8 +61,11 @@ What that does **not** yet establish:
 - **Extraction accuracy is still unmeasured.** No claim has been scored
   against a human label. 0.441 claims per comment says nothing about whether
   they are the right claims.
-- **Nothing is resolved.** Until fragrances are curated, the claims are edges
-  between strings, not between bottles.
+- **Nothing is resolved in the committed corpus.** `fragrances.jsonl` is
+  empty, so out of the box the claims are edges between strings. 846
+  distinct unresolved mentions; the head of that list is short and
+  repetitive (Layton 99, Khamrah 44, Aventus 57 across casings), so the
+  first hour of curation is worth far more than the last.
 - There is no product, price, or retailer data of any kind.
 
 [AUDIT.md](./AUDIT.md) is a read-only assessment of what is real, what is
@@ -179,6 +184,31 @@ uv run python -m fragrance_graph.resolve.entities edges       # all edges, count
 Curation is human work by design. `report` ranks unresolved mentions by how
 often they appear, so twenty minutes spent at the top of that list resolves most
 of the corpus.
+
+Ask the question the project exists for:
+
+```bash
+uv run python -m fragrance_graph.query "Creed Aventus" --limit 5 --quotes 2
+```
+
+```
+  3 people  SIMILAR_TO  Armaf Club de Nuit Intense Man  [neutral]
+         ← "he asked me are you wearing Creed Aventus"
+           https://www.youtube.com/watch?v=ZOd2QEVJX8c&lc=UgxRN4jz...
+  2 people  BETTER_THAN Armaf Club de Nuit Intense Man  [positive]
+         → "CDNIM smells like a dollar store fragrance compared to Aventus"
+```
+
+`→` means the claim was written about the fragrance you asked for; `←`
+means it was written about the other one. `DUPE_OF` and `SIMILAR_TO` read
+from either end — "B is a dupe of A" is the same fact whichever bottle you
+arrived at. `BETTER_THAN` does not, because being beaten is not a
+recommendation.
+
+**Ranking is distinct commenters, never claim rows.** One person saying
+"BR540 dupe" in four threads is one person, and counting rows would render
+a loud minority as consensus. `--min-commenters N` hides results thinner
+than N people.
 
 ## Measuring extraction quality
 

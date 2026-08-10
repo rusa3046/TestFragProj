@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.models import author_from_payload
 
 log = logging.getLogger("fragrance_graph.corpus")
 
@@ -213,15 +214,22 @@ def import_corpus(conn: sqlite3.Connection, directory: Path) -> CorpusStats:
             )
         stats.fragrances += 1
 
+    # author_id is derived, not exported. It lives inside raw_json already,
+    # and duplicating it into the JSONL would rewrite all 3,155 lines of a
+    # committed corpus to add a field that is a pure function of one
+    # already there.
+    columns = (*COMMENT_FIELDS, "author_id")
     for record in _read_jsonl(directory / COMMENTS_FILE):
-        placeholders = ", ".join("?" for _ in COMMENT_FIELDS)
+        placeholders = ", ".join("?" for _ in columns)
+        author = author_from_payload(json.loads(record["raw_json"] or "{}"))
         conn.execute(
-            f"INSERT INTO comments ({', '.join(COMMENT_FIELDS)}) "
+            f"INSERT INTO comments ({', '.join(columns)}) "
             f"VALUES ({placeholders}) "
             "ON CONFLICT (source, source_id) DO UPDATE SET "
             "body = excluded.body, extracted_at = excluded.extracted_at, "
-            "score = excluded.score, raw_json = excluded.raw_json",
-            tuple(record[field] for field in COMMENT_FIELDS),
+            "score = excluded.score, raw_json = excluded.raw_json, "
+            "author_id = excluded.author_id",
+            (*(record[field] for field in COMMENT_FIELDS), author),
         )
         stats.comments += 1
 
