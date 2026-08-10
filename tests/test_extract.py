@@ -809,14 +809,29 @@ def test_pydantic_is_the_only_thing_enforcing_per_type_object_kinds():
     assert parse_response(text, batch_size=1)[0] == [], "DUPE_OF must refuse TAG"
 
 
-def test_dry_run_refuses_to_reset(conn, tmp_path):
+def test_dry_run_prices_a_reset_without_performing_it(conn, capsys):
     """--dry-run says it makes no API call, which reads as "changes
-    nothing". Combined with --reset it used to delete the claims and exit
-    before re-extracting them — the safe-looking flag was the destructive
-    one."""
-    from fragrance_graph.extract.llm import main
+    nothing". It used to run the reset anyway and return before
+    re-extracting, so the safe-looking flag was the destructive one.
 
-    with pytest.raises(SystemExit) as exc:
-        main(["--dry-run", "--reset", "--db-path", str(tmp_path / "x.db")])
+    It must still price the run — otherwise a re-extraction cannot be
+    costed at all, since --reset has to happen before the comments look
+    pending."""
+    from fragrance_graph.extract.llm import main, pending_comments
 
-    assert "emptier than they found it" in str(exc.value)
+    (comment_id,) = seed(conn)
+    conn.execute("UPDATE comments SET extracted_at = '2026-01-01'")
+    conn.commit()
+    db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+    conn.commit()
+
+    assert pending_comments(conn, 100) == [], "already extracted"
+    assert len(pending_comments(conn, 100, as_if_reset=True)) == 1
+
+    main(["--dry-run", "--reset", "--db-path", db_path])
+
+    out = capsys.readouterr().out
+    assert "comments pending" in out and " 1\n" in out
+    assert conn.execute("SELECT extracted_at FROM comments").fetchone()[0], (
+        "--dry-run must not clear extracted_at"
+    )

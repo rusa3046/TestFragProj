@@ -701,11 +701,46 @@ def write_claims(
     return len(claims), unverified
 
 
+#: The same two queries with the extracted_at filter dropped — what would
+#: be pending if --reset ran. Used only to price a reset without performing
+#: one, since after a real reset these and the pending queries agree.
+SELECT_AFTER_RESET_SQL = """
+SELECT id, body FROM comments
+ORDER BY id
+LIMIT ?
+"""
+
+SELECT_AFTER_RESET_LABELLED_SQL = """
+SELECT c.id, c.body FROM comments c
+WHERE EXISTS (SELECT 1 FROM eval_labels l WHERE l.comment_id = c.id)
+ORDER BY c.id
+LIMIT ?
+"""
+
+
 def pending_comments(
-    conn: sqlite3.Connection, limit: int, *, labelled_only: bool = False
+    conn: sqlite3.Connection,
+    limit: int,
+    *,
+    labelled_only: bool = False,
+    as_if_reset: bool = False,
 ) -> list[sqlite3.Row]:
-    """Comments that have never been extracted, oldest first."""
-    sql = SELECT_PENDING_LABELLED_SQL if labelled_only else SELECT_PENDING_SQL
+    """Comments that have never been extracted, oldest first.
+
+    `as_if_reset` ignores `extracted_at`, answering "what would this cost
+    if I reset first" without deleting anything. Pricing a re-run used to
+    be impossible: --reset had to happen before the comments looked
+    pending, so the only way to see the number was to pay for it or to
+    destroy the claims and exit.
+    """
+    if as_if_reset:
+        sql = (
+            SELECT_AFTER_RESET_LABELLED_SQL
+            if labelled_only
+            else SELECT_AFTER_RESET_SQL
+        )
+    else:
+        sql = SELECT_PENDING_LABELLED_SQL if labelled_only else SELECT_PENDING_SQL
     return conn.execute(sql, (limit,)).fetchall()
 
 
@@ -980,22 +1015,13 @@ def main(argv: list[str] | None = None) -> int:
                 "  python -m fragrance_graph.corpus import --db-path <scratch.db>"
             )
 
+    # --dry-run is documented as making no API call, which reads as
+    # changing nothing. It used to run the reset anyway and then return
+    # before re-extracting, so the safe-looking flag was the destructive
+    # one. Now it prices the reset instead of performing it.
     if args.reset and args.dry_run:
-        # --dry-run is documented as "makes no API call and needs no API
-        # key", which reads as "changes nothing". Combining it with --reset
-        # used to delete the claims and then exit before re-extracting
-        # them, so the safe-looking flag was the destructive one.
-        conn.close()
-        raise SystemExit(
-            "--reset deletes claims and --dry-run exits before re-extracting "
-            "them, so together they would leave the database emptier than "
-            "they found it.\n\n"
-            "To price the run first, estimate the reset separately:\n"
-            "  python -m fragrance_graph.extract.llm --dry-run --limit 50\n"
-            "then re-run with --reset when you are ready to pay for it."
-        )
-
-    if args.reset:
+        log.info("--dry-run: pricing the reset, not performing it.")
+    elif args.reset:
         cleared = reset_extraction(conn, labelled_only=args.only_labelled)
         log.warning(
             "Reset %d comment(s): their claims are deleted and they will be "
@@ -1009,7 +1035,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             estimate = estimate_cost(
                 pending_comments(
-                    conn, args.limit, labelled_only=args.only_labelled
+                    conn,
+                    args.limit,
+                    labelled_only=args.only_labelled,
+                    as_if_reset=args.reset,
                 ),
                 batch_size=args.batch_size,
                 output_tokens_per_comment=args.assume_output_tokens,
