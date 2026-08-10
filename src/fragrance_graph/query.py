@@ -24,6 +24,12 @@ ranking, and flattening its direction would turn a fragrance's critics into
 its recommendations. Direction is preserved on every result regardless, so
 a page can phrase the claim the way it was actually made.
 
+**Denials are never edges.** "Delina and Baccarat smells nothing alike"
+names two fragrances and a comparison type, and asserts the edge does not
+exist. Counting it would put a real person's name behind the opposite of
+what they wrote — the single worst thing an evidence-first product can do.
+Measured at 7.2% of similarity claims before `polarity` existed.
+
 **Evidence is required.** Only claims whose `evidence_span` was verified
 against the comment body are counted. An unverified span is a paraphrase we
 cannot show a reader as something a person wrote, and a result whose
@@ -152,6 +158,7 @@ SELECT c.id            AS claim_id,
   JOIN fragrances f  ON f.id = c.object_frag_id
  WHERE c.subject_frag_id = :fragrance_id
    AND c.evidence_verified = 1
+   AND c.polarity = 'ASSERTED'
    AND c.claim_type IN ({_sql_list(RELATED_TYPES)})
    AND f.id <> :fragrance_id
 
@@ -166,6 +173,7 @@ SELECT c.id, c.claim_type, c.sentiment, c.evidence_span, c.confidence,
   JOIN fragrances f  ON f.id = c.subject_frag_id
  WHERE c.object_frag_id = :fragrance_id
    AND c.evidence_verified = 1
+   AND c.polarity = 'ASSERTED'
    AND c.claim_type IN ({_sql_list(SYMMETRIC_TYPES)})
    AND f.id <> :fragrance_id
 """
@@ -265,6 +273,7 @@ SELECT c.claim_type AS claim_type, c.sentiment AS sentiment,
   JOIN comments co ON co.id = c.comment_id
  WHERE c.subject_frag_id = :fragrance_id
    AND c.evidence_verified = 1
+   AND c.polarity = 'ASSERTED'
  GROUP BY c.claim_type, c.sentiment
 """
 

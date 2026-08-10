@@ -161,9 +161,21 @@ def edge_score(
 
 
 def extracted_claims(conn: sqlite3.Connection) -> dict[int, list[dict]]:
+    """Claims to score, which excludes denials.
+
+    `docs/LABELLING.md` tells a human to drop a denial entirely — "khamrah
+    isn't a clone" is not a claim that khamrah is a clone. So a denial the
+    extractor correctly marks DENIED must not be compared against labels
+    either; scoring it would make getting it right look like a false
+    positive, and the fix would show up as a regression.
+
+    This is the one place polarity changes a measurement rather than a
+    result. Whether denials should eventually be labelled and scored in
+    their own right is an open question — see SPEC.
+    """
     rows = conn.execute(
         "SELECT comment_id, claim_type, raw_subject_text, raw_object_text, sentiment "
-        "FROM claims"
+        "FROM claims WHERE polarity = 'ASSERTED'"
     ).fetchall()
     out: dict[int, list[dict]] = defaultdict(list)
     for row in rows:

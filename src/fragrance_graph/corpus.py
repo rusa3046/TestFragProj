@@ -59,6 +59,7 @@ FRAGRANCE_FIELDS = ("canonical_name", "brand", "house_year")
 
 CLAIM_FIELDS = (
     "claim_type",
+    "polarity",
     "subject_kind",
     "raw_subject_text",
     "object_kind",
@@ -70,6 +71,13 @@ CLAIM_FIELDS = (
     "extraction_model",
     "created_at",
 )
+
+#: Values for claim columns an older export may not carry. ASSERTED is the
+#: right default for `polarity` in the sense that it matches the pre-column
+#: behaviour exactly — it is NOT a claim that those rows were checked. The
+#: 36 known denials in the first corpus are still wrong until re-extracted;
+#: `extract.polarity audit` is what finds them.
+CLAIM_FIELD_DEFAULTS = {"polarity": "ASSERTED"}
 
 #: Claims joined to their comment's natural key and to fragrance names.
 #: Ordering is explicit so re-exporting an unchanged database produces a
@@ -266,7 +274,12 @@ def import_corpus(conn: sqlite3.Connection, directory: Path) -> CorpusStats:
         columns = ["comment_id", *CLAIM_FIELDS, "subject_frag_id", "object_frag_id"]
         values = [
             comment_id,
-            *(record[field] for field in CLAIM_FIELDS),
+            # Defaults, not record[field], so an export written before a
+            # column existed still imports. `polarity` was added after the
+            # first real corpus was committed; without this, every claim in
+            # it becomes a KeyError.
+            *(record.get(field, CLAIM_FIELD_DEFAULTS.get(field))
+              for field in CLAIM_FIELDS),
             fragrance_ids.get(record.get("subject_fragrance")),
             fragrance_ids.get(record.get("object_fragrance")),
         ]

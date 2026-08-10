@@ -409,7 +409,7 @@ extractor score: if DUPE_OF/SIMILAR_TO confusion dominates the errors while
 the collapsed edge score stays high, the distinction is costing more than
 it earns.
 
-### Denials are stored as assertions (2026-08-10) — OPEN, the worst known defect
+### Denials are stored as assertions (2026-08-10) — FIXED IN CODE, corpus pending
 
 *"I just try latafa it is nothing like angel share"* is stored as
 `DUPE_OF latafa → angel share, NEGATIVE`. The commenter is **denying** the
@@ -448,12 +448,48 @@ This is the strongest argument for finishing the 35 unreviewed labels —
 not because labels repair denials, but because at 35-50 comments the eval
 starts containing them and the number starts meaning something.
 
-**Do not fix this with a louder prompt.** That is precisely the move that
-raised variance sixfold, and the eval cannot currently measure whether a
-fix worked. The likely correct shape is a polarity field distinguishing
-asserted from denied — negation is a property of the claim, not of its
+**Not fixed with a louder prompt.** That is precisely the move that raised
+variance sixfold. `polarity` (ASSERTED / DENIED) is a new claim field —
+migration 0007 — because negation is a property of the claim, not of its
 sentiment, and overloading `sentiment` to carry both is the same
 collapse-two-facts-into-one-field error as v1's `LONGEVITY_COMPLAINT`.
+
+**Denials are stored, never dropped.** "Nine people say Khamrah is nothing
+like Angels' Share" is a fact a buyer wants. They are excluded from edges
+(`Claim.is_edge`, and `polarity = 'ASSERTED'` in every ranking query), not
+deleted.
+
+#### Verified by enumeration, not by F1
+
+The eval cannot adjudicate this: at ~7% incidence and 13 labelled
+comments, the expected number of denials in the sample is 0.4. But denial
+language is lexically narrow, so the failure is **enumerable** —
+`extract.polarity audit` flags comparison claims whose evidence reads as a
+denial and reports how many were stored as assertions. That turns "wait
+for a bigger eval" into "look at thirty-four rows".
+
+The pattern is a recall instrument, tuned to over-flag: a false flag costs
+a glance, a missed denial ships. **It never writes polarity.** Only the
+model does, so the corpus never records this project's regex guesses as
+though a model had judged them. `audit` exits non-zero while any denial is
+live, so it gates rather than informs.
+
+It also reports the other direction — claims marked DENIED that the
+pattern did not flag. Those are either phrasings worth adding, or the
+model denying ordinary claims, which is a silent recall loss no other
+check would catch.
+
+**Baseline before re-extraction: 34 flagged, 0 caught (0%).** The corpus
+predates the field, so every one is currently wrong. That is the number
+the re-extraction has to move.
+
+**One measurement changed, not just a result.** `evals.score` now excludes
+DENIED claims. `docs/LABELLING.md` already tells a human to drop denials,
+so scoring a correctly-marked denial would make getting it right read as a
+false positive and the fix look like a regression. Open question: whether
+denials should eventually be labelled and scored in their own right — they
+are real information, and nothing currently measures whether the extractor
+finds them.
 
 ### Deferred decisions
 

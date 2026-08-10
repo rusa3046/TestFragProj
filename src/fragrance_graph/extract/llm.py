@@ -45,6 +45,7 @@ from fragrance_graph.models import (
     Claim,
     ClaimType,
     ObjectKind,
+    Polarity,
     Sentiment,
     SubjectKind,
 )
@@ -165,6 +166,40 @@ does not make a claim about longevity:
   confidence; a flat assertion is high.
 - If a claim would need an object and there is no identifiable one, omit
   the claim entirely rather than emitting an empty string.
+
+## Denials: polarity, not sentiment
+
+Set polarity = DENIED when the commenter says the relationship does NOT
+hold. Keep the same claim_type, subject and object — you are recording
+which comparison they rejected.
+
+- "it is nothing like angel share" -> DUPE_OF, polarity DENIED
+- "Delina and Baccarat smells nothing alike" -> SIMILAR_TO, DENIED
+- "Cedrat boise is not even similar to aventus" -> SIMILAR_TO, DENIED
+- "Legend as a Percival clone is insane. They smell nothing alike."
+  -> DUPE_OF, DENIED
+
+polarity is NOT sentiment. Sentiment is how they feel about it; polarity
+is whether they are claiming it at all. A claim can be ASSERTED and
+NEGATIVE at once — the commenter says it IS a dupe and dislikes it:
+
+- "worst dupe of (540)" -> DUPE_OF, ASSERTED, NEGATIVE
+- "it smells exactly like Axe Phoenix" -> SIMILAR_TO, ASSERTED, NEGATIVE
+- "Craze smells terrible, but maybe I don't like the OG (Pegasus)"
+  -> DUPE_OF, ASSERTED, NEGATIVE
+
+Everything that is not a denial is ASSERTED. Most claims are ASSERTED.
+
+## Hypotheticals assert nothing
+
+A conditional is not a claim. Omit it entirely — neither ASSERTED nor
+DENIED, because the commenter has not said the thing is so:
+
+- "If detour noir smells like Layton then I'll stay away" -> no claim
+- "I won't like Layton if it smells like detour" -> no claim
+
+A question is the same: "Is this the strongest clone of Sauvage?" asks,
+it does not assert. Omit it.
 """
 
 #: Response schema. Claims are nested under a comment index so results map
@@ -215,6 +250,10 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                                     "type": "string",
                                     "enum": [s.value for s in Sentiment],
                                 },
+                                "polarity": {
+                                    "type": "string",
+                                    "enum": [p.value for p in Polarity],
+                                },
                                 "confidence": {"type": "number"},
                                 "evidence_span": {"type": "string"},
                             },
@@ -225,6 +264,7 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                                 "object_kind",
                                 "raw_object_text",
                                 "sentiment",
+                                "polarity",
                                 "confidence",
                                 "evidence_span",
                             ],
@@ -551,11 +591,11 @@ def parse_response(
 INSERT_CLAIM_SQL = """
 INSERT INTO claims (
     comment_id, claim_type, subject_kind, raw_subject_text,
-    object_kind, raw_object_text, sentiment,
+    object_kind, raw_object_text, sentiment, polarity,
     confidence, evidence_span, evidence_verified, extraction_model, created_at
 ) VALUES (
     :comment_id, :claim_type, :subject_kind, :raw_subject_text,
-    :object_kind, :raw_object_text, :sentiment,
+    :object_kind, :raw_object_text, :sentiment, :polarity,
     :confidence, :evidence_span, :evidence_verified, :extraction_model, :created_at
 )
 """
@@ -648,6 +688,7 @@ def write_claims(
                 "object_kind": claim.object_kind.value,
                 "raw_object_text": claim.raw_object_text,
                 "sentiment": claim.sentiment.value,
+                "polarity": claim.polarity.value,
                 "confidence": claim.confidence,
                 "evidence_span": claim.evidence_span,
                 "evidence_verified": int(verified),

@@ -78,6 +78,32 @@ class Sentiment(StrEnum):
     NEUTRAL = "NEUTRAL"
 
 
+class Polarity(StrEnum):
+    """Whether the commenter says the relationship holds, or says it does not.
+
+    Added after measuring that 36 of 499 similarity claims — roughly one
+    edge in thirteen — were *denials* stored as assertions. "I just try
+    latafa it is nothing like angel share" was recorded as a DUPE_OF edge,
+    so a page would have quoted that person as evidence for the very claim
+    they were rejecting.
+
+    This is deliberately NOT folded into `sentiment`, which was the first
+    instinct and is wrong for the same reason `LONGEVITY_COMPLAINT` was
+    wrong in v1: it collapses two independent facts into one field. All 36
+    denials were NEGATIVE, but so were five genuine edges — "worst dupe of
+    (540)" asserts the dupe and dislikes it. Sentiment says how the
+    commenter feels; polarity says whether they are claiming the thing at
+    all.
+
+    A denial is real information — "nine people say Khamrah is nothing like
+    Angels' Share" is worth knowing — so denials are stored, not dropped.
+    They are simply never counted as edges.
+    """
+
+    ASSERTED = "ASSERTED"
+    DENIED = "DENIED"
+
+
 #: Which object kinds each claim type may carry. A type mapped to {NONE}
 #: takes no object at all.
 ALLOWED_OBJECT_KINDS: dict[ClaimType, set[ObjectKind]] = {
@@ -224,7 +250,12 @@ class Claim(BaseModel):
     sentiment: Sentiment = Field(
         default=Sentiment.NEUTRAL,
         description="Whether the commenter frames this positively or negatively. "
-        "Carries the polarity that a type name must not presume.",
+        "Carries the tone that a type name must not presume.",
+    )
+    polarity: Polarity = Field(
+        default=Polarity.ASSERTED,
+        description="Whether the commenter says this relationship holds "
+        "(ASSERTED) or says it does not (DENIED).",
     )
     confidence: float = Field(ge=0.0, le=1.0)
     evidence_span: str = Field(
@@ -251,11 +282,18 @@ class Claim(BaseModel):
 
     @property
     def is_edge(self) -> bool:
-        """Whether this claim is a fragrance-to-fragrance edge."""
+        """Whether this claim is a fragrance-to-fragrance edge.
+
+        A denial is not an edge. "Delina and Baccarat smells nothing alike"
+        names two fragrances and a comparison type, and asserts that the
+        edge does not exist — counting it would put the commenter's name
+        behind the opposite of what they wrote.
+        """
         return (
             self.claim_type in EDGE_CLAIM_TYPES
             and self.subject_kind is SubjectKind.FRAGRANCE
             and self.object_kind is ObjectKind.FRAGRANCE
+            and self.polarity is Polarity.ASSERTED
         )
 
     def evidence_matches(self, body: str) -> bool:

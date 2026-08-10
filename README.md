@@ -71,10 +71,12 @@ What that does **not** yet establish:
   distinct unresolved mentions; the head of that list is short and
   repetitive (Layton 99, Khamrah 44, Aventus 57 across casings), so the
   first hour of curation is worth far more than the last.
-- **Denials are stored as assertions.** Measured at ~7% of similarity
-  claims: *"it is nothing like angel share"* is recorded as a dupe edge and
-  would be quoted as evidence for it. This is the worst known defect and it
-  is open — SPEC.md has the breakdown and why sentiment cannot fix it.
+- **Denials in the committed corpus are still stored as assertions.** ~7%
+  of similarity claims: *"it is nothing like angel share"* recorded as a
+  dupe edge. `polarity` now exists and `query.similar_to()` excludes
+  denials, but the corpus predates the field, so those 34 rows stay wrong
+  until re-extracted. `extract.polarity audit` lists them and exits
+  non-zero while any remain.
 - There is no product, price, or retailer data of any kind.
 
 [AUDIT.md](./AUDIT.md) is a read-only assessment of what is real, what is
@@ -181,6 +183,24 @@ uv run python -m fragrance_graph.extract.rejects show --reason DUPE_OF
 `show` prints the comment alongside the claim the model emitted, which is
 what decides whether a rejection is the model being wrong or the taxonomy
 being wrong.
+
+Check that denials are being recorded as denials:
+
+```bash
+uv run python -m fragrance_graph.extract.polarity audit
+```
+
+A denial stored as an assertion — *"it is nothing like angel share"* filed
+as a dupe — puts a real person's name behind the opposite of what they
+wrote. `polarity` (ASSERTED / DENIED) records which, and `similar_to()`
+never ranks a denial. This is deliberately not folded into `sentiment`:
+all 36 measured denials were NEGATIVE, but so were five genuine edges
+(*"worst dupe of (540)"* asserts the dupe and dislikes it).
+
+`audit` exits non-zero while any denial is still stored as an assertion,
+so it can gate a re-extraction. It is a recall instrument, tuned to
+over-flag — it never writes polarity, so the corpus records only what a
+model judged.
 
 Resolve names to bottles:
 
