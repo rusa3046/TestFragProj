@@ -258,6 +258,29 @@ Curation is human work by design. `report` ranks unresolved mentions by how
 often they appear, so twenty minutes spent at the top of that list resolves most
 of the corpus.
 
+### Proposing names from a catalogue
+
+Most curation is a lookup, not a judgement — "Khamrah" is "Lattafa Khamrah".
+An external catalogue can propose, and you approve:
+
+```bash
+export FRAGELLA_API_KEY=...     # secret key, not the pub_ widget key
+uv run python -m fragrance_graph.resolve.enrich propose review.json --limit 60
+# set "approved": true or false on each row
+uv run python -m fragrance_graph.resolve.enrich apply review.json
+uv run python -m fragrance_graph.resolve.entities backfill
+```
+
+One request per mention. Pronouns and single-mention names are skipped, since
+neither can ever name a bottle that clears a 3-commenter bar.
+
+**A name the catalogue never returned cannot be written.** Every proposal is
+a row it actually returned, and `approved` starts null so an unreviewed file
+adds nothing. Only `Name`, `Brand` and `Year` are kept — the response also
+carries notes, accords, images, ratings and an affiliate `Purchase URL`, all
+of which SPEC forbids. The similarity endpoints are never called; a test
+records the requested URLs and asserts it.
+
 Ask the question the project exists for:
 
 ```bash
