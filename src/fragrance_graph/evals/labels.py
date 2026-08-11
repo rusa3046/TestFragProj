@@ -30,6 +30,11 @@ from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 
 log = logging.getLogger("fragrance_graph.evals.labels")
 
+#: Kept here rather than imported from autolabel, which imports *this*
+#: module — the guard below has to know the drafter's name without
+#: creating a cycle.
+DRAFT_LABELER = "opus5-draft"
+
 TRAIN = "train"
 HOLDOUT = "holdout"
 
@@ -107,6 +112,52 @@ def export_template(
 
 class UnknownComment(LookupError):
     """A label refers to a comment this database does not contain."""
+
+
+class UnreviewedDraft(ValueError):
+    """A drafted file was about to be imported as human judgement."""
+
+
+def check_reviewable(
+    entries: list[dict], *, labeler: str, allow_empty: bool = False
+) -> None:
+    """Refuse the two imports that quietly destroy an eval set.
+
+    `autolabel` promises that "a draft can never be mistaken for, or
+    silently overwrite, a human judgement" — but nothing enforced it, and
+    on 2026-08-11 a drafted file went straight in under a human labeler.
+    Fifty unreviewed model labels became ground truth and two hand-labelled
+    comments were overwritten, one of them with its subject and object the
+    wrong way round. Nothing warned, because `import` only ever checked
+    that the comments existed.
+
+    Both refusals are recoverable by the operator saying what they mean,
+    which is the point: the failure was that neither required saying
+    anything at all.
+    """
+    drafted = [e for e in entries if e.get("drafted_by")]
+    if drafted and labeler != DRAFT_LABELER and not labeler.endswith("-draft"):
+        models = sorted({e["drafted_by"] for e in drafted})
+        raise UnreviewedDraft(
+            f"{len(drafted)} of {len(entries)} entries were drafted by "
+            f"{', '.join(models)} and would be stored as {labeler!r}.\n\n"
+            "A model writing the answer key makes the score measure "
+            "agreement between models, not accuracy.\n\n"
+            f"  import them as a draft:   --labeler {DRAFT_LABELER}\n"
+            "  or, once you have read and corrected every entry, drop the\n"
+            "  'drafted_by' field to record that a person stands behind them."
+        )
+
+    if not allow_empty and entries and not any(e.get("claims") for e in entries):
+        raise UnreviewedDraft(
+            f"All {len(entries)} entries have an empty claims list, and "
+            f"would be stored as {labeler!r}.\n\n"
+            "That asserts every one of these comments says nothing, which "
+            "is a real claim about the corpus and usually means the file "
+            "was imported before it was filled in.\n\n"
+            "  if you did read them and they genuinely assert nothing, pass "
+            "--allow-empty."
+        )
 
 
 def import_labels(
@@ -229,6 +280,11 @@ def main(argv: list[str] | None = None) -> int:
     imp = sub.add_parser("import", help="Load a filled-in template")
     imp.add_argument("file", type=Path)
     imp.add_argument("--labeler", required=True, help="Who produced these labels")
+    imp.add_argument(
+        "--allow-empty", action="store_true",
+        help="Accept a file where no entry has any claims. Says the comments "
+             "were read and genuinely assert nothing.",
+    )
 
     for p in (exp, imp):
         p.add_argument("--db-path", default=DEFAULT_DB_PATH)
@@ -256,9 +312,16 @@ def main(argv: list[str] | None = None) -> int:
         else:
             entries = json.loads(args.file.read_text())
             try:
+                check_reviewable(
+                    entries,
+                    labeler=args.labeler,
+                    allow_empty=args.allow_empty,
+                )
                 n = import_labels(conn, entries, labeler=args.labeler)
             except UnknownComment as exc:
                 raise SystemExit(str(exc)) from None
+            except UnreviewedDraft as exc:
+                raise SystemExit(f"Refusing to import.\n\n{exc}") from None
             log.info("Imported labels for %d comments as %r.", n, args.labeler)
     finally:
         conn.close()
