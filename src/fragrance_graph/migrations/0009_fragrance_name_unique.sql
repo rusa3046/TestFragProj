@@ -1,0 +1,22 @@
+-- One row per canonical name.
+--
+-- Nothing enforced this, and `add_fragrance` is a plain INSERT, so the
+-- same bottle could exist twice. That is not theoretical: on 2026-08-11
+-- auto-curation wrote "Armaf Club De Nuit Intense" alongside the
+-- hand-curated "Armaf Club de Nuit Intense Man" that already answered to
+-- that name, and separately re-added a row that had been removed hours
+-- earlier. Both split every edge on the bottle, and neither was visible
+-- until someone read the file.
+--
+-- The application-level guards added the same day (`enrich.claimed_names`
+-- for aliases and de-branded forms, `corpus.extra_fragrances` for drift)
+-- catch the cases they know about. This catches the rest, at the only
+-- layer that cannot be bypassed by a new code path.
+--
+-- NOCASE because "Armaf Club De Nuit" and "Armaf Club de Nuit" are one
+-- bottle. It does not normalise punctuation or spacing — `normalize_name`
+-- does that, and encoding it here would mean rebuilding the index every
+-- time that function learned a new rule. This is the floor, not the whole
+-- policy.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fragrances_canonical_name
+    ON fragrances (canonical_name COLLATE NOCASE);

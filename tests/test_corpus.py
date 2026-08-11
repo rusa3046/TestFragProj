@@ -350,3 +350,40 @@ class TestCorpusIsTheAuthority:
         conn.commit()
         stats = import_corpus(conn, self._corpus(tmp_path, ["Lattafa Khamrah"]))
         assert stats.extra_fragrances == []
+
+    def test_prune_survives_claims_pointing_at_the_row(self, conn, tmp_path):
+        """The crash: a foreign key refuses to drop a curated fragrance.
+
+        Pruning must un-resolve the claims, never delete them — a claim
+        cost real money and its raw text is still true.
+        """
+        from fragrance_graph.corpus import import_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+        from tests.test_query import add_comment
+
+        doomed = add_fragrance(conn, "Armaf Club De Nuit", brand="Armaf")
+        keep = add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        cid = add_comment(conn, 1, body="club de nuit smells like khamrah",
+                          author="u1")
+        conn.execute(
+            "INSERT INTO claims (comment_id, claim_type, subject_kind,"
+            " raw_subject_text, subject_frag_id, object_kind,"
+            " raw_object_text, object_frag_id, confidence, polarity,"
+            " evidence_span, evidence_verified, extraction_model, created_at)"
+            " VALUES (?, 'SIMILAR_TO', 'FRAGRANCE', 'club de nuit', ?,"
+            " 'FRAGRANCE', 'khamrah', ?, 0.9, 'ASSERTED', 'x', 1,"
+            " 'test', '2026-01-01')",
+            (cid, doomed, keep),
+        )
+        conn.commit()
+
+        import_corpus(conn, self._corpus(tmp_path, ["Lattafa Khamrah"]),
+                      prune=True)
+
+        row = conn.execute(
+            "SELECT subject_frag_id, object_frag_id, raw_subject_text"
+            " FROM claims"
+        ).fetchone()
+        assert row["subject_frag_id"] is None, "must let go of the pruned row"
+        assert row["object_frag_id"] == keep, "the other end is untouched"
+        assert row["raw_subject_text"] == "club de nuit", "text is preserved"

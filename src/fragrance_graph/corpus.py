@@ -208,9 +208,11 @@ def extra_fragrances(conn: sqlite3.Connection, directory: Path) -> list[str]:
         for record in _read_jsonl(Path(directory) / FRAGRANCES_FILE)
     }
     return sorted(
-        row["canonical_name"]
-        for row in conn.execute("SELECT canonical_name FROM fragrances")
-        if row["canonical_name"] not in committed
+        {
+            row["canonical_name"]
+            for row in conn.execute("SELECT canonical_name FROM fragrances")
+            if row["canonical_name"] not in committed
+        }
     )
 
 
@@ -234,12 +236,39 @@ def import_corpus(
     if extras:
         stats.extra_fragrances = extras
         if prune:
+            # Claims resolved to these fragrances have to let go first, or
+            # the foreign key refuses the delete. Clearing the ids is the
+            # correct meaning of un-curating a bottle rather than a way
+            # around the constraint: the claim keeps its raw text and goes
+            # back to being an unresolved mention, which is where a name
+            # the corpus no longer recognises belongs. The claim itself is
+            # never deleted — it was paid for.
+            placeholders = ",".join("?" * len(extras))
+            ids = [
+                row["id"]
+                for row in conn.execute(
+                    f"SELECT id FROM fragrances "
+                    f"WHERE canonical_name IN ({placeholders})",
+                    extras,
+                )
+            ]
+            if ids:
+                marks = ",".join("?" * len(ids))
+                for column in ("subject_frag_id", "object_frag_id"):
+                    conn.execute(
+                        f"UPDATE claims SET {column} = NULL "
+                        f"WHERE {column} IN ({marks})",
+                        ids,
+                    )
             conn.executemany(
                 "DELETE FROM fragrances WHERE canonical_name = ?",
                 [(name,) for name in extras],
             )
-            log.warning("Pruned %d fragrance(s) absent from the corpus: %s",
-                        len(extras), ", ".join(extras))
+            log.warning(
+                "Pruned %d fragrance(s) absent from the corpus: %s. "
+                "Claims that pointed at them are unresolved mentions again.",
+                len(extras), ", ".join(extras),
+            )
         else:
             log.warning(
                 "%d fragrance(s) in the database are NOT in the corpus and "
