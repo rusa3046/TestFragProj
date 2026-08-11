@@ -387,3 +387,119 @@ class TestCorpusIsTheAuthority:
         assert row["subject_frag_id"] is None, "must let go of the pruned row"
         assert row["object_frag_id"] == keep, "the other end is untouched"
         assert row["raw_subject_text"] == "club de nuit", "text is preserved"
+
+
+class TestRejectsRoundTrip:
+    """Rejections survive a rebuild, which is the whole reason to commit them."""
+
+    def _reject(self, conn, comment_id, reason="NOTE_DESCRIPTOR ... got NONE"):
+        conn.execute(
+            "INSERT INTO rejected_claims (comment_id, reason, raw_json,"
+            " extraction_model, created_at)"
+            " VALUES (?, ?, '{\"claim_type\": \"NOTE_DESCRIPTOR\"}',"
+            " 'test', '2026-01-01')",
+            (comment_id, reason),
+        )
+
+    def test_a_rejection_survives_export_and_import(self, conn, tmp_path):
+        """The loss that motivated this: a rebuild wiped ~66 rejections."""
+        from fragrance_graph.corpus import export_corpus, import_corpus
+        from fragrance_graph.db import get_connection, migrate
+        from tests.test_query import add_comment
+
+        cid = add_comment(conn, 1, body="layton is soft asf", author="u1")
+        self._reject(conn, cid)
+        conn.commit()
+
+        stats = export_corpus(conn, tmp_path)
+        assert stats.rejects == 1
+
+        fresh = get_connection(tmp_path / "rebuilt.db")
+        migrate(fresh)
+        imported = import_corpus(fresh, tmp_path)
+        assert imported.rejects == 1
+        row = fresh.execute(
+            "SELECT reason, raw_json FROM rejected_claims"
+        ).fetchone()
+        assert "NOTE_DESCRIPTOR" in row["reason"]
+        assert "NOTE_DESCRIPTOR" in row["raw_json"]
+        fresh.close()
+
+    def test_importing_twice_does_not_duplicate(self, conn, tmp_path):
+        """A rejection has no natural key, so merging would multiply it."""
+        from fragrance_graph.corpus import export_corpus, import_corpus
+        from tests.test_query import add_comment
+
+        cid = add_comment(conn, 1, body="layton is soft asf", author="u1")
+        self._reject(conn, cid)
+        conn.commit()
+        export_corpus(conn, tmp_path)
+
+        import_corpus(conn, tmp_path)
+        import_corpus(conn, tmp_path)
+        assert conn.execute(
+            "SELECT count(*) FROM rejected_claims"
+        ).fetchone()[0] == 1
+
+    def test_the_analysis_works_after_a_rebuild(self, conn, tmp_path):
+        """The point of committing them: `recoverable` still has data."""
+        from fragrance_graph.corpus import export_corpus, import_corpus
+        from fragrance_graph.db import get_connection, migrate
+        from fragrance_graph.extract.rejects import recoverable
+        from tests.test_query import add_comment
+
+        cid = add_comment(conn, 1, body="layton is soft asf", author="u1")
+        self._reject(conn, cid)
+        conn.commit()
+        export_corpus(conn, tmp_path)
+
+        fresh = get_connection(tmp_path / "rebuilt.db")
+        migrate(fresh)
+        import_corpus(fresh, tmp_path)
+        assert recoverable(fresh)["total"] == 1
+        fresh.close()
+
+
+def test_a_claim_naming_a_missing_fragrance_is_reported(conn, tmp_path):
+    """Hand-editing fragrances.jsonl leaves claims pointing at nothing.
+
+    They import as NULL, so the claim silently stops being an edge. Five
+    were committed that way on 2026-08-11.
+    """
+    import json
+
+    from fragrance_graph.corpus import import_corpus
+    from tests.conftest import make_comment
+
+    d = tmp_path / "corpus"
+    d.mkdir()
+    (d / "fragrances.jsonl").write_text(
+        json.dumps({"canonical_name": "Lattafa Khamrah", "brand": "Lattafa",
+                    "house_year": None, "aliases": []}) + "\n",
+        encoding="utf-8",
+    )
+    comment = make_comment(1)
+    (d / "comments.jsonl").write_text(
+        json.dumps({"source": "youtube", **comment, "extracted_at": None}) + "\n",
+        encoding="utf-8",
+    )
+    (d / "claims.jsonl").write_text(
+        json.dumps({
+            "comment_source": "youtube",
+            "comment_source_id": comment["source_id"],
+            "claim_type": "SIMILAR_TO", "polarity": "ASSERTED",
+            "subject_kind": "FRAGRANCE", "raw_subject_text": "khamrah",
+            "object_kind": "FRAGRANCE", "raw_object_text": "club de nuit",
+            "sentiment": "NEUTRAL", "confidence": 0.9,
+            "evidence_span": "x", "evidence_verified": 1,
+            "extraction_model": "test", "created_at": "2026-01-01",
+            "subject_fragrance": "Lattafa Khamrah",
+            "object_fragrance": "Armaf Club De Nuit",
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    stats = import_corpus(conn, d)
+    assert stats.dangling_fragrances == {"Armaf Club De Nuit": 1}
+    # The claim is still imported — it is real, it just is not an edge.
+    assert stats.claims == 1
