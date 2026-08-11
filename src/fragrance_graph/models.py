@@ -205,6 +205,22 @@ def author_from_payload(payload: dict) -> str:
     return str(author) if author else ""
 
 
+def video_from_payload(payload: dict) -> str | None:
+    """The video this comment was written under, or None.
+
+    Derived from the payload for the same reason `author_id` is: it was
+    already inside `raw_json`, and leaving it there meant every
+    independence count reaching for it through an unindexed,
+    source-specific JSON path in the hottest query in the system.
+
+    None for sources that have no such container — a Reddit comment
+    belongs to a submission, not a video, and `source_channel` already
+    carries whatever subdivision a source uses.
+    """
+    video = payload.get("videoId")
+    return str(video) if video else None
+
+
 def normalize_for_match(text: str) -> str:
     """Collapse whitespace, case, and typographic punctuation for matching.
 

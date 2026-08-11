@@ -178,7 +178,7 @@ SELECT c.id            AS claim_id,
        co.id           AS comment_id,
        co.permalink    AS permalink,
        co.author_id    AS author_id,
-       coalesce(json_extract(co.raw_json, '$.videoId'), co.source_channel)
+       coalesce(co.video_id, co.source_channel)
                        AS source_ref,
        1               AS outbound,
        f.id            AS other_id,
@@ -197,7 +197,7 @@ UNION ALL
 
 SELECT c.id, c.claim_type, c.sentiment, c.evidence_span, c.confidence,
        co.id, co.permalink, co.author_id,
-       coalesce(json_extract(co.raw_json, '$.videoId'), co.source_channel),
+       coalesce(co.video_id, co.source_channel),
        0 AS outbound,
        f.id, f.canonical_name, f.brand
   FROM claims c
@@ -228,7 +228,9 @@ SELECT c.id, c.claim_type, c.sentiment, c.evidence_span, c.confidence,
 PAIR_STATS_SQL = f"""
 SELECT co.author_id AS author_id,
        co.id        AS comment_id,
-       coalesce(json_extract(co.raw_json, '$.videoId'), co.source_channel)
+       co.source    AS source,
+       co.video_id  AS video_id,
+       coalesce(co.video_id, co.source_channel)
                     AS source_ref
   FROM claims c
   JOIN comments co ON co.id = c.comment_id
@@ -242,17 +244,56 @@ SELECT co.author_id AS author_id,
 """
 
 
-def pair_stats(conn: sqlite3.Connection, a_id: int, b_id: int) -> tuple[int, int]:
-    """(distinct commenters, distinct sources) connecting two bottles.
+@dataclass(frozen=True)
+class PairEvidence:
+    """How independent the evidence connecting two bottles actually is.
+
+    Three nested notions of "separate", weakest first. Each can be
+    satisfied while the next fails, which is the reason to carry all three
+    rather than collapse them into one score.
+    """
+
+    #: Distinct people. Guards against one enthusiast posting four times.
+    commenters: int
+    #: Distinct videos. Guards against one comment section, where three
+    #: people may simply be replying to each other.
+    sources: int
+    #: Distinct search queries that retrieved those videos. Guards against
+    #: *our own sampling*: three different `parfums de marly layton dupe`
+    #: videos are three comment sections, so `sources` is satisfied — but
+    #: they are three rooms in which the same question was put to an
+    #: audience assembled for that question. Measured on the committed
+    #: corpus, four of six publishable pairs rest on a single query.
+    #:
+    #: 0 means we have no retrieval record for the backing videos, not
+    #: that they were found by no query. Absence of provenance is not
+    #: evidence of narrowness, so a gate must treat 0 as unknown.
+    queries: int
+
+
+def pair_stats(conn: sqlite3.Connection, a_id: int, b_id: int) -> PairEvidence:
+    """How many people, places and searches connect two bottles.
 
     Direction-blind and claim-type-blind, because the question a page asks
-    is "how many people linked these two, and how many separate places did
-    they do it in" — which has one answer, not one per orientation.
+    is "how many people linked these two, and how independently" — which
+    has one answer, not one per orientation.
     """
     rows = conn.execute(PAIR_STATS_SQL, {"a": a_id, "b": b_id}).fetchall()
     commenters = {_commenter_key(row) for row in rows}
     sources = {row["source_ref"] for row in rows if row["source_ref"]}
-    return len(commenters), len(sources)
+
+    videos = {(row["source"], row["video_id"]) for row in rows if row["video_id"]}
+    queries: set[str] = set()
+    for source, video_id in videos:
+        queries |= {
+            r["retrieval_query"]
+            for r in conn.execute(
+                "SELECT DISTINCT retrieval_query FROM video_discoveries "
+                "WHERE source = ? AND video_id = ?",
+                (source, video_id),
+            )
+        }
+    return PairEvidence(len(commenters), len(sources), len(queries))
 
 
 def _commenter_key(row: sqlite3.Row) -> str:

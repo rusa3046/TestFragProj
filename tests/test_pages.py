@@ -10,12 +10,14 @@ import json
 
 import pytest
 
+from fragrance_graph.ingest.store import SOURCE as INGEST_SOURCE
 from fragrance_graph.ingest.store import ingest
 from fragrance_graph.pages import (
     MIN_COMMENTERS,
     MIN_SOURCES,
     build,
     qualifying_pairs,
+    queries_behind,
     render_pair,
     slugify,
 )
@@ -185,8 +187,10 @@ def test_pair_stats_is_direction_blind(conn):
     add_claim(conn, cid, subject=a, obj=b, claim_type="BETTER_THAN",
               evidence="a beats b")
 
-    assert pair_stats(conn, a, b) == (4, 3)
-    assert pair_stats(conn, b, a) == (4, 3)
+    assert pair_stats(conn, a, b).commenters == 4
+    assert pair_stats(conn, a, b).sources == 3
+    # Symmetric: the same five people whichever end you ask from.
+    assert pair_stats(conn, b, a) == pair_stats(conn, a, b)
 
     pairs = qualifying_pairs(conn)
     assert len(pairs) == 1
@@ -295,3 +299,81 @@ def test_an_empty_graph_still_writes_an_index(conn, tmp_path):
 def test_slugify_survives_real_fragrance_names(name, expected):
     """Apostrophes, ampersands and accents are ordinary in this domain."""
     assert slugify(name) == expected
+
+
+# --- retrieval-query independence -----------------------------------------
+
+
+def discover(conn, video, query, *, run="test-run"):
+    """Record that `query` surfaced `video`, as an ingest run would.
+
+    Uses the same `source` the comments were ingested under: discovery
+    joins on (source, video_id), so a mismatch silently yields zero
+    queries rather than an error.
+    """
+    conn.execute(
+        "INSERT OR IGNORE INTO videos (source, video_id) VALUES (?, ?)",
+        (INGEST_SOURCE, video),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO video_discoveries "
+        "(source, video_id, retrieval_query, retrieved_at, discovery_run) "
+        "VALUES (?, ?, ?, '2026-08-11', ?)",
+        (INGEST_SOURCE, video, query, run),
+    )
+    conn.commit()
+
+
+def test_videos_found_by_one_query_are_not_independent_sources(conn):
+    """The failure `min_sources` cannot see.
+
+    Three commenters across three *different* videos clears both existing
+    bars. But if all three videos were returned by one `layton dupe`
+    search, they are one question asked in three rooms to audiences
+    assembled for that question.
+    """
+    pair_of(conn, people=3, videos=3)
+    for i in range(3):
+        discover(conn, f"vid-{i}", "layton dupe")
+
+    ev = pair_stats(conn, 1, 2)
+    assert (ev.commenters, ev.sources, ev.queries) == (3, 3, 1)
+
+    assert len(qualifying_pairs(conn)) == 1                       # today
+    assert qualifying_pairs(conn, min_queries=2) == []            # if gated
+
+
+def test_the_same_video_can_be_found_by_several_queries(conn):
+    """Why discovery is its own table rather than a column on comments.
+
+    A single `retrieval_query` field would have to pick one and drop the
+    rest, destroying the count this exists to make possible.
+    """
+    pair_of(conn, people=3, videos=2)
+    discover(conn, "vid-0", "layton dupe")
+    discover(conn, "vid-0", "best designer clones")   # same video, 2nd query
+    discover(conn, "vid-1", "layton dupe")
+
+    assert pair_stats(conn, 1, 2).queries == 2
+    assert len(qualifying_pairs(conn, min_queries=2)) == 1
+
+
+def test_a_pair_with_no_retrieval_record_is_not_silently_unpublished(conn):
+    """0 queries means "we did not record how we found this", not "narrow".
+
+    Every video ingested before provenance tracking has no discovery row.
+    Treating unknown as a failure would unpublish the entire back corpus
+    the first time someone raised the bar.
+    """
+    pair_of(conn, people=3, videos=2)          # no discover() calls
+    assert pair_stats(conn, 1, 2).queries == 0
+    assert len(qualifying_pairs(conn, min_queries=2)) == 1
+
+
+def test_query_count_reaches_the_pair(conn):
+    pair_of(conn, people=3, videos=2)
+    discover(conn, "vid-0", "layton dupe")
+    discover(conn, "vid-1", "layton review")
+    (pair,) = qualifying_pairs(conn)
+    assert pair.queries == 2
+    assert queries_behind(conn, pair) == ["layton dupe", "layton review"]

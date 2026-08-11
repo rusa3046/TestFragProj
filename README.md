@@ -443,6 +443,41 @@ count printed beside a pair-scoped commenter count would be two numbers
 counting different things. On this corpus the scopes disagree on 8 of 21
 candidate pairs and one pair changes gate status.
 
+### Videos are not independent samples
+
+`--show-queries` names the searches behind each pair, and the result is
+uncomfortable:
+
+```
+7 people  4 videos  2 queries   Al Haramain Detour Noir vs Parfums de Marly Layton
+7 people  3 videos  1 query     Parfums de Marly Layton vs The Woods Collection Dusk   <- one query only
+7 people  2 videos  1 query     Kilian Angels' Share vs Lattafa Khamrah                <- one query only
+5 people  3 videos  2 queries   Armaf Club de Nuit Intense Man vs Creed Aventus
+4 people  2 videos  1 query     Orientica Royal Bleu vs Parfums de Marly Layton        <- one query only
+3 people  2 videos  1 query     Armaf Club de Nuit Imperiale vs Delina Exclusif        <- one query only
+```
+
+**Four of six published pages rest on a single search query.** Three
+different `parfums de marly layton dupe` videos are three separate comment
+sections, so the video bar passes them — but they are three rooms in which
+the same question was put to an audience assembled for that question. The
+guard against one comment section does not guard against one *query*.
+
+`--min-queries 2` would cut 6 pages to 2. It defaults to **1 — off** —
+because the number cannot yet distinguish "these edges are weak" from "the
+eight seed queries were too narrow", and those want opposite fixes. Six of
+the eight seeds contain the word "dupe" (see
+[PROVENANCE](./data/corpus/PROVENANCE.md)), so narrow seeding is the live
+hypothesis. Broaden discovery first, then raise the bar.
+
+A pair with `0` queries means *no retrieval record*, not *narrow*. Gating
+treats 0 as unknown and lets it through, so raising the bar cannot silently
+unpublish a back corpus ingested before provenance was tracked.
+
+Retrieval provenance is many-to-many (`video_discoveries`): the same video
+can be found by several searches, and a single `retrieval_query` column on
+comments would have to pick one and discard the rest — destroying the count.
+
 `query.pair_stats` is what the gate reads, and it is deliberately
 direction-blind: `BETTER_THAN` only surfaces from the subject's end, so
 asking "who connected these two bottles" from one side alone under-counts.

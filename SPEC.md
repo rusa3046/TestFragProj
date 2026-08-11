@@ -953,6 +953,86 @@ curation will do worse. What keeps a bad merge off a page is not this rule
 but the Phase D gate: 3 distinct commenters across 2 videos. The rule only
 has to be good enough that the gate is not carrying the whole load alone.
 
+### Videos are not independent samples (2026-08-11)
+
+`min_sources >= 2` was written against one failure: three commenters in a
+single comment section, possibly replying to each other, reading as three
+independent observations. It does stop that. It does not stop the failure
+one level up.
+
+`data/corpus/PROVENANCE.md` recorded which search query surfaced which
+video, as prose. Read as data, it says this about the six pairs that
+currently publish:
+
+| pair | people | videos | queries |
+|---|---|---|---|
+| Detour Noir <-> Layton | 7 | 4 | 2 |
+| Layton <-> Dusk | 7 | 3 | **1** |
+| Angels' Share <-> Khamrah | 7 | 2 | **1** |
+| CDNIM <-> Aventus | 5 | 3 | 2 |
+| Royal Bleu <-> Layton | 4 | 2 | **1** |
+| Imperiale <-> Delina Exclusif | 3 | 2 | **1** |
+
+**Four of six rest on a single query.** Three different `parfums de marly
+layton dupe` videos are three comment sections — the video bar is honestly
+satisfied — but they are three rooms in which the same question was put to
+an audience gathered for that question. The independence the headline
+number implies is not there.
+
+Query diversity is the *deterministic* version of this concern, which is
+why it is built first. Whether a given comment was spontaneous or prompted
+by its video's framing is a fuzzier question needing a classifier and an
+eval; whether two different searches found the evidence is a fact.
+
+**The gate is off by default (`MIN_QUERIES = 1`).** Enforcing 2 cuts six
+pages to two, and that number cannot distinguish two opposite diagnoses:
+the edges are weak, or the seeds were narrow. Six of the eight seed queries
+contain "dupe", so narrow seeding is the live hypothesis and broadening
+discovery is the fix that should be tried first. Measured and shown now;
+enforced once the seeds are broader.
+
+`queries == 0` means no retrieval record, not narrow retrieval. The gate
+treats it as unknown and passes it, so raising the bar cannot silently
+unpublish everything ingested before provenance existed.
+
+#### Schema: discovery is many-to-many, on purpose
+
+Migration 0009 adds `videos` and `video_discoveries`, and promotes
+`comments.video_id` out of `raw_json` — the same move as `author_id` in
+0006, for the same reason: every independence count was reaching for it
+through an unindexed, source-specific JSON path in the hottest query.
+
+A single `retrieval_query` column on comments would have been simpler and
+wrong. The same video is legitimately found by several queries, and later
+runs re-find videos already known; one column has to pick one and discard
+the rest, destroying the count the table exists to support.
+
+`video_discoveries` is committed to `data/corpus/` because it is
+unrepeatable — re-running a search next week returns a different ranking,
+so a discovery not recorded at search time cannot be reconstructed. Titles
+are committed for the weaker reason that a deleted video takes its title
+with it.
+
+#### Transcripts stay out, and OAuth does not change that
+
+Reviewer statements in the video itself are richer than most comments, and
+they are not obtainable. `captions.list` and `captions.download` are gated
+on being the video's **owner**, not merely authenticated — so no OAuth
+scope available to this project unlocks them. Every working alternative
+(`youtube-transcript-api`, `yt-dlp`, transcript vendors) reaches the
+internal `timedtext` endpoint, which is the same category of access
+Constraints already forbids for Fragrantica and Parfumo.
+
+What *is* available with the existing API key is `videos.list?part=snippet`
+— title, description, channel — at **1 quota unit per 50 videos**. That
+covers the entity-resolution context ("Perseus" under a video titled
+"Maison Alhambra Perseus Review") without touching the source rules.
+
+If titles or descriptions are ever mined for claims, they are a distinct
+evidence class: one creator with a megaphone, never counted toward the
+3-commenter bar. Letting the person who framed the question also vote on
+the answer is this section's failure in its purest form.
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.

@@ -42,6 +42,14 @@ Collected with `--max-videos 3 --limit 300` per query.
 Per query: BR540 274 · Aventus 377 · Sauvage 153 · Oud Wood 617 ·
 Delina 206 · Layton 652 · Khamrah 601 · Bade'e Al Oud 275.
 
+**This table is now also data.** `video_discoveries` holds the same
+mapping (seeded by `scripts/seed_video_discoveries.py`), so query diversity
+can be counted per edge rather than eyeballed here — see
+`pages pairs --show-queries`. Reading it that way showed that four of the
+six pairs that currently publish are backed by videos retrieved by a
+*single* query, which the 2-video bar does not catch. SPEC records the
+consequence.
+
 ## Known biases
 
 Read any claim distribution from this corpus against these before drawing

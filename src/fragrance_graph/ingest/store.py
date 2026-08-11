@@ -35,7 +35,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from fragrance_graph.models import author_from_payload
+from fragrance_graph.models import author_from_payload, video_from_payload
 
 log = logging.getLogger("fragrance_graph.ingest.store")
 
@@ -48,10 +48,10 @@ SOURCE = "reddit"
 INSERT_SQL = """
 INSERT INTO comments
     (source, source_id, body, permalink, created_utc, source_channel, score,
-     author_id, raw_json)
+     author_id, video_id, raw_json)
 VALUES
     (:source, :source_id, :body, :permalink, :created_utc, :source_channel, :score,
-     :author_id, :raw_json)
+     :author_id, :video_id, :raw_json)
 ON CONFLICT (source, source_id) DO NOTHING
 """
 
@@ -89,6 +89,7 @@ def ingest(
     started = time.monotonic()
     try:
         for row in comments:
+            payload = json.loads(row.get("raw_json") or "{}")
             # author_id is derived here rather than in each source's
             # normalizer, so it cannot depend on which code path built the
             # row. A row whose payload names no author is unknown-author,
@@ -97,9 +98,8 @@ def ingest(
                 INSERT_SQL,
                 {
                     "source": source,
-                    "author_id": author_from_payload(
-                        json.loads(row.get("raw_json") or "{}")
-                    ),
+                    "author_id": author_from_payload(payload),
+                    "video_id": video_from_payload(payload),
                     **row,
                 },
             )
@@ -107,6 +107,18 @@ def ingest(
                 stats.new += 1
             else:
                 stats.skipped += 1
+
+            # A video is known to exist the moment a comment arrives from
+            # it, whether or not its title has been fetched. Recorded even
+            # when the comment was a duplicate, so a resumed run still
+            # registers containers it saw.
+            video_id = video_from_payload(payload)
+            if video_id:
+                conn.execute(
+                    "INSERT OR IGNORE INTO videos (source, video_id, channel_id) "
+                    "VALUES (?, ?, ?)",
+                    (source, video_id, payload.get("channelId")),
+                )
 
             if stats.seen % commit_every == 0:
                 conn.commit()

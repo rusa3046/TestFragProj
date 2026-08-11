@@ -85,6 +85,20 @@ MIN_COMMENTERS = 3
 #: section is one conversation, not three observations.
 MIN_SOURCES = 2
 
+#: Distinct *search queries* those videos must span. Deliberately 1 — i.e.
+#: off — because raising it is a product decision that should be made
+#: against the measured damage rather than on the argument alone.
+#:
+#: The argument is good: three `parfums de marly layton dupe` videos
+#: satisfy MIN_SOURCES while being three rooms in which the same question
+#: was asked of an audience assembled for that question. On the committed
+#: corpus, setting this to 2 removes four of the six pairs that publish
+#: today. That may mean the edges are weak; it may equally mean the eight
+#: seed queries were too narrow. Those call for opposite fixes, and the
+#: number cannot tell them apart on its own — so it is measured and shown
+#: first, and enforced only once the discovery seeds are broader.
+MIN_QUERIES = 1
+
 #: How the claim types read in a sentence, and which direction they run.
 #: DUPE_OF and SIMILAR_TO are symmetric — "B is a dupe of A" is the same
 #: fact whichever bottle you arrived at — so a page states them once.
@@ -110,6 +124,9 @@ class Pair:
     right_id: int
     commenters: int
     sources: int
+    #: Distinct searches that retrieved the backing videos. Reported, and
+    #: not yet gated on — see `MIN_QUERIES`.
+    queries: int
     #: Rows as `query.similar_to` returned them, read from `left`.
     rows: tuple[Related, ...]
 
@@ -137,6 +154,7 @@ def qualifying_pairs(
     *,
     min_commenters: int = MIN_COMMENTERS,
     min_sources: int = MIN_SOURCES,
+    min_queries: int = MIN_QUERIES,
     quotes: int = 3,
 ) -> list[Pair]:
     """Every pair that clears both bars, each returned once.
@@ -175,8 +193,15 @@ def qualifying_pairs(
             # `related.pair_commenters` here would count only the people
             # visible from this end, which drops an inbound BETTER_THAN and
             # can gate out a pair that clears the bar from the other side.
-            commenters, sources = pair_stats(conn, frag_id, related.fragrance_id)
-            if commenters < min_commenters or sources < min_sources:
+            ev = pair_stats(conn, frag_id, related.fragrance_id)
+            if ev.commenters < min_commenters or ev.sources < min_sources:
+                continue
+            # Query diversity is reported but only gates when asked for.
+            # A pair with no retrieval record has queries == 0, which means
+            # "unknown", not "narrow" — gating on it by default would
+            # silently unpublish every pair whose videos predate
+            # provenance tracking.
+            if min_queries > 1 and 0 < ev.queries < min_queries:
                 continue
 
             rows = tuple(
@@ -189,12 +214,36 @@ def qualifying_pairs(
                 right=other,
                 left_id=frag_id,
                 right_id=related.fragrance_id,
-                commenters=commenters,
-                sources=sources,
+                commenters=ev.commenters,
+                sources=ev.sources,
+                queries=ev.queries,
                 rows=rows,
             )
 
     return sorted(found.values(), key=lambda p: (-p.commenters, -p.sources, p.slug))
+
+
+def queries_behind(conn: sqlite3.Connection, pair: Pair) -> list[str]:
+    """The searches that retrieved the videos backing a pair.
+
+    Reporting only. The count is what a gate would read; the names are what
+    tells you whether a low count means weak evidence or narrow seeding.
+    """
+    rows = conn.execute(
+        """
+        SELECT DISTINCT d.retrieval_query AS q
+          FROM claims c
+          JOIN comments co ON co.id = c.comment_id
+          JOIN video_discoveries d
+            ON d.source = co.source AND d.video_id = co.video_id
+         WHERE c.evidence_verified = 1 AND c.polarity = 'ASSERTED'
+           AND ((c.subject_frag_id = :a AND c.object_frag_id = :b)
+             OR (c.subject_frag_id = :b AND c.object_frag_id = :a))
+         ORDER BY d.retrieval_query
+        """,
+        {"a": pair.left_id, "b": pair.right_id},
+    )
+    return [r["q"] for r in rows]
 
 
 def _people(n: int) -> str:
@@ -321,10 +370,20 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out", default="site", type=Path)
     b.add_argument("--min-commenters", type=int, default=MIN_COMMENTERS)
     b.add_argument("--min-sources", type=int, default=MIN_SOURCES)
+    b.add_argument(
+        "--min-queries", type=int, default=MIN_QUERIES,
+        help="Distinct search queries a pair's videos must span. Default 1 "
+             "(off); see MIN_QUERIES for why it is not yet 2.",
+    )
 
     p = sub.add_parser("pairs", help="List qualifying pairs without writing anything")
     p.add_argument("--min-commenters", type=int, default=MIN_COMMENTERS)
     p.add_argument("--min-sources", type=int, default=MIN_SOURCES)
+    p.add_argument("--min-queries", type=int, default=MIN_QUERIES)
+    p.add_argument(
+        "--show-queries", action="store_true",
+        help="Name the searches behind each pair, not just count them",
+    )
 
     for parser_ in (b, p):
         parser_.add_argument("--db-path", default=DEFAULT_DB_PATH)
@@ -340,13 +399,29 @@ def main(argv: list[str] | None = None) -> int:
                 conn,
                 min_commenters=args.min_commenters,
                 min_sources=args.min_sources,
+                min_queries=args.min_queries,
             )
+            single = 0
             for pair in pairs:
+                thin = pair.queries == 1
+                single += thin
                 print(
                     f"  {pair.commenters:>3} people  "
-                    f"{pair.sources} sources  {pair.title}"
+                    f"{pair.sources} videos  "
+                    f"{pair.queries} quer{'y' if pair.queries == 1 else 'ies'}  "
+                    f"{pair.title}"
+                    + ("   <- one query only" if thin else "")
                 )
+                if args.show_queries:
+                    for q in queries_behind(conn, pair):
+                        print(f"         {q}")
             print(f"\n{len(pairs)} pair(s) clear the gate.")
+            if single:
+                print(
+                    f"{single} of them rest on a single search query. Those "
+                    "satisfy the video bar while being one question asked "
+                    "in several rooms — see MIN_QUERIES."
+                )
             return 0
 
         pairs = build(

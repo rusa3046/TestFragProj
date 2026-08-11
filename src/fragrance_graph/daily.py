@@ -72,6 +72,7 @@ import logging
 import os
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
@@ -244,8 +245,12 @@ def _collect(conn, queries, max_videos, ingest_limit, report: RunReport) -> None
         SOURCE,
         QuotaTracker,
         build_client,
+        fetch_video_metadata,
         iter_video_comments,
+        record_discovery,
         search_video_ids,
+        store_video_metadata,
+        videos_missing_titles,
     )
 
     try:
@@ -255,14 +260,21 @@ def _collect(conn, queries, max_videos, ingest_limit, report: RunReport) -> None
         return
 
     quota = QuotaTracker()
+    run_id = datetime.now(UTC).strftime("run-%Y%m%dT%H%M%SZ")
     seen_videos: list[str] = []
     for query in queries:
         try:
-            seen_videos += search_video_ids(
+            found = search_video_ids(
                 client, api_key, query, limit=max_videos, quota=quota
             )
         except Exception as exc:  # quota, transport, disabled API
             report.errors.append(f"search {query!r} failed: {exc}")
+            continue
+        seen_videos += found
+        # Recorded before any comment is pulled, because this is the only
+        # moment it exists: the same search next week ranks differently.
+        # Query diversity across an edge is computed from these rows.
+        record_discovery(conn, found, query, run=run_id)
 
     seen_videos = list(dict.fromkeys(seen_videos))
     report.videos_searched = len(seen_videos)
@@ -287,6 +299,19 @@ def _collect(conn, queries, max_videos, ingest_limit, report: RunReport) -> None
         stats = ingest(conn, rows, source=SOURCE)
         report.comments_ingested += stats.new
         remaining -= len(rows)
+
+    # One `videos.list` call covers fifty videos for a single quota unit,
+    # and titles are what a later resolver needs to tell one house's
+    # Perseus from another's. Cheap enough to do every run; failure here
+    # must never cost the comments already stored.
+    try:
+        missing = videos_missing_titles(conn)
+        if missing:
+            store_video_metadata(
+                conn, fetch_video_metadata(client, api_key, missing, quota=quota)
+            )
+    except Exception as exc:
+        report.errors.append(f"video metadata fetch failed: {exc}")
 
 
 def _extract(conn, budget: Budget, limit: int, report: RunReport) -> None:

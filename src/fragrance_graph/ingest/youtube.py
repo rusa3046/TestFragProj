@@ -28,7 +28,7 @@ import re
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
@@ -42,6 +42,11 @@ API_ROOT = "https://www.googleapis.com/youtube/v3"
 #: Quota units per call, from the YouTube Data API documentation.
 COST_COMMENT_THREADS = 1
 COST_SEARCH = 100
+#: `videos.list` is 1 unit per *call*, and a call takes up to 50 ids. The
+#: whole 24-video corpus costs one unit, which is why titles are worth
+#: fetching even though nothing yet requires them.
+COST_VIDEOS_LIST = 1
+VIDEOS_PER_CALL = 50
 DAILY_QUOTA = 10_000
 
 #: Seconds between requests. The quota is the binding limit, but pacing
@@ -187,6 +192,105 @@ def search_video_ids(
     return ids
 
 
+def record_discovery(
+    conn: Any, video_ids: list[str], query: str, *, run: str
+) -> int:
+    """Write down which search surfaced which videos.
+
+    This is the only moment the information exists. Re-running the same
+    search later returns a different ranking, so a discovery not recorded
+    here cannot be reconstructed afterwards — which is why it is written
+    at search time rather than derived later.
+
+    A video found again by a *different* query gains a second row rather
+    than replacing the first: query diversity is the count this table
+    exists to support, and overwriting would destroy it.
+    """
+    written = 0
+    for video_id in video_ids:
+        conn.execute(
+            "INSERT OR IGNORE INTO videos (source, video_id) VALUES (?, ?)",
+            (SOURCE, video_id),
+        )
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO video_discoveries "
+            "(source, video_id, retrieval_query, retrieved_at, discovery_run) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (SOURCE, video_id, query, datetime.now(UTC).isoformat(timespec="seconds"),
+             run),
+        )
+        written += cur.rowcount
+    conn.commit()
+    return written
+
+
+def fetch_video_metadata(
+    client: Any, api_key: str, video_ids: list[str], *, quota: QuotaTracker
+) -> list[dict[str, Any]]:
+    """Titles and channel names for known videos. 1 quota unit per 50.
+
+    Needs no OAuth: `videos.list` is public data, unlike `captions`, which
+    is gated on being the video's owner and so is unavailable to this
+    project at any scope.
+    """
+    out: list[dict[str, Any]] = []
+    for start in range(0, len(video_ids), VIDEOS_PER_CALL):
+        batch = video_ids[start : start + VIDEOS_PER_CALL]
+        payload = _get(
+            client,
+            "videos",
+            {"part": "snippet", "id": ",".join(batch), "key": api_key},
+        )
+        quota.charge(COST_VIDEOS_LIST)
+        for item in payload.get("items", []):
+            snippet = item.get("snippet", {})
+            out.append(
+                {
+                    "video_id": item["id"],
+                    "title": snippet.get("title"),
+                    "channel_id": snippet.get("channelId"),
+                    "channel_title": snippet.get("channelTitle"),
+                    "published_at": parse_published_at(
+                        snippet.get("publishedAt", "")
+                    ),
+                }
+            )
+    log.info("Fetched metadata for %d video(s) (%s)", len(out), quota)
+    return out
+
+
+def store_video_metadata(conn: Any, rows: list[dict[str, Any]]) -> int:
+    """Persist fetched titles. Null title stays null rather than empty."""
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    for row in rows:
+        conn.execute(
+            "INSERT INTO videos "
+            "(source, video_id, title, channel_id, channel_title, "
+            " published_at, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (source, video_id) DO UPDATE SET "
+            "title = excluded.title, channel_id = excluded.channel_id, "
+            "channel_title = excluded.channel_title, "
+            "published_at = excluded.published_at, "
+            "fetched_at = excluded.fetched_at",
+            (SOURCE, row["video_id"], row["title"], row["channel_id"],
+             row["channel_title"], row["published_at"], now),
+        )
+    conn.commit()
+    return len(rows)
+
+
+def videos_missing_titles(conn: Any) -> list[str]:
+    return [
+        r["video_id"]
+        for r in conn.execute(
+            "SELECT video_id FROM videos WHERE source = ? AND title IS NULL "
+            "ORDER BY video_id",
+            (SOURCE,),
+        )
+    ]
+
+
 def iter_video_comments(
     client: Any,
     api_key: str,
@@ -261,6 +365,11 @@ def main(argv: list[str] | None = None) -> int:
         "--sleep", type=float, default=DEFAULT_SLEEP, help="Seconds between requests"
     )
     parser.add_argument("--db-path", default=DEFAULT_DB_PATH, help="SQLite database path")
+    parser.add_argument(
+        "--backfill-titles",
+        action="store_true",
+        help="Fetch titles for known videos and exit (1 unit per 50 videos)",
+    )
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args(argv)
 
@@ -287,12 +396,37 @@ def main(argv: list[str] | None = None) -> int:
     client, api_key = build_client()
     quota = QuotaTracker()
 
+    # Groups everything this invocation discovers, so a run's whole
+    # sampling footprint stays attributable after the fact.
+    run_id = datetime.now(UTC).strftime("run-%Y%m%dT%H%M%SZ")
+
+    if args.backfill_titles:
+        missing = videos_missing_titles(conn)
+        if not missing:
+            print("Every known video already has a title.")
+            return 0
+        rows = fetch_video_metadata(client, api_key, missing, quota=quota)
+        stored = store_video_metadata(conn, rows)
+        gone = len(missing) - stored
+        print(f"Fetched {stored} title(s) for {len(missing)} video(s); {quota}")
+        if gone:
+            # A video can be deleted or made private after we stored its
+            # comments. Its title is then unrecoverable, which is the
+            # argument for committing titles rather than re-fetching.
+            print(f"{gone} video(s) returned nothing — deleted or private.")
+        conn.close()
+        return 0
+
     video_ids = list(args.videos)
     try:
         if args.query:
-            video_ids += search_video_ids(
+            found = search_video_ids(
                 client, api_key, args.query, limit=args.max_videos, quota=quota
             )
+            video_ids += found
+            # Written now because it cannot be recovered later: the same
+            # search re-run next week returns a different ranking.
+            record_discovery(conn, found, args.query, run=run_id)
 
         total_new = total_seen = 0
         for video_id in video_ids:
