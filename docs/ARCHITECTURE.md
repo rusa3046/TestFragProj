@@ -49,7 +49,8 @@ A claim is:
 | `polarity` | whether they are claiming it **or denying it** |
 | `evidence_span` | the exact words they used, verified against the body |
 
-Costs money — about $0.40 per 1,000 comments. Fully automatic.
+Costs money — $0.37-$0.50 per 1,000 comments, rising as searches get
+more specific. Fully automatic.
 
 ### The fragrance dictionary (`fragrances` table)
 
@@ -199,10 +200,11 @@ hundred entries. Not worth it at fifty.
 | | cost |
 |---|---|
 | Ingest | free (YouTube quota, 10,000 units/day) |
-| Extraction | ~$0.40 per 1,000 comments |
+| Extraction | $0.37-$0.50 per 1,000 comments (measured 2026-08-11) |
 | Label drafting | ~$0.15 per 50 comments (Opus) |
-| Curation, scoring, ranking, pages | free |
+| Curation lookups | $0.05 per request on pay-per-use; metered by the cap |
+| Scoring, ranking, pages | free |
 
-Re-extracting the whole corpus is ~$1.30, which is what a prompt change
-costs to evaluate properly. Re-extracting only the labelled comments is
-~$0.02, which is what most experiments should use.
+Re-extracting the whole corpus is ~$2 and rising with it, which is what a
+prompt change costs to evaluate properly. Re-extracting only the labelled
+comments is ~$0.02, which is what most experiments should use.

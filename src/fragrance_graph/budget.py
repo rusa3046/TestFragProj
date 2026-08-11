@@ -42,10 +42,25 @@ from pathlib import Path
 
 log = logging.getLogger("fragrance_graph.budget")
 
-#: The cap, in USD. Chosen against the measured extraction rate of $0.3656
-#: per 1,000 comments: a dollar a day is roughly 2,700 comments, comfortably
-#: more than a day of new YouTube discussion produces, so the cap binds on
-#: a runaway rather than on ordinary work.
+#: The cap, in USD.
+#:
+#: Sized against the *worst* measured extraction rate rather than the
+#: average, because a cap that assumes the good case is not a cap. Across
+#: three runs on 2026-08-11 the rate ranged $0.3730-$0.5020 per 1,000
+#: comments, so a dollar a day buys roughly **2,000 comments** at the top
+#: of that range — still comfortably more than a day of new YouTube
+#: discussion produces, so the cap binds on a runaway rather than on
+#: ordinary work.
+#:
+#: The figure this comment used to quote, $0.3656/1k for 2,700 comments,
+#: came from the 2026-08-09 corpus and drifted 37% within two days. Cost
+#: tracks *claims* rather than comments — output is ~69% of the bill — so
+#: a corpus where people assert more per comment costs more to read. Treat
+#: any rate here as corpus-specific and recheck it after a source changes.
+#:
+#: Catalogue lookups bill through this ledger too, at a flat
+#: `enrich.LOOKUP_COST_USD` per request, and at $0.05 each they dominate:
+#: 20 lookups cost as much as 2,000 comments of extraction.
 DAILY_CAP_USD = 1.00
 
 DEFAULT_LEDGER = Path(

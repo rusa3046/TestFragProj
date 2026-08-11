@@ -127,11 +127,22 @@ from: a comparison type with a FRAGRANCE subject and a FRAGRANCE object.
   |---|---|---|---|
   | Reddit v2 sample | 17 | $1.14-1.22 | ~1.5 |
   | YouTube, 2026-08-09 | 3,155 | **$0.3656** | 0.441 |
+  | YouTube, 2026-08-11 | 864 | **$0.4410** | 0.436 |
 
   Output tokens are 69% of the bill, so cost tracks claim volume rather
   than comment volume — Reddit review posts are long and assert several
   claims each; YouTube comments are short and most assert nothing. At the
-  YouTube rate, 100k comments is about **$37**, or ~$18 on the Batch API.
+  YouTube rate, 100k comments is about **$44**, or ~$22 on the Batch API.
+
+  **The rate moves with the question, not just the source.** The three
+  runs behind the 2026-08-11 row spanned $0.3730-$0.5020 per 1k on one
+  source and one prompt, rising as the searches narrowed from "fragrance
+  dupe" to named bottles like "cedrat boise". A thread about one specific
+  fragrance asserts more claims per comment than a general one, and
+  output dominates the bill. Since targeted queries are exactly what the
+  publishing gate needs — it wants two distinct creators per pair — the
+  cheap searches and the useful ones are not the same searches. Budget
+  for the top of the range, not the average.
 
   A third of the input bill is avoidable: the system prompt plus JSON
   schema costs ~1,206 tokens on every call, against comments averaging ~54

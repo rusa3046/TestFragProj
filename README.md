@@ -186,8 +186,8 @@ cp .env.example .env         # fill in the keys below
 | variable | needed for | notes |
 |---|---|---|
 | `YOUTUBE_API_KEY` | ingest | Google Cloud console, issued instantly. 10,000 units/day |
-| `ANTHROPIC_API_KEY` | extraction, label drafting | ~$0.40 per 1,000 comments |
-| `FRAGELLA_API_KEY` | curation (`resolve.enrich`) | free tier is 20 requests/month |
+| `ANTHROPIC_API_KEY` | extraction, label drafting | $0.37-$0.50 per 1,000 comments, see below |
+| `FRAGELLA_API_KEY` | curation (`resolve.enrich`) | $0.05 per request on pay-per-use; billed to the same cap |
 
 Reddit refused API access to this project, which is why YouTube is the only
 comment source. `ingest/reddit.py` still exists — see the naming wart above —

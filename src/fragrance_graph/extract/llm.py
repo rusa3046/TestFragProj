@@ -385,7 +385,28 @@ DEFAULT_OUTPUT_TOKENS_PER_COMMENT = 50
 #: tokens on every call — so at a batch size of 20, more than half the
 #: input bill is the prompt being re-sent. Output is still 69% of the total
 #: bill, so claim volume remains the thing that moves cost most.
-MEASURED_RUNS = "youtube-2026-08-09: $0.3656/1k comments, 0.441 claims/comment"
+#:
+#: youtube-2026-08-11: 864 comments over three runs of the daily loop
+#:   cost    $0.3810         ($0.4410 per 1k comments)
+#:   claims  377             (0.436/comment)
+#:   range   $0.3730-$0.5020 per 1k across the three runs
+#:
+#: 21% above 2026-08-09 in aggregate and 37% at the top of the range, on
+#: the same source and the same prompt. Claims per comment is what moved
+#: (0.318 -> 0.547 across the three runs, as the queries narrowed from
+#: "fragrance dupe" to named bottles like "cedrat boise"): a comment
+#: thread about one specific fragrance asserts far more per comment than a
+#: general one. Since output is ~69% of the bill, targeting the search
+#: makes extraction proportionally more expensive — worth knowing, because
+#: targeted queries are also what the publishing gate needs.
+#:
+#: The lesson for anyone reading a number here: these are corpus-specific
+#: and move with the *questions being asked*, not just the source.
+MEASURED_RUNS = (
+    "youtube-2026-08-09: $0.3656/1k comments, 0.441 claims/comment; "
+    "youtube-2026-08-11: $0.4410/1k comments, 0.436 claims/comment "
+    "(range $0.3730-$0.5020)"
+)
 
 
 def estimate_tokens(text: str) -> int:
