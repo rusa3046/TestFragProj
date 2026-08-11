@@ -449,3 +449,77 @@ def test_a_plain_bottle_reaches_the_auto_rule(conn):
 
     assert corpus_support(conn, words, mention=mention) == -1
     assert similarity(mention, debranded(name, brand)) >= CONFIDENT
+
+
+class TestLookupsAreNotWasted:
+    """Every candidate costs a real request, so the filter is a spend guard."""
+
+    @pytest.mark.parametrize("text", [
+        "this stuff", "extrait", "limited edition", "my batch", "clones",
+        "the scent", "EdP", "rogue edition", "vintage",
+    ])
+    def test_describing_words_alone_are_unnameable(self, text):
+        from fragrance_graph.resolve.enrich import is_unnameable
+
+        assert is_unnameable(text) is True
+
+    @pytest.mark.parametrize("text", [
+        "Khamrah Intense", "Oud Wood Extrait", "Baccarat Rouge 540",
+        "Club de Nuit", "Layton",
+    ])
+    def test_a_real_name_survives_a_generic_word(self, text):
+        from fragrance_graph.resolve.enrich import is_unnameable
+
+        assert is_unnameable(text) is False
+
+    @staticmethod
+    def _mention(conn, i, text):
+        """One comment carrying `text` as an unresolved subject."""
+        cid = add_comment(conn, i, body=f"{text} is nice", author=f"u{i}")
+        conn.execute(
+            "INSERT INTO claims (comment_id, claim_type, subject_kind,"
+            " raw_subject_text, object_kind, confidence, polarity,"
+            " evidence_span, evidence_verified, extraction_model,"
+            " created_at)"
+            " VALUES (?, 'SIMILAR_TO', 'FRAGRANCE', ?, 'NONE', 0.9,"
+            " 'ASSERTED', ?, 1, 'test', '2026-01-01')",
+            (cid, text, f"{text} is nice"),
+        )
+
+    def test_bare_houses_are_not_looked_up(self, conn):
+        """A house search returns an arbitrary bottle from that house."""
+        from fragrance_graph.resolve.enrich import candidates
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        add_fragrance(conn, "Maison Alhambra Woody Oud", brand="Maison Alhambra")
+        i = 0
+        for text in ("Lattafa", "Alhambra", "Maison Alhambra", "Qahwa"):
+            for _ in range(4):
+                self._mention(conn, i, text)
+                i += 1
+        conn.commit()
+
+        got = {m for m, _ in candidates(conn, 50, min_count=3)}
+        assert "Lattafa" not in got
+        assert "Alhambra" not in got, "a shortened house is still a house"
+        assert "Maison Alhambra" not in got
+        assert "Qahwa" in got, "a real mention must survive"
+
+    def test_case_variants_are_one_lookup(self, conn):
+        """'Creed' and 'creed' were billed twice on the live run."""
+        from fragrance_graph.resolve.enrich import candidates
+
+        i = 0
+        for text in ("Aether", "aether"):
+            for _ in range(2):
+                self._mention(conn, i, text)
+                i += 1
+        conn.commit()
+
+        got = candidates(conn, 50, min_count=3)
+        aether = [(m, n) for m, n in got if m.lower() == "aether"]
+        assert len(aether) == 1, f"billed twice: {aether}"
+        # Merging also lifts the pair over min_count, which neither
+        # spelling clears alone.
+        assert aether[0][1] == 4

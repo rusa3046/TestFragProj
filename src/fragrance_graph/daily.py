@@ -44,6 +44,12 @@ approved. Every other value means a human is being asked something:
     corpus_mentions == 0    a flanker nobody wrote  -> hold: pick an alternative
     corpus_mentions >  0    a flanker people discuss -> hold: probably its own entry
 
+`corpus_mentions` only asks what the *catalogue name* adds. The mirror had
+to be added after the first live run merged "Club De Nuit EDP" into "Armaf
+Club De Nuit": a mention more specific than the name it matched also has
+nothing distinguishing, and merging it is the same error in reverse. So
+`names_agree` requires neither side to add a word the other lacks.
+
 A merge is permanent and invisible to the test suite; a hold costs one
 lookup later and stays visible in `resolve.entities report`. That asymmetry
 is why the rule refuses rather than guesses, and it is the same one
@@ -63,6 +69,17 @@ not doing all the work alone.
 Every paid step goes through `budget.Budget`, a hard $1/day stop backed by
 a committed ledger. See `budget.py` for why the ledger is a file rather
 than a table.
+
+This was aspirational until 2026-08-11: extraction was metered, catalogue
+lookups were not. That was survivable only while the catalogue's free tier
+capped itself at 20 requests a month. On pay-per-use the loop would make
+`--lookup-limit` billable calls per run, unattended, with nothing written
+to the ledger — the exact failure `budget.py` exists to prevent, in the
+one step the cap never saw. Lookups now bill through the same ledger at
+`enrich.LOOKUP_COST_USD`, charged *before* each request.
+
+Note the cap is per **day** and lookups are priced per request, so a large
+`--lookup-limit` needs `--cap` raised to match, or splitting across days.
 """
 
 from __future__ import annotations
@@ -228,10 +245,13 @@ def run(
         _collect(conn, queries, max_videos, ingest_limit, report)
         _extract(conn, budget, ingest_limit, report)
 
+    _curate(conn, budget, lookup_limit, report, dry_run=dry_run)
+
+    # Read after curation, not before: catalogue lookups are billed too, and
+    # reporting the total before the last paid step understated it by
+    # exactly the amount the operator most wanted to see.
     report.spend_usd = budget.spent_usd
     report.budget_remaining_usd = budget.remaining_usd
-
-    _curate(conn, lookup_limit, report, dry_run=dry_run)
 
     if not dry_run:
         from fragrance_graph.resolve.entities import backfill
@@ -317,9 +337,15 @@ def _extract(conn, budget: Budget, limit: int, report: RunReport) -> None:
     report.claims_written = _claim_count(conn) - before
 
 
-def _curate(conn, lookup_limit: int, report: RunReport, *, dry_run: bool) -> None:
+def _curate(conn, budget: Budget, lookup_limit: int, report: RunReport, *,
+            dry_run: bool) -> None:
     """Look up newly frequent names, write the ones with no decision in them."""
-    from fragrance_graph.resolve.enrich import ApplyStats, apply_review, propose
+    from fragrance_graph.resolve.enrich import (
+        ApplyStats,
+        apply_review,
+        propose,
+        read_review,
+    )
 
     wanted = newly_frequent(conn, limit=lookup_limit, min_count=AUTO_MIN_COUNT)
     report.looked_up = len(wanted)
@@ -332,8 +358,15 @@ def _curate(conn, lookup_limit: int, report: RunReport, *, dry_run: bool) -> Non
     review = Path("data/curation/auto-review.json")
     try:
         proposals = propose(
-            conn, review, limit=lookup_limit, min_count=AUTO_MIN_COUNT
+            conn, review, limit=lookup_limit, min_count=AUTO_MIN_COUNT,
+            on_spend=budget.guard("catalogue"),
         )
+    except BudgetExhausted as exc:
+        # Not an error: the cap did its job. Rows bought before the stop
+        # were still written, so they are curated below.
+        report.stopped_on_budget = True
+        log.warning("%s", exc)
+        proposals = read_review(review) if review.exists() else []
     except SystemExit as exc:
         report.errors.append(f"catalogue lookup failed: {exc}")
         return

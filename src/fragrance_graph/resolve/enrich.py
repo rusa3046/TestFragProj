@@ -43,6 +43,7 @@ import os
 import re
 import sqlite3
 import sys
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -86,6 +87,62 @@ CONFIDENT = 0.80
 
 def is_pronoun(text: str) -> bool:
     return bool(PRONOUN.match(text.strip()))
+
+
+#: Words that describe a bottle without naming one. A mention made only of
+#: these cannot be looked up: "extrait" is a concentration, "limited
+#: edition" is a release, "my batch" is a unit someone owns. Every entry
+#: was observed in the live unresolved report.
+GENERIC_WORDS = frozenset({
+    "stuff", "scent", "smell", "fragrance", "perfume", "cologne", "juice",
+    "batch", "bottle", "sample", "samples", "decant", "decants", "tester",
+    "clone", "clones", "dupe", "dupes", "flanker", "flankers",
+    "edp", "edt", "edc", "extrait", "parfum", "eau", "elixir", "intense",
+    "limited", "edition", "rogue", "vintage", "new", "old", "original",
+    "formulation", "reformulation", "bought", "got", "have", "own", "my",
+    "this", "that", "it", "one", "ones", "same", "og",
+})
+
+
+def is_unnameable(text: str) -> bool:
+    """Whether a mention is made only of words that describe, never name.
+
+    Separate from `names.looks_like_junk`, which asks whether a string may
+    enter the *graph*. This asks whether it is worth *money*: every mention
+    reaching the catalogue costs a request, and "this stuff", "extrait" and
+    "limited edition" are guaranteed misses that still bill.
+
+    Kept deliberately blunt — it only fires when **every** word is generic,
+    so "Khamrah Intense" and "Oud Wood Extrait" survive. A real name plus a
+    generic word is still a real name.
+    """
+    words = normalize_name(text).split()
+    return bool(words) and all(w in GENERIC_WORDS for w in words)
+
+
+def house_names(conn: sqlite3.Connection) -> set[str]:
+    """Normalised brand names, and the distinctive tail of each.
+
+    A bare house is not a bottle. Searching one returns whichever of its
+    fragrances the catalogue likes — the live run spent requests on
+    `Creed`, `Lattafa` and `Armaf` and got back Ramz Silver and Miss
+    Attitude, neither of which anyone had mentioned.
+
+    The tail is included because people shorten houses: the corpus says
+    "Alhambra" for Maison Alhambra, "Marly" for Parfums de Marly.
+    """
+    houses: set[str] = set()
+    for row in conn.execute(
+        "SELECT DISTINCT brand FROM fragrances WHERE brand IS NOT NULL"
+    ):
+        normalized = normalize_name(row["brand"])
+        if not normalized:
+            continue
+        houses.add(normalized)
+        words = normalized.split()
+        if len(words) > 1:
+            houses.add(words[-1])
+    return houses
 
 
 @dataclass
@@ -340,14 +397,26 @@ def candidates(
     distinct names appear exactly once and none of them can ever clear a
     3-commenter bar, so a lookup for them buys nothing.
     """
-    out = []
+    houses = house_names(conn)
+
+    # Case variants are the same lookup. "Creed" and "creed" were billed
+    # twice on the live run; merging them also lifts the pair above
+    # `min_count` when neither spelling clears it alone.
+    merged: dict[str, tuple[str, int]] = {}
     for mention in unresolved_mentions(conn):
-        if mention.count < min_count or is_pronoun(mention.text):
+        if is_pronoun(mention.text) or is_unnameable(mention.text):
             continue
-        out.append((mention.text, mention.count))
-        if len(out) >= limit:
-            break
-    return out
+        key = normalize_name(mention.text)
+        if not key or key in houses:
+            continue
+        surface, count = merged.get(key, (mention.text, 0))
+        # Keep the spelling people used most, not the first one seen.
+        if mention.count > count:
+            surface = mention.text
+        merged[key] = (surface, count + mention.count)
+
+    ordered = sorted(merged.values(), key=lambda pair: -pair[1])
+    return [(text, n) for text, n in ordered if n >= min_count][:limit]
 
 
 def _search(client, key: str, mention: str, *, limit: int = 4) -> list[dict]:
@@ -394,10 +463,29 @@ def _propose_one(conn, client, key: str, mention: str, count: int) -> Proposal:
     )
 
 
+#: USD per catalogue request, operator-confirmed 2026-08-11.
+#:
+#: Metered because the free tier's 20/month was itself the brake; on
+#: pay-per-use nothing stopped the loop making 25 billable calls a run
+#: with no record. `daily.py` claimed "nothing here spends without the
+#: cap" while this step was the one paid path the cap never saw.
+LOOKUP_COST_USD = 0.05
+
+
 def propose(
-    conn: sqlite3.Connection, out_path: Path, *, limit: int, min_count: int
+    conn: sqlite3.Connection,
+    out_path: Path,
+    *,
+    limit: int,
+    min_count: int,
+    on_spend: Callable[[float, int], None] | None = None,
 ) -> list[Proposal]:
-    """Query the catalogue for unresolved mentions and write a review file."""
+    """Query the catalogue for unresolved mentions and write a review file.
+
+    `on_spend` is called with `(usd, 1)` **before** each request, so a cap
+    stops the run rather than recording an overspend after the fact. The
+    proposals gathered so far are still written.
+    """
     key = os.environ.get("FRAGELLA_API_KEY")
     if not key:
         raise SystemExit(
@@ -417,15 +505,25 @@ def propose(
             "frequent is curated, or --min-count is set too high."
         )
 
-    log.info("Querying %d mentions (1 request each).", len(wanted))
+    log.info(
+        "Querying %d mentions (1 request each, $%.2f = $%.2f).",
+        len(wanted), LOOKUP_COST_USD, len(wanted) * LOOKUP_COST_USD,
+    )
     proposals = []
-    with httpx.Client(timeout=30.0) as client:
-        for mention, count in wanted:
-            proposals.append(
-                _propose_one(conn, client, key, mention, count)
-            )
-
-    write_review(out_path, proposals)
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            for mention, count in wanted:
+                if on_spend is not None:
+                    # Before the request: a cap that records after the call
+                    # has already bought the thing it meant to prevent.
+                    on_spend(LOOKUP_COST_USD, 1)
+                proposals.append(
+                    _propose_one(conn, client, key, mention, count)
+                )
+    finally:
+        # Whatever was gathered before a cap or a transport error is worth
+        # keeping — those requests were paid for.
+        write_review(out_path, proposals)
     return proposals
 
 
