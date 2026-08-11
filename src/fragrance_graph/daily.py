@@ -330,6 +330,21 @@ def _curate(conn, lookup_limit: int, report: RunReport, *, dry_run: bool) -> Non
     except SystemExit as exc:
         report.errors.append(f"catalogue lookup failed: {exc}")
         return
+    except Exception as exc:
+        # Transport, DNS, TLS, an egress policy denying the host. `propose`
+        # raises SystemExit only for the failures it anticipated (quota, a
+        # rejected key); everything else arrives as an ordinary exception
+        # and used to kill the whole run from here.
+        #
+        # That was the wrong shape for this loop. Curation is the last
+        # paid step, and backfill, export and pages that follow it need no
+        # catalogue at all — so an unreachable catalogue was discarding
+        # work already done and, worse, taking the report with it. An
+        # unattended loop that dies silently is the failure this module's
+        # whole design is trying to avoid, so this degrades like the other
+        # two steps: record it, finish the run, say so at the top.
+        report.errors.append(f"catalogue unreachable: {exc!r}")
+        return
 
     for proposal in proposals:
         if auto_approvable(proposal):
