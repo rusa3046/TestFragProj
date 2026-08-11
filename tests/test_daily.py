@@ -305,3 +305,73 @@ class TestTheReportDoesNotLie:
         rendered = report.render()
         assert "$1.50 daily cap" in rendered
         assert "$1.00 daily cap" not in rendered
+
+
+class TestIngestBudget:
+    """The ingest limit caps extraction queued, so it counts new comments."""
+
+    def _run_collect(self, conn, videos, per_video, monkeypatch, *,
+                     ingest_limit=400):
+        """Drive _collect over fake videos, returning the ids actually read."""
+        import fragrance_graph.daily as daily
+        from fragrance_graph.ingest import youtube
+
+        read: list[str] = []
+
+        def fake_comments(client, key, video_id, *, limit, quota):
+            read.append(video_id)
+            return per_video(video_id)[:limit]
+
+        monkeypatch.setattr(youtube, "build_client", lambda: (None, "k"))
+        monkeypatch.setattr(
+            youtube, "search_video_ids",
+            lambda c, k, q, *, limit, quota: list(videos),
+        )
+        monkeypatch.setattr(youtube, "iter_video_comments", fake_comments)
+        monkeypatch.setattr(youtube, "QuotaTracker", lambda: None)
+
+        report = RunReport()
+        daily._collect(conn, ["q"], 10, ingest_limit, report)
+        return read, report
+
+    def test_already_stored_videos_do_not_consume_the_budget(
+        self, conn, tmp_path, monkeypatch
+    ):
+        """The bug: 18 videos found, budget spent re-reading the first three.
+
+        Video A is fully stored already, so re-reading it must not stop the
+        run reaching B — the new creator the publishing gate needs.
+        """
+        from tests.conftest import make_comment
+
+        stored = [make_comment(i) for i in range(300)]
+        fresh = [make_comment(1000 + i) for i in range(5)]
+
+        # Store A's comments up front, so the second read yields 0 new.
+        from fragrance_graph.ingest.store import ingest
+        ingest(conn, stored, source="youtube")
+        conn.commit()
+
+        per_video = {"A": stored, "B": fresh}
+        read, report = self._run_collect(
+            conn, ["A", "B"], lambda v: per_video[v], monkeypatch,
+            ingest_limit=100,
+        )
+
+        assert "B" in read, "stopped before reaching the new creator"
+        assert report.comments_ingested == 5
+
+    def test_the_limit_still_binds_on_genuinely_new_comments(
+        self, conn, tmp_path, monkeypatch
+    ):
+        """It is still a cap: fresh comments must stop the run."""
+        from tests.conftest import make_comment
+
+        a = [make_comment(i) for i in range(60)]
+        b = [make_comment(500 + i) for i in range(60)]
+        read, report = self._run_collect(
+            conn, ["A", "B"], lambda v: {"A": a, "B": b}[v], monkeypatch,
+            ingest_limit=50,
+        )
+        assert report.comments_ingested == 50
+        assert read == ["A"], "budget spent, must not fetch the next video"

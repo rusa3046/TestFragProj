@@ -304,6 +304,22 @@ def _collect(conn, queries, max_videos, ingest_limit, report: RunReport) -> None
     seen_videos = list(dict.fromkeys(seen_videos))
     report.videos_searched = len(seen_videos)
 
+    # Budgeted in **new** comments, not comments seen.
+    #
+    # Decrementing by rows fetched made an already-ingested video cost the
+    # same as a fresh one. Measured 2026-08-11: a run over six new queries
+    # found 18 videos, spent the whole 400 re-reading the first three —
+    # "200 seen, 0 new, 200 already stored" — and stopped before reaching
+    # any of the new creators. It collected 29 comments and published
+    # nothing.
+    #
+    # That is the opposite of what the limit is for. It exists to cap how
+    # much extraction one run can queue, and a comment already stored
+    # queues none. Re-reading is nearly free (1 YouTube unit per 100
+    # comments against a 10,000/day allowance) while *not* reaching a new
+    # creator is the expensive outcome: the publishing gate needs two
+    # distinct sources, so new creators are the only thing that turns
+    # existing pairs into pages.
     remaining = ingest_limit
     for video_id in seen_videos:
         if remaining <= 0:
@@ -323,7 +339,7 @@ def _collect(conn, queries, max_videos, ingest_limit, report: RunReport) -> None
         # comments under a source that cannot be re-fetched.
         stats = ingest(conn, rows, source=SOURCE)
         report.comments_ingested += stats.new
-        remaining -= len(rows)
+        remaining -= stats.new
 
 
 def _extract(conn, budget: Budget, limit: int, report: RunReport) -> None:
