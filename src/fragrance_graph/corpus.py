@@ -28,7 +28,7 @@ import argparse
 import json
 import logging
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
@@ -131,6 +131,9 @@ class CorpusStats:
     claims: int = 0
     fragrances: int = 0
     labels: int = 0
+    #: Names in the database the corpus does not list. Import never
+    #: deletes, so these survive a rebuild and reappear on the next export.
+    extra_fragrances: list[str] = field(default_factory=list)
 
     def __str__(self) -> str:
         return (
@@ -186,16 +189,64 @@ def export_corpus(conn: sqlite3.Connection, directory: Path) -> CorpusStats:
     return stats
 
 
-def import_corpus(conn: sqlite3.Connection, directory: Path) -> CorpusStats:
+def extra_fragrances(conn: sqlite3.Connection, directory: Path) -> list[str]:
+    """Fragrances in the database that the committed corpus does not have.
+
+    Import upserts and never deletes, so a row removed from the corpus
+    survives in a database built before the removal — and the next export
+    writes it straight back. That is not hypothetical: a wrong curation
+    entry was removed from `fragrances.jsonl` on 2026-08-11, resurrected
+    itself through exactly this path, and had to be removed a second time.
+
+    The database is a derived artifact by design ("throw it away, run
+    import, get it back"), so the corpus is the authority and anything
+    extra is drift. Reported rather than deleted by default, because the
+    extras might equally be curation someone has not exported yet.
+    """
+    committed = {
+        record["canonical_name"]
+        for record in _read_jsonl(Path(directory) / FRAGRANCES_FILE)
+    }
+    return sorted(
+        row["canonical_name"]
+        for row in conn.execute("SELECT canonical_name FROM fragrances")
+        if row["canonical_name"] not in committed
+    )
+
+
+def import_corpus(
+    conn: sqlite3.Connection, directory: Path, *, prune: bool = False
+) -> CorpusStats:
     """Rebuild the corpus from `directory`. Safe to re-run.
 
     Comments and fragrances upsert on their natural keys. A comment's
     claims are replaced wholesale rather than merged, because claims have
     no natural key of their own — merging would duplicate them on every
     import.
+
+    Fragrances the corpus no longer lists are reported, and deleted only
+    with `prune`. See `extra_fragrances` for why they are worth naming.
     """
     directory = Path(directory)
     stats = CorpusStats()
+
+    extras = extra_fragrances(conn, directory)
+    if extras:
+        stats.extra_fragrances = extras
+        if prune:
+            conn.executemany(
+                "DELETE FROM fragrances WHERE canonical_name = ?",
+                [(name,) for name in extras],
+            )
+            log.warning("Pruned %d fragrance(s) absent from the corpus: %s",
+                        len(extras), ", ".join(extras))
+        else:
+            log.warning(
+                "%d fragrance(s) in the database are NOT in the corpus and "
+                "will be written back on the next export: %s. Re-run with "
+                "--prune to delete them, or export if they are new curation.",
+                len(extras), ", ".join(extras),
+            )
 
     for record in _read_jsonl(directory / FRAGRANCES_FILE):
         aliases = json.dumps(sorted(set(record.get("aliases") or [])))
@@ -325,7 +376,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("export", help="Write the database out to JSONL")
-    sub.add_parser("import", help="Rebuild a database from JSONL")
+    imp = sub.add_parser("import", help="Rebuild a database from JSONL")
+    imp.add_argument(
+        "--prune", action="store_true",
+        help="Delete fragrances the corpus no longer lists, instead of "
+             "reporting them. The corpus is the authority.",
+    )
 
     for name in ("export", "import"):
         p = sub.choices[name]
@@ -341,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "export":
             export_corpus(conn, args.dir)
         else:
-            import_corpus(conn, args.dir)
+            import_corpus(conn, args.dir, prune=args.prune)
     finally:
         conn.close()
     return 0

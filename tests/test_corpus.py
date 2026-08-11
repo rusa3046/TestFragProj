@@ -293,3 +293,60 @@ def test_two_labelers_on_one_comment_both_survive(conn, tmp_path):
     labelers = [r[0] for r in fresh.execute("SELECT labeler FROM eval_labels ORDER BY 1")]
     assert labelers == ["aanya", "colleague"]
     fresh.close()
+
+
+class TestCorpusIsTheAuthority:
+    """Import upserts, so a row removed from the corpus can resurrect."""
+
+    def _corpus(self, tmp_path, names):
+        import json
+        d = tmp_path / "corpus"
+        d.mkdir(exist_ok=True)
+        (d / "fragrances.jsonl").write_text(
+            "".join(
+                json.dumps({"canonical_name": n, "brand": "B",
+                            "house_year": None, "aliases": []}) + "\n"
+                for n in names
+            ),
+            encoding="utf-8",
+        )
+        return d
+
+    def test_a_row_the_corpus_dropped_is_reported(self, conn, tmp_path):
+        """The resurrection path, named so it cannot happen silently."""
+        from fragrance_graph.corpus import import_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Armaf Club De Nuit", brand="Armaf")
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        conn.commit()
+
+        stats = import_corpus(conn, self._corpus(tmp_path, ["Lattafa Khamrah"]))
+        assert stats.extra_fragrances == ["Armaf Club De Nuit"]
+        # Reported, not deleted: it might be curation not yet exported.
+        assert conn.execute(
+            "SELECT count(*) FROM fragrances"
+        ).fetchone()[0] == 2
+
+    def test_prune_deletes_them(self, conn, tmp_path):
+        from fragrance_graph.corpus import import_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Armaf Club De Nuit", brand="Armaf")
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        conn.commit()
+
+        import_corpus(conn, self._corpus(tmp_path, ["Lattafa Khamrah"]),
+                      prune=True)
+        names = {r["canonical_name"]
+                 for r in conn.execute("SELECT canonical_name FROM fragrances")}
+        assert names == {"Lattafa Khamrah"}
+
+    def test_a_matching_database_reports_nothing(self, conn, tmp_path):
+        from fragrance_graph.corpus import import_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        conn.commit()
+        stats = import_corpus(conn, self._corpus(tmp_path, ["Lattafa Khamrah"]))
+        assert stats.extra_fragrances == []
