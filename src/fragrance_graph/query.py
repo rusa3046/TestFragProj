@@ -113,6 +113,13 @@ class Related:
     pair_commenters: int
     #: Distinct videos/threads backing this row.
     sources: int
+    #: Distinct videos/threads backing the *pair* across every claim type,
+    #: standing in the same relation to `sources` as `pair_commenters` does
+    #: to `commenters`. Quoting one scope beside the other is how a page
+    #: ends up saying "5 people across 2 videos" where the 5 counts the
+    #: pair and the 2 counts a single row. Measured on the committed
+    #: corpus, the two differ on 8 of 21 pairs.
+    pair_sources: int
     claims: int
     sentiment: str
     sentiment_counts: dict[str, int]
@@ -204,6 +211,50 @@ SELECT c.id, c.claim_type, c.sentiment, c.evidence_span, c.confidence,
 """
 
 
+#: Everyone connecting two specific bottles, in either direction.
+#:
+#: `EDGES_SQL` is asked "what relates to X", and its second arm is
+#: restricted to the symmetric types on purpose: an inbound `BETTER_THAN`
+#: means someone said the *other* bottle wins, which is not a
+#: recommendation for X and must not be read back as one.
+#:
+#: A page is about a pair rather than about one end of it, so that
+#: asymmetry becomes a miscount: Aventus/CDNIM reads 5 people asked from
+#: Aventus and 4 asked from CDNIM, because one commenter's "Aventus beats
+#: CDNIM" only surfaces from the Aventus side. Both orderings describe the
+#: same five people. This counts them once, without taking a view on
+#: direction, which is why it is a separate query rather than a flag on
+#: the one above.
+PAIR_STATS_SQL = f"""
+SELECT co.author_id AS author_id,
+       co.id        AS comment_id,
+       coalesce(json_extract(co.raw_json, '$.videoId'), co.source_channel)
+                    AS source_ref
+  FROM claims c
+  JOIN comments co ON co.id = c.comment_id
+ WHERE c.evidence_verified = 1
+   AND c.polarity = 'ASSERTED'
+   AND c.claim_type IN ({_sql_list(RELATED_TYPES)})
+   AND (
+        (c.subject_frag_id = :a AND c.object_frag_id  = :b)
+     OR (c.subject_frag_id = :b AND c.object_frag_id  = :a)
+   )
+"""
+
+
+def pair_stats(conn: sqlite3.Connection, a_id: int, b_id: int) -> tuple[int, int]:
+    """(distinct commenters, distinct sources) connecting two bottles.
+
+    Direction-blind and claim-type-blind, because the question a page asks
+    is "how many people linked these two, and how many separate places did
+    they do it in" — which has one answer, not one per orientation.
+    """
+    rows = conn.execute(PAIR_STATS_SQL, {"a": a_id, "b": b_id}).fetchall()
+    commenters = {_commenter_key(row) for row in rows}
+    sources = {row["source_ref"] for row in rows if row["source_ref"]}
+    return len(commenters), len(sources)
+
+
 def _commenter_key(row: sqlite3.Row) -> str:
     """Who wrote this, for distinct-person counting.
 
@@ -245,9 +296,15 @@ def similar_to(
     # how many humans connected two bottles without adding up rows that
     # share people.
     per_pair: dict[int, set[str]] = {}
+    # Same scope, for sources. Computed from every row rather than from the
+    # quotes that end up displayed, which are capped per row and would make
+    # this a lower bound.
+    per_pair_sources: dict[int, set[str]] = {}
     for row in rows:
         grouped.setdefault((row["other_id"], row["claim_type"]), []).append(row)
         per_pair.setdefault(row["other_id"], set()).add(_commenter_key(row))
+        if row["source_ref"]:
+            per_pair_sources.setdefault(row["other_id"], set()).add(row["source_ref"])
 
     results = []
     for (other_id, claim_type), group in grouped.items():
@@ -267,6 +324,7 @@ def similar_to(
                 commenters=len(commenters),
                 pair_commenters=len(per_pair[other_id]),
                 sources=len(sources),
+                pair_sources=len(per_pair_sources.get(other_id, ())),
                 claims=len(group),
                 sentiment=aggregate_sentiment(counts),
                 sentiment_counts=dict(counts),

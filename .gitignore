@@ -15,3 +15,8 @@ labels*.json
 
 # Subagent worktrees — separate checkouts, not part of this tree
 .claude/worktrees/
+
+# Generated comparison pages. A build output, not an artifact: a pure
+# function of data/corpus/, costing no quota, money or judgement to
+# reproduce. Same reasoning that keeps products out of the corpus.
+site/

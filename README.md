@@ -69,13 +69,15 @@ option.
 
 ## Status
 
-**All four steps are built and have run on real data.** The corpus, the
-claims, the eval labels and the first 17 curated fragrances are committed,
-so a clean clone reproduces every number on this page.
+**All four steps are built and have run on real data**, and Phase D renders
+pages from them. The corpus, the claims, the eval labels and 50 curated
+fragrances are committed, so a clean clone reproduces every number on this
+page.
 
-**Curation is the live bottleneck.** 17 entries yield 4 pairs; the measured
-curve below says 60-80 yields ~45. Nothing else in the pipeline is holding
-the graph back.
+**Curation is still the live bottleneck**, and it is no longer the only
+thing standing between the corpus and a page. 50 entries yield 32 pairs, of
+which **6 clear the publishing gate** of 3+ commenters across 2+ videos.
+The measured curve below says 60-80 entries yields ~45 pairs.
 
 First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
 
@@ -85,14 +87,14 @@ First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PRO
 | Claims | 1,409 (0.447 per comment) |
 | Extraction cost | $1.15 total, $0.3656 per 1k comments |
 | Failed batches | 0 of 158 |
-| Fragrances curated | 17 — the bottleneck, see the curve below |
+| Fragrances curated | 50 — the bottleneck, see the curve below |
 | Labelled comments | 50 drafted, 15 verified by hand (13 in train) |
 | Extractor score | `SIMILARITY EDGES` F1 **0.89**; OVERALL F1 0.50 |
 | Denials caught | 35 of 38 flagged (92%), plus 32 the pattern missed |
 
 ### The edge funnel — where the graph actually is
 
-Measured from the committed corpus, 2026-08-10:
+Measured from the committed corpus, 2026-08-11:
 
 ```
 1,409  all claims
@@ -100,12 +102,21 @@ Measured from the committed corpus, 2026-08-10:
   591  FRAGRANCE -> FRAGRANCE
   529  ASSERTED              (-62 denials)
   524  evidence verified     (-5)
-   18  both ends resolved    <- 17 fragrances curated
+   86  both ends resolved    <- 50 fragrances curated
+   32  distinct pairs
+    6  pages published       <- 3+ commenters AND 2+ videos
 ```
 
 **An edge needs *both* its subject and its object to be a curated bottle**,
-which is why 524 verified claims produce 18. Every filter above works; the
-graph is small because the dictionary is.
+which is why 524 verified claims produce 86. Every filter above works; the
+graph is small because the dictionary is. At 17 curated entries this line
+read 18, and nothing but curation changed to move it.
+
+**The last step is the publishing gate, and it is meant to be lossy.** 32
+pairs become 6 pages because a pair backed by two people, or by three people
+in one comment section, cannot honestly be headed "people say this". See
+`pages.py` for why both bars are measured on the pair rather than on a
+single claim type.
 
 **How far curation has to go**, measured on the 467 edge-eligible claims
 whose two ends are both nameable — not modelled, counted:
@@ -365,6 +376,43 @@ Each row also reports `(N sources; M for the pair)`:
   *all* claim types. Rows share people, so summing the per-row counts
   over-counts humans: Aventus/CDNIM reads 3 + 2 + 1 but is 5 people, not 6.
 
+## Comparison pages
+
+One static page per pair, built from the query layer:
+
+```bash
+uv run python -m fragrance_graph.pages pairs           # what qualifies, no writes
+uv run python -m fragrance_graph.pages build --out site/
+```
+
+```
+    7 people  4 sources  Al Haramain Detour Noir vs Parfums de Marly Layton
+    7 people  3 sources  Parfums de Marly Layton vs The Woods Collection Dusk
+    7 people  2 sources  Kilian Angels' Share vs Lattafa Khamrah
+    5 people  3 sources  Armaf Club de Nuit Intense Man vs Creed Aventus
+    4 people  2 sources  Orientica Luxury Collection Royal Bleu vs Parfums de Marly Layton
+    3 people  2 sources  Armaf Club de Nuit Imperiale vs Parfums de Marly Delina Exclusif
+```
+
+**A page is generated only at 3+ distinct commenters *and* 2+ distinct
+videos.** Both bars are measured on the pair across every claim type, not on
+one claim-type row — rows share people *and* videos, so a row-scoped source
+count printed beside a pair-scoped commenter count would be two numbers
+counting different things. On this corpus the scopes disagree on 8 of 21
+candidate pairs and one pair changes gate status.
+
+`query.pair_stats` is what the gate reads, and it is deliberately
+direction-blind: `BETTER_THAN` only surfaces from the subject's end, so
+asking "who connected these two bottles" from one side alone under-counts.
+Aventus/CDNIM reads 5 people from Aventus and 4 from CDNIM. It is five
+people.
+
+Pages are **not committed**. They cost no quota, no money and no judgement,
+and they are a pure function of `data/corpus/` — the same reasoning that
+keeps products out of the corpus. `site/` is gitignored; rebuilding an
+unchanged corpus rewrites identical bytes, so a diff there would only ever
+mean the corpus moved.
+
 ## Buying links
 
 Where a bottle can be bought, from affiliate-network product feeds. **This
@@ -499,7 +547,15 @@ Each names the test that would fail:
   that go beside it.
 - **Text only.** Naming a fragrance identifies it; using a brand's logo or
   imagery borrows its authority. No table has a column that could hold an
-  image, and nothing in the codebase emits markup.
+  image. Until Phase D nothing in the codebase emitted markup at all; now
+  that `pages.py` does, the rule is carried by
+  `test_no_page_can_emit_an_image`, which asserts no generated page
+  contains `<img`, `<svg` or a `background-image` — and by there being no
+  image to reach for if one wanted to.
+- **Every quote on a page is escaped.** Comment text is written by other
+  people and reaches a page verbatim by design, which is exactly why it is
+  escaped rather than trusted — `test_a_comment_containing_markup_is_
+  rendered_not_executed`.
 - **Nothing that ranks can be sorted by what it pays.** There is no
   commission column anywhere in the schema, which makes the rule a missing
   capability rather than a promise.

@@ -842,6 +842,65 @@ houses this corpus discusses — and it answered yes. `resolve.enrich` now
 makes the same call for real, so the probe was a second copy of a request
 already under test.
 
+### Phase D: the gate is measured on the pair (2026-08-11)
+
+Comparison pages exist (`pages.py`), gated as this SPEC required: 3+
+distinct commenters **and** `min_sources >= 2`. Building it surfaced a
+question the requirement did not answer — *three commenters and two sources
+of what?* — and the two available answers disagree on real data.
+
+`Related` is grouped by `(other fragrance, claim type)`, so `sources` counts
+videos behind **one claim-type row**. `pair_commenters` already counts
+people behind **the whole pair**, because SPEC recorded that rows share
+people and readers were summing them. Rows share videos for exactly the same
+reason.
+
+Gating a row-scoped source count beside a pair-scoped commenter count would
+have printed page headings like *"5 people across 2 videos"* where the two
+numbers count different things — the original defect, re-introduced one
+field over. So `pair_sources` was added alongside `pair_commenters`, and the
+gate reads both.
+
+**It is not cosmetic.** On the committed corpus the scopes disagree on 8 of
+21 candidate pairs, and one changes gate status: Club de Nuit Imperiale <->
+Delina Exclusif is 3 people across 2 videos, which is precisely what the bar
+asks for, and a row-scoped check refused it.
+
+#### Counting a pair from one end under-counts it
+
+A second, sharper version of the same error. `EDGES_SQL` answers "what
+relates to X", and its inbound arm is restricted to the symmetric types on
+purpose: an inbound `BETTER_THAN` means someone said the *other* bottle
+wins, and surfacing it as a recommendation for X would turn a fragrance's
+critics into its endorsements.
+
+Correct for a query. Wrong for a page, which is about a pair rather than
+about one end of one. Aventus/CDNIM counts **5 people asked from Aventus and
+4 asked from CDNIM**, because one commenter's "Aventus beats CDNIM" is
+invisible from the CDNIM side. Both orderings describe the same five people.
+
+`query.pair_stats(conn, a, b)` counts them once, direction-blind and
+claim-type-blind. It is a separate query rather than a flag on `EDGES_SQL`,
+because the two are answering different questions and collapsing them would
+put the directional guard one boolean away from being switched off.
+
+#### What a page may contain
+
+The trust rules were stated for a system that emitted no markup at all, so
+one of them needed re-grounding rather than restating. "Nothing in the
+codebase emits markup" was evidence for **text only**, not the rule itself;
+`pages.py` now emits markup, so the rule is carried by a test asserting no
+generated page contains `<img`, `<svg` or `background-image`.
+
+Quotes are escaped. Comment text is written by other people and reaches a
+page verbatim by design — that is the product — so it is escaped rather than
+trusted, and a comment containing `<script>` renders as the characters that
+person typed.
+
+Pages are not committed, for the reason products are not: no quota, no
+money, no judgement, and a pure function of `data/corpus/`. Output is
+byte-stable, so a diff under `site/` could only mean the corpus moved.
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.
