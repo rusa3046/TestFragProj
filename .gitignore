@@ -27,3 +27,6 @@ next*.json
 drafted*.json
 silent*.json
 labels*.json
+todraft*.json
+review*.json
+blind*.json
