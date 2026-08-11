@@ -181,7 +181,11 @@ do not make you confident, reject and move on.
 unreviewed file adds zero fragrances. If you run `apply` and nothing
 happens, that is the guard working, not a bug.
 
-## Measured 2026-08-11: the auto-rule cannot currently fire
+## Measured 2026-08-11: why the auto-rule could not fire
+
+*This is the measurement that prompted the brand-exclusion fix above. It
+is kept as the record of how the defect was found; the behaviour it
+describes is the behaviour **before** that fix.*
 
 `daily.AUTO_RULE` auto-approves a proposal only when
 `corpus_mentions == -1` — "the proposed name adds no word to the mention,
@@ -230,14 +234,17 @@ with no judgement in them and holds the ones with a real question. The
 25th entry, `Perseus`, is the known-ambiguous one — two houses ship a
 Perseus — and is excluded from the count.
 
-**This change has not been made.** It is a change to logic that writes
-permanent, silent merges, and it could not be validated end to end here
-because `api.fragella.com` is blocked by the runner's egress policy (403
-on CONNECT). It should be made against a live catalogue, not a replay.
+**This change has since been made** — see the brand-exclusion section
+above, which implements the brand exclusion and carries its own tests.
+It has still never run against the live catalogue: `api.fragella.com` is
+blocked by the runner's egress policy (403 on CONNECT), so both the
+measurement and the fix rest on an offline replay against known-good
+entries. The first live run is still the real test.
 
 Worth noting for the target: 19 auto-approvals would take curation from
 50 to ~69, inside the 60-80 band, without a human deciding anything the
-corpus had not already settled.
+corpus had not already settled. That is a projection from the replay, not
+an observed result.
 
 ## Lookups are spent before they are filtered
 
