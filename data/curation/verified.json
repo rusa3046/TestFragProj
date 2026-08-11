@@ -209,5 +209,124 @@
       "https://marabika.lt/en/french-avenue/"
     ],
     "notes": "CORRECTS A COMMITTED GUESS. scripts/seed_fragrances.py records Zenith Blue as 'unrecognised'. It is French Avenue Zenith Blue, a 2025 release — which is very likely why it was unrecognised: it is newer than most reference material and the corpus comments are recent. Sources here are all mid-tier international retailers rather than a brand storefront; French Avenue does not appear to run a first-party US store, and myfrenchavenue.com / shopfragranceworld.com are the closest thing to official. Confidence is high because five independent retailers in four countries agree on brand and product, and a corpus commenter names the brand unprompted. The corpus also disambiguates which Sauvage it clones — 'Zenith is more like the (citrusy) EDT, isnt it?' — which matters for the Sauvage entry below."
+  },
+
+  {
+    "mention": "Sauvage",
+    "corpus_count": 36,
+    "canonical_name": "Dior Sauvage",
+    "brand": "Dior",
+    "year": "2015",
+    "confidence": "high",
+    "flanker_family": [
+      "Dior Sauvage Eau de Toilette (2015)",
+      "Dior Sauvage Eau de Parfum",
+      "Dior Sauvage Parfum",
+      "Dior Sauvage Elixir (2021)",
+      "Dior Sauvage Very Cool Spray",
+      "Dior Eau Sauvage (1966) — a DIFFERENT fragrance, not a flanker",
+      "Dior Eau Sauvage Parfum",
+      "Dior Eau Sauvage Extreme"
+    ],
+    "bare_mention_means": "Dior Sauvage, the 2015 Demachy fresh-spicy — and within that, the EDT by default. The committed entry is CORRECT and the Eau Sauvage risk does not materialise in this corpus: across all 36 comments containing 'sauvage', the string 'eau sauvage' appears ZERO times. Meanwhile 'sauvage edt' appears 6 times and 'sauvage edp' 3, and the corpus was seeded by three 'dior sauvage dupe' videos. Nobody in this corpus is discussing the 1966 citrus.",
+    "sources": [
+      "https://en.wikipedia.org/wiki/Eau_Sauvage",
+      "https://www.readysleek.com/sauvage-vs-eau-sauvage/",
+      "https://hottperfume.com/blog/which-dior-sauvage-is-for-you-edt-edp-parfum-or-elixir/",
+      "https://www.myperfumeshop.com/blogs/perfume/which-dior-sauvage-is-right-for-you-edt-edp-parfum-or-elixir",
+      "https://basenotes.com/fragrances/sauvage-elixir-by-christian-dior.26163974"
+    ],
+    "notes": "HIGHEST-RISK ENTRY IN THE SET, AND IT IS FINE — but the risk is real in general, just not here. Eau Sauvage (1966, Roudnitska, lemon/bergamot/basil/oakmoss) and Sauvage (2015, Demachy, bergamot/pepper/ambroxan) are unrelated fragrances that share a house and most of a name. The only thing protecting this corpus is that it was built from 'dior sauvage dupe' searches; a corpus drawn from r/fragrance or from vintage discussion would mix them freely, and 'Sauvage' would need the 'eau' prefix checked before resolving. Recommend adding a negative guard rather than relying on the alias list: 'Eau Sauvage' must never fuzzy-match to 'Sauvage'. At FUZZY_THRESHOLD = 0.88 the two strings are close enough that this is worth testing explicitly. SECOND ISSUE, LIVE NOW: the concentration split inside modern Sauvage is active in this corpus and the current single 'Dior Sauvage' entry will silently swallow it. One commenter writes 'Lattafa Asad is a Dior Sauvage elixir clone ... Neeb is only comparing Dior Sauvage EDT/EDP dupes NOT the Elixir', and another asks for 'a good Dior Sauvage Parfum clone'. Those are claims about Elixir and Parfum, not about Sauvage EDT, and merging them makes the dupe graph wrong in a way no test will catch. Sauvage Elixir in particular has a different note profile (cinnamon, licorice, nutmeg) and its own distinct clone set."
+  },
+  {
+    "mention": "Layton",
+    "corpus_count": 143,
+    "canonical_name": "Parfums de Marly Layton",
+    "brand": "Parfums de Marly",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Parfums de Marly Layton Exclusif (2017)",
+      "Parfums de Marly Layton Royal Essence (line label on the standard bottle, not a separate bottle)"
+    ],
+    "bare_mention_means": "Parfums de Marly Layton, the standard EDP. The committed entry is CORRECT. Corpus arithmetic: 'layton' appears 143 times, 'layton exclusif' 6. It is also the corpus's single most-discussed original — three of the 24 source videos are 'parfums de marly layton dupe', 652 comments — and every clone thread (Detour Noir, Orientica Royal Bleu, Al Haramain Amber Oud) compares to plain Layton, not to the Exclusif.",
+    "sources": [
+      "https://us.parfums-de-marly.com/products/layton",
+      "https://us.parfums-de-marly.com/products/layton-exclusif",
+      "https://parfums-de-marly.com/pages/the-exclusifs",
+      "https://www.nordstrom.com/s/parfums-de-marly-layton-exclusif-parfum/7423645"
+    ],
+    "notes": "WARNING ABOUT THE CORPUS_MENTIONS METHOD ITSELF, using this row as the example. docs/CURATION.md tells a reviewer to score a flanker by counting its distinguishing word. For Layton that word is 'exclusif' — and 'exclusif' appears 44 times in this corpus. A reviewer applying the documented arithmetic literally would see 44 and conclude the corpus is full of Layton Exclusif talk. It is not: only 6 of those 44 are 'layton exclusif'. The rest belong to OTHER bottles entirely — Delina Exclusif, Pegasus Exclusif, Al Haramain Amber Oud Exclusif, Orientica Xclusif Oud Bleu. The distinguishing word must be counted adjacent to the mention, not free-floating in the corpus. Same failure mode affects 'extrait', 'intense', 'white' and 'elixir'. See VERIFICATION.md."
+  },
+  {
+    "mention": "Khamrah",
+    "corpus_count": 59,
+    "canonical_name": "Lattafa Khamrah",
+    "brand": "Lattafa",
+    "year": "2022",
+    "confidence": "high",
+    "flanker_family": [
+      "Lattafa Khamrah Qahwa (2023, coffee)",
+      "Lattafa Khamrah Dukhan (smoke)",
+      "Lattafa Khamrah Maliky (saffron-rose)",
+      "Lattafa Khamrah Waha"
+    ],
+    "bare_mention_means": "Lattafa Khamrah, the original 2022 spiced-vanilla/dates. The committed entry is CORRECT. Corpus arithmetic: 'khamrah' 59, 'khamrah qahwa' 3, 'qahwa' 8 total. Commenters who mean the flanker say so and contrast it against the base ('Khamrah Qahwa better than the original Khamrah imo'), which is exactly the behaviour CURATION.md predicts.",
+    "sources": [
+      "https://lattafa.com/product/badee-al-oud-amethyest/",
+      "https://scentchronicles.com/lattafa-khamrah-buying-guide-2025-all-versions-compared/",
+      "https://brownedit.com/lattafa-khamrah-vs-qahwa-vs-dukhan-india/",
+      "https://www.justmylook.com/products/lattafa-khamrah-qahwa-eau-de-parfum-100ml"
+    ],
+    "notes": "The flanker family is larger than the seed comment implies — four flankers, not one — but none of Dukhan, Maliky or Waha appears in this corpus, so only Qahwa is a live confusion risk today, and Qahwa has its own entry above. Watch this one over time: Lattafa is shipping Khamrah flankers steadily, and a corpus refreshed in a year will contain Dukhan and Waha mentions that the current single 'Khamrah' entry would absorb. The curated aliases 'Kamrah' and 'Khamra' are good — both are real corpus misspellings."
+  },
+  {
+    "mention": "Club de Nuit",
+    "corpus_count": 56,
+    "canonical_name": "Armaf Club de Nuit Intense Man",
+    "brand": "Armaf",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Armaf Club de Nuit Intense Man Limited Edition Parfum (the 'CDNIM extrait' of the corpus)",
+      "Armaf Club de Nuit Intense Woman",
+      "Armaf Club de Nuit Sillage",
+      "Armaf Club de Nuit Urban Man",
+      "Armaf Club de Nuit Urban Man Elixir",
+      "Armaf Club de Nuit Untold",
+      "Armaf Club de Nuit Milestone",
+      "Armaf Club de Nuit Imperiale / White Imperiale",
+      "Armaf Club de Nuit Blue"
+    ],
+    "bare_mention_means": "Armaf Club de Nuit Intense Man. The committed entry is CORRECT. The decisive evidence is the abbreviation, not the full name: 'CDNIM' appears 37 times in the corpus as a standalone alias, against 'intense man' 7 times spelled out. Nobody abbreviates a bottle they are not talking about constantly, and the corpus context is uniformly Aventus-clone ('CDNIM is definitely at least as good ... Save the 400 bucks and get the Armaf guys'). The curated alias list already includes CDNIM, which is the right call.",
+    "sources": [
+      "https://armaf.com/collections/club-de-nuit",
+      "https://armaf.com/products/club-de-nuit-intense-for-man",
+      "https://armaf.com/products/club-de-nuit-intense-man-limited-edition",
+      "https://www.realmenrealstyle.com/armaf-club-de-nuit-fragrances/",
+      "https://www.intenseoud.com/blogs/news/club-de-nuit-exploring-the-best-in-the-armaf-collection"
+    ],
+    "notes": "THE WORKED EXAMPLE IN docs/CURATION.md IS FACTUALLY WRONG ABOUT THIS CORPUS, though it reaches the right answer. CURATION.md states, as its central demonstration of the method: \"The word that makes it Sillage rather than plain Club de Nuit is 'sillage'. That word appears zero times in your corpus.\" It appears TEN times. Nine of the ten are the ordinary English perfume noun — 'what about performance and sillage?', 'a sillage/projection monster', 'how much time longevity and sillage and projections'. Exactly one is the product ('This or Club De Nuit Sillage?'). The conclusion in the doc survives (nobody is discussing Club de Nuit Sillage), but the arithmetic it teaches would mislead a reviewer here, and 'sillage' is the single worst possible word to have chosen for the example because it is fragrance vocabulary. Recommend the doc be corrected before more reviewers are trained on it. Also note Armaf's line is far wider than the seed comment's 'and more' suggests, and two of its members already collide with other entries in this file: Club de Nuit Imperiale is the 'Imperiale' mention in Part A, and 'Club de nuit urban man elixir' appears in the corpus as its own bottle."
+  },
+  {
+    "mention": "Oud Wood",
+    "corpus_count": 61,
+    "canonical_name": "Tom Ford Oud Wood",
+    "brand": "Tom Ford",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Tom Ford Oud Wood Intense (2017, discontinued)",
+      "Tom Ford Oud Wood Parfum (2024)",
+      "Tom Ford Private Blend Oud Wood collection (Oud Wood body products, candles)"
+    ],
+    "bare_mention_means": "Tom Ford Oud Wood, the standard Private Blend EDP. The committed entry is CORRECT. Corpus arithmetic is about as clean as it gets: 'oud wood' 61, 'oud wood intense' 1. Three source videos are 'tom ford oud wood dupe' (617 comments), and every clone comparison in the corpus — Woody Oud, Oud Wonder — is against the plain bottle.",
+    "sources": [
+      "https://www.tomfordbeauty.com/products/oud-wood-eau-de-parfum",
+      "https://www.tomfordbeauty.com/products/oud-wood-parfum",
+      "https://www.tomfordbeauty.com/products/fragrance/private-blend/oudwood-collection",
+      "https://www.nordstrom.com/s/tom-ford-private-blend-oud-wood-eau-de-parfum-spray/3623561"
+    ],
+    "notes": "Lowest-risk of the four large-family entries. Oud Wood Intense is discontinued, which is why it barely registers; Oud Wood Parfum only launched in March 2024 and postdates most of this corpus. Both will appear in future corpora, so keep the family recorded even though it costs nothing today. One nuance worth carrying: because Tom Ford sells an entire Oud Wood *collection* (body spray, candle, shower gel), a future non-YouTube corpus may produce 'Oud Wood' mentions that are not the EDP at all."
   }
 ]
