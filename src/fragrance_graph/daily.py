@@ -1,0 +1,411 @@
+"""The unattended daily loop: collect, extract, resolve, publish, report.
+
+    python -m fragrance_graph.daily run --queries "layton clone" "khamrah dupe"
+    python -m fragrance_graph.daily run --dry-run     # no key, no spend
+
+The loop is **demand-driven**, which SPEC settled on 2026-08-10 after
+rejecting a release feed:
+
+    1. YouTube: search fragrance discussion broadly
+    2. ingest -> extract
+    3. resolve.entities report  ->  newly frequent, still unnamed
+    4. Fragella: resolve exactly those names
+    5. auto-curate what corroborates -> backfill -> export -> pages
+
+A supply-driven loop asks a catalogue what is new and then goes looking for
+discussion of it. That answers the wrong question: a bottle launched
+yesterday has no YouTube comments yet, so a release feed delivers
+fragrances that *cannot* produce an edge. The corpus is already the
+detector — a new release climbs the unresolved-mention report exactly when
+people start talking about it, which is the first moment it can become an
+edge. Fragella is then asked only the question it is genuinely better at
+than the corpus: "people started writing 'Qahwa' — what is that, and
+whose?"
+
+That ordering also makes the catalogue cheap. Lookups are spent on mentions
+the corpus has already proved people are discussing, rather than on a
+brand's whole back catalogue.
+
+## Curation is automatic, and narrowly so
+
+The operator asked for auto-approval on corroboration with a summary,
+rather than a review queue. `AUTO_RULE` below is that corroboration test,
+and it is deliberately the narrowest defensible one: the only rows it takes
+are the rows where there is no judgement to make.
+
+`docs/CURATION.md` already names the judgement — flankers. A house ships
+Layton and Layton Exclusif, Khamrah and Khamrah Qahwa, and the catalogue
+returns whichever scores best. `corpus_mentions` encodes exactly that, and
+its `-1` case means *the proposed name adds no word to the mention* — it is
+the plain bottle, and the flanker question does not arise. Those are auto-
+approved. Every other value means a human is being asked something:
+
+    corpus_mentions == -1   no distinguishing word  -> auto-approve
+    corpus_mentions == 0    a flanker nobody wrote  -> hold: pick an alternative
+    corpus_mentions >  0    a flanker people discuss -> hold: probably its own entry
+
+A merge is permanent and invisible to the test suite; a hold costs one
+lookup later and stays visible in `resolve.entities report`. That asymmetry
+is why the rule refuses rather than guesses, and it is the same one
+`FUZZY_THRESHOLD = 0.88` encodes.
+
+**This will still be wrong sometimes.** A hand-curated entry called
+"confident" turned out to name the wrong house — two houses ship a Perseus
+— which is roughly a 6% error rate on carefully checked entries. Automatic
+curation will do worse than that, not better. What stops a bad merge
+reaching a reader is not this rule; it is the publishing gate in
+`pages.py`, which requires 3 distinct commenters across 2 videos before a
+pair becomes a page. This rule only has to be good enough that the gate is
+not doing all the work alone.
+
+## Nothing here spends without the cap
+
+Every paid step goes through `budget.Budget`, a hard $1/day stop backed by
+a committed ledger. See `budget.py` for why the ledger is a file rather
+than a table.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sqlite3
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
+from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.resolve.enrich import Proposal
+
+log = logging.getLogger("fragrance_graph.daily")
+
+#: A mention must appear at least this often before a lookup is spent on
+#: it. Below it, the mention cannot reach a 3-commenter bar even if every
+#: mention were a different person, so the lookup buys nothing.
+AUTO_MIN_COUNT = 3
+
+#: Comments to pull per scheduled run. The cap is the real limit; this
+#: stops a single run from queueing far more extraction than a day's budget
+#: can pay for, which would otherwise just be re-read as pending each run.
+DEFAULT_INGEST_LIMIT = 400
+
+
+def auto_approvable(proposal: Proposal, *, min_count: int = AUTO_MIN_COUNT) -> bool:
+    """Whether a proposal corroborates well enough to write without a human.
+
+    Read the conditions as "is there a decision here?" rather than "is this
+    probably right?". The catalogue is usually right about the world; what
+    it cannot know is which sibling bottle *these* commenters meant.
+    """
+    if proposal.approved is not None:
+        return False  # already decided by a person; never overrule
+    if not proposal.canonical_name or not proposal.brand:
+        return False  # a name the catalogue never returned cannot be written
+    if not proposal.confident:
+        return False  # the proposed name is not the mention people wrote
+    if proposal.corpus_mentions != -1:
+        return False  # a flanker question exists, so a person answers it
+    return proposal.count >= min_count
+
+
+@dataclass
+class RunReport:
+    """What one run did, in the terms the operator asked to hear about."""
+
+    dry_run: bool = False
+    videos_searched: int = 0
+    comments_ingested: int = 0
+    comments_extracted: int = 0
+    claims_written: int = 0
+    spend_usd: float = 0.0
+    budget_remaining_usd: float = DAILY_CAP_USD
+    stopped_on_budget: bool = False
+    looked_up: int = 0
+    auto_approved: list[str] = field(default_factory=list)
+    held_for_review: list[tuple[str, str]] = field(default_factory=list)
+    mentions_resolved: int = 0
+    pages_before: int = 0
+    pages_after: int = 0
+    errors: list[str] = field(default_factory=list)
+
+    def render(self) -> str:
+        """The summary. Written to be read on a phone, worst news first."""
+        lines: list[str] = []
+        if self.dry_run:
+            lines.append("DRY RUN — nothing was ingested, extracted or spent.")
+        if self.errors:
+            lines.append("Problems:")
+            lines += [f"  ! {e}" for e in self.errors]
+        if self.stopped_on_budget:
+            lines.append(
+                f"  ! Stopped on the ${DAILY_CAP_USD:.2f} daily cap. "
+                "Un-extracted comments resume tomorrow."
+            )
+
+        lines.append("")
+        lines.append(
+            f"Collected   {self.comments_ingested} new comments "
+            f"from {self.videos_searched} videos"
+        )
+        lines.append(
+            f"Extracted   {self.comments_extracted} comments "
+            f"-> {self.claims_written} claims"
+        )
+        lines.append(
+            f"Spent       ${self.spend_usd:.4f} "
+            f"(${self.budget_remaining_usd:.4f} left today)"
+        )
+        verb = "Would look up" if self.dry_run else "Looked up  "
+        lines.append(f"{verb} {self.looked_up} unresolved mentions")
+
+        if self.auto_approved:
+            lines.append("")
+            lines.append(f"Curated automatically ({len(self.auto_approved)}):")
+            lines += [f"  + {name}" for name in self.auto_approved]
+        if self.held_for_review:
+            lines.append("")
+            lines.append(
+                f"Held for you ({len(self.held_for_review)}) — a flanker "
+                "question the corpus cannot answer:"
+            )
+            lines += [f"  ? {m}: {why}" for m, why in self.held_for_review]
+
+        lines.append("")
+        lines.append(f"Resolved    {self.mentions_resolved} mentions into claims")
+        delta = self.pages_after - self.pages_before
+        lines.append(
+            f"Pages       {self.pages_after}"
+            + (f"  ({delta:+d} today)" if delta else "  (no change)")
+        )
+        return "\n".join(lines)
+
+
+def newly_frequent(conn: sqlite3.Connection, *, limit: int, min_count: int):
+    """The detector: unresolved mentions people have started writing.
+
+    Thin wrapper over `enrich.candidates` so the loop reads in the order
+    SPEC describes it, and so the "what is new" step has a name.
+    """
+    from fragrance_graph.resolve.enrich import candidates
+
+    return candidates(conn, limit, min_count=min_count)
+
+
+def run(
+    conn: sqlite3.Connection,
+    *,
+    queries: list[str],
+    budget: Budget,
+    ingest_limit: int = DEFAULT_INGEST_LIMIT,
+    lookup_limit: int = 25,
+    max_videos: int = 3,
+    out_dir: Path = Path("site"),
+    dry_run: bool = False,
+) -> RunReport:
+    """One pass of the loop. Every paid step is guarded by `budget`."""
+    from fragrance_graph.pages import build, qualifying_pairs
+
+    report = RunReport(dry_run=dry_run)
+    report.pages_before = len(qualifying_pairs(conn))
+    report.budget_remaining_usd = budget.remaining_usd
+
+    if budget.exhausted and not dry_run:
+        report.stopped_on_budget = True
+        report.errors.append(
+            f"Today's ${budget.cap_usd:.2f} was already spent before this run."
+        )
+        return report
+
+    if not dry_run:
+        _collect(conn, queries, max_videos, ingest_limit, report)
+        _extract(conn, budget, ingest_limit, report)
+
+    report.spend_usd = budget.spent_usd
+    report.budget_remaining_usd = budget.remaining_usd
+
+    _curate(conn, lookup_limit, report, dry_run=dry_run)
+
+    if not dry_run:
+        from fragrance_graph.resolve.entities import backfill
+
+        stats = backfill(conn)
+        report.mentions_resolved = stats.subjects_resolved + stats.objects_resolved
+
+    report.pages_after = len(qualifying_pairs(conn))
+    if not dry_run:
+        build(conn, out_dir)
+    return report
+
+
+def _collect(conn, queries, max_videos, ingest_limit, report: RunReport) -> None:
+    from fragrance_graph.ingest.store import ingest
+    from fragrance_graph.ingest.youtube import (
+        SOURCE,
+        QuotaTracker,
+        build_client,
+        iter_video_comments,
+        search_video_ids,
+    )
+
+    try:
+        client, api_key = build_client()
+    except SystemExit as exc:
+        report.errors.append(f"YouTube unavailable: {exc}")
+        return
+
+    quota = QuotaTracker()
+    seen_videos: list[str] = []
+    for query in queries:
+        try:
+            seen_videos += search_video_ids(
+                client, api_key, query, limit=max_videos, quota=quota
+            )
+        except Exception as exc:  # quota, transport, disabled API
+            report.errors.append(f"search {query!r} failed: {exc}")
+
+    seen_videos = list(dict.fromkeys(seen_videos))
+    report.videos_searched = len(seen_videos)
+
+    remaining = ingest_limit
+    for video_id in seen_videos:
+        if remaining <= 0:
+            break
+        try:
+            rows = list(
+                iter_video_comments(
+                    client, api_key, video_id, limit=remaining, quota=quota
+                )
+            )
+        except Exception as exc:
+            report.errors.append(f"comments for {video_id} failed: {exc}")
+            continue
+        # `ingest` still defaults to source="reddit" for historical reasons.
+        # Passing SOURCE explicitly is not optional: uniqueness is
+        # (source, source_id), so the wrong label would file YouTube
+        # comments under a source that cannot be re-fetched.
+        stats = ingest(conn, rows, source=SOURCE)
+        report.comments_ingested += stats.new
+        remaining -= len(rows)
+
+
+def _extract(conn, budget: Budget, limit: int, report: RunReport) -> None:
+    from fragrance_graph.extract.llm import build_client, extract
+
+    try:
+        client = build_client()
+    except SystemExit as exc:
+        report.errors.append(f"Anthropic unavailable: {exc}")
+        return
+
+    before = _claim_count(conn)
+    try:
+        cost = extract(conn, client, limit=limit, on_spend=budget.guard("extract"))
+        report.comments_extracted = cost.comments
+    except BudgetExhausted as exc:
+        report.stopped_on_budget = True
+        log.warning("%s", exc)
+    except Exception as exc:
+        report.errors.append(f"extraction failed: {exc}")
+    report.claims_written = _claim_count(conn) - before
+
+
+def _curate(conn, lookup_limit: int, report: RunReport, *, dry_run: bool) -> None:
+    """Look up newly frequent names, write the ones with no decision in them."""
+    from fragrance_graph.resolve.enrich import ApplyStats, apply_review, propose
+
+    wanted = newly_frequent(conn, limit=lookup_limit, min_count=AUTO_MIN_COUNT)
+    report.looked_up = len(wanted)
+    if dry_run or not wanted:
+        return
+    if not os.environ.get("FRAGELLA_API_KEY"):
+        report.errors.append("FRAGELLA_API_KEY is not set; no names were looked up.")
+        return
+
+    review = Path("data/curation/auto-review.json")
+    try:
+        proposals = propose(
+            conn, review, limit=lookup_limit, min_count=AUTO_MIN_COUNT
+        )
+    except SystemExit as exc:
+        report.errors.append(f"catalogue lookup failed: {exc}")
+        return
+
+    for proposal in proposals:
+        if auto_approvable(proposal):
+            proposal.approved = True
+            report.auto_approved.append(
+                f"{proposal.mention} -> {proposal.canonical_name} "
+                f"[{proposal.brand}]"
+            )
+        else:
+            report.held_for_review.append(
+                (proposal.mention, proposal.note or "no catalogue match")
+            )
+
+    stats: ApplyStats = apply_review(conn, proposals)
+    log.info("Auto-curation: %s", stats)
+
+
+def _claim_count(conn) -> int:
+    return conn.execute("SELECT count(*) FROM claims").fetchone()[0]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    r = sub.add_parser("run", help="One pass of the daily loop")
+    r.add_argument(
+        "--queries",
+        nargs="+",
+        default=["fragrance dupe", "fragrance clone", "best fragrance 2026"],
+        help="YouTube searches. Broad on purpose; the corpus is the detector.",
+    )
+    r.add_argument("--ingest-limit", type=int, default=DEFAULT_INGEST_LIMIT)
+    r.add_argument("--lookup-limit", type=int, default=25)
+    r.add_argument("--max-videos", type=int, default=3)
+    r.add_argument("--out", default="site", type=Path)
+    r.add_argument("--cap", type=float, default=DAILY_CAP_USD)
+    r.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report what would happen. No API key needed, nothing spent.",
+    )
+
+    s = sub.add_parser("spend", help="Recent daily spend")
+    s.add_argument("--days", type=int, default=7)
+
+    for p in (r, s):
+        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
+    if args.command == "spend":
+        from fragrance_graph.budget import summary
+
+        print(summary(days=args.days))
+        return 0
+
+    conn = get_connection(args.db_path)
+    migrate(conn)
+    try:
+        report = run(
+            conn,
+            queries=args.queries,
+            budget=Budget.load(cap_usd=args.cap),
+            ingest_limit=args.ingest_limit,
+            lookup_limit=args.lookup_limit,
+            max_videos=args.max_videos,
+            out_dir=Path(args.out),
+            dry_run=args.dry_run,
+        )
+        print(report.render())
+    finally:
+        conn.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -376,6 +376,48 @@ Each row also reports `(N sources; M for the pair)`:
   *all* claim types. Rows share people, so summing the per-row counts
   over-counts humans: Aventus/CDNIM reads 3 + 2 + 1 but is 5 people, not 6.
 
+## The daily loop
+
+```bash
+uv run python -m fragrance_graph.daily run --dry-run   # no keys, nothing spent
+uv run python -m fragrance_graph.daily run
+uv run python -m fragrance_graph.daily spend           # recent daily totals
+```
+
+It is **demand-driven**, and that is a decision rather than an
+implementation detail:
+
+```
+1. YouTube: search fragrance discussion broadly
+2. ingest -> extract
+3. resolve.entities report  ->  newly frequent, still unnamed
+4. Fragella: resolve exactly those names
+5. auto-curate what corroborates -> backfill -> export -> pages
+```
+
+Asking a catalogue what is new and *then* looking for discussion of it
+answers the wrong question: a bottle launched yesterday has no YouTube
+comments, so a release feed delivers fragrances that cannot produce an edge.
+The corpus is already the detector — a new release climbs the
+unresolved-mention report exactly when people start discussing it. SPEC
+records the full argument. It also makes the catalogue cheap, since lookups
+go only to names the corpus has proved people are writing.
+
+**Spending is capped at $1/day, hard.** `data/spend.jsonl` is an
+append-only committed ledger; every scheduled run gets a fresh container, so
+a cap held in the database or in `/tmp` would reset each run and quietly
+become "$1 per *run*". The cap is enforced between extraction batches, not
+just before the run — a batch commits before the check, and anything
+unreached keeps `extracted_at` NULL, so a stop resumes tomorrow rather than
+re-paying or skipping.
+
+**Curation is automatic only where there is no decision to make.** A
+proposal is written without asking when the catalogue's name adds no word to
+the mention (`corpus_mentions == -1`) — it is the plain bottle, so the
+flanker question does not arise. Anything else is held and listed in the run
+summary. That rule will still be wrong sometimes; what keeps a bad merge off
+a page is the publishing gate below, not the rule.
+
 ## Comparison pages
 
 One static page per pair, built from the query layer:

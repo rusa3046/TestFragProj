@@ -901,6 +901,58 @@ Pages are not committed, for the reason products are not: no quota, no
 money, no judgement, and a pure function of `data/corpus/`. Output is
 byte-stable, so a diff under `site/` could only mean the corpus moved.
 
+### The unattended loop: a hard cap and a narrow auto-curation rule (2026-08-11)
+
+`daily.py` implements the demand-driven loop specified above. Two decisions
+in it are worth recording, because both are about what an *unattended*
+process is allowed to do.
+
+#### The cap is a hard stop, enforced between batches, backed by a file
+
+$1/day. The risk an unattended loop carries is not one expensive day — it
+is a cheap mistake repeating on a schedule — so the cap raises rather than
+warns, and `extract()` takes an `on_spend` callback that can stop the run
+mid-way. A pre-flight estimate cannot see a batch that costs more than
+projected, and this SPEC already describes the estimator as an order of
+magnitude rather than a quote.
+
+Stopping mid-run is safe here and only here: a batch commits before the
+callback fires, and anything unreached still has `extracted_at` NULL, so
+tomorrow resumes rather than re-paying or skipping.
+
+**The ledger is `data/spend.jsonl`, and it is committed.** Every scheduled
+run gets a fresh container — repo cloned, database rebuilt from
+`data/corpus/`, filesystem reclaimed. A cap tracked in the database or in
+`/tmp` therefore resets every run, turning "$1 per day" into "$1 per run",
+which is the one reading that makes the cap useless exactly when something
+is looping. It is committed for the same reason the corpus is: it records
+money actually spent and cannot be regenerated. Dates are UTC, because a
+cap whose window moves with the runner's timezone is not a cap.
+
+#### Auto-curation takes only the rows with no decision in them
+
+The operator asked for auto-approval on corroboration plus a summary,
+rather than a review queue. The rule is the narrowest defensible one, and
+it is expressed entirely in `corpus_mentions` — the signal `docs/CURATION.md`
+already teaches as the thing that settles a flanker:
+
+| `corpus_mentions` | meaning | action |
+|---|---|---|
+| `-1` | the proposed name adds no word — it *is* the plain bottle | auto-approve |
+| `0` | a flanker whose distinguishing word nobody wrote | hold; the answer is in `alternatives` |
+| `n` | a flanker people genuinely discuss | hold; it likely wants its own entry |
+
+Plus: `confident` must hold, the catalogue must actually have returned a
+name and brand, the mention must clear 3 slots, and an explicit human
+`approved` is never overruled in either direction.
+
+**This will be wrong sometimes, and that is accounted for.** A
+hand-curated entry called "confident" named the wrong house — two houses
+ship a Perseus — which is ~6% on carefully checked entries; automatic
+curation will do worse. What keeps a bad merge off a page is not this rule
+but the Phase D gate: 3 distinct commenters across 2 videos. The rule only
+has to be good enough that the gate is not carrying the whole load alone.
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.

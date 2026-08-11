@@ -33,7 +33,7 @@ import os
 import sqlite3
 import time
 from collections import Counter
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -820,8 +820,17 @@ def extract(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     progress_every: int = 5,
     labelled_only: bool = False,
+    on_spend: Callable[[float, int], None] | None = None,
 ) -> CostTracker:
-    """Extract claims for up to `limit` un-extracted comments."""
+    """Extract claims for up to `limit` un-extracted comments.
+
+    `on_spend(usd, comments)` is called after each batch commits, with what
+    that batch alone cost. It exists for the unattended loop's daily cap:
+    raising from it stops the run mid-way, which is safe here because a
+    batch is committed before the callback fires and anything unprocessed
+    still has `extracted_at` NULL and resumes next run. A cap checked only
+    before the run cannot see a batch that costs more than projected.
+    """
     rows = pending_comments(conn, limit, labelled_only=labelled_only)
     if not rows:
         log.info("No comments pending extraction.")
@@ -870,7 +879,10 @@ def extract(
                 )
 
             conn.commit()
+            before = cost.cost_usd
             cost.record(tokens_in, tokens_out, len(batch))
+            if on_spend is not None:
+                on_spend(cost.cost_usd - before, len(batch))
 
             if cost.batches % progress_every == 0:
                 log.info(
