@@ -776,6 +776,43 @@ rows deleted — and identical again after the retailer itself is removed.
 Result-filtering is tested separately, because filtering to sellable
 options is the version of this failure that leaves the order untouched.
 
+### The corpus is the new-release detector (2026-08-10)
+
+A daily loop wants to know what fragrances are new. The obvious answer is
+a release feed — Fragella by brand, or a directory site like Basenotes.
+Rejected, for two reasons, the second stronger than the first.
+
+**Basenotes has no public API**, so using it means scraping, which
+Constraints already forbids for Fragrantica and Parfumo on identical
+grounds: their terms prohibit it and this project must stay publicly
+demoable. Fragella has an API but no recency endpoint — `/brands/:name`
+returns a catalogue, not a timeline.
+
+**And a release feed answers the wrong question.** A fragrance launched
+yesterday has no YouTube discussion; review videos take weeks and comment
+threads accumulate over months. A feed therefore delivers bottles that
+*cannot yet produce an edge*, which is the same error as curating from a
+catalogue rather than from mentions: the dictionary does not create edges,
+comments do.
+
+`resolve.entities report` already is the detector. It ranks unresolved
+mentions by frequency, so a new release climbs it exactly when people
+start discussing it — which is the first moment it can become an edge.
+
+The loop is therefore demand-driven, not supply-driven:
+
+```
+1. YouTube: search fragrance content broadly
+2. ingest -> extract
+3. resolve.entities report  ->  newly frequent, unnamed
+4. Fragella: resolve those names        <- the job it is actually good at
+5. backfill -> export -> commit
+```
+
+One fewer dependency than the supply-driven design, no scraping question,
+and Fragella is left doing the only thing it does better than the corpus:
+answering "people started writing 'Qahwa' — what is that, and whose?"
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.
