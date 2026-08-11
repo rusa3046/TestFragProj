@@ -373,10 +373,20 @@ def test_a_flanker_does_not_match_its_parent(curated):
 
     Sauvage Elixir and Khamrah Qahwa are different bottles at different
     prices. Matching either to its parent sells a reader the wrong thing.
+
+    The two are at different curation states, which is the point. Sauvage
+    Elixir is not curated, so the right answer is no link at all. Khamrah
+    Qahwa was curated on 2026-08-11, so the right answer is a link to
+    *itself* — never to plain Khamrah, which costs a third of the price.
+    Asserting `is None` for Qahwa would now pass for the wrong reason: it
+    would be satisfied by a matcher that had simply stopped working.
     """
     candidates = load_candidates(curated)
     assert match_product("Dior Sauvage Elixir 60ml", candidates) is None
-    assert match_product("Lattafa Khamrah Qahwa EDP 100ml", candidates) is None
+
+    qahwa = match_product("Lattafa Khamrah Qahwa EDP 100ml", candidates)
+    assert qahwa is not None
+    assert qahwa.canonical_name == "Lattafa Khamrah Qahwa"
 
 
 def test_junk_names_resolve_to_nothing(curated):
@@ -395,19 +405,27 @@ def import_fixture(conn, path, retailer_name, **kwargs):
 
 
 def test_the_fixture_feeds_report_their_match_rate(curated):
-    """65% across both fixtures, and the shortfall is five nameable rows.
+    """70% across both fixtures, and the shortfall is four nameable rows.
 
     The number matters less than the fact that it exists: an importer that
     silently drops a third of a feed looks exactly like one that imported
     all of it.
+
+    The XML rate moved 4/6 -> 5/6 on 2026-08-11 without the fixture or the
+    importer changing: curating Khamrah Qahwa resolved a row that had been
+    sitting unmatched. That is the bargain the design makes on purpose —
+    unmatched rows are stored rather than dropped, and matching re-runs on
+    every import, so curation pays out retroactively with no re-download.
+    A curation change is *expected* to move this number, which is why the
+    fixture imports the real SEED list rather than a retyped copy.
     """
     csv_stats = import_fixture(curated, CSV_FEED, "Example Scent Co")
     xml_stats = import_fixture(curated, XML_FEED, "Example Parfumerie")
 
     assert (csv_stats.seen, csv_stats.matched) == (14, 9)
-    assert (xml_stats.seen, xml_stats.matched) == (6, 4)
+    assert (xml_stats.seen, xml_stats.matched) == (6, 5)
     assert round(csv_stats.match_rate, 3) == 0.643
-    assert round(xml_stats.match_rate, 3) == 0.667
+    assert round(xml_stats.match_rate, 3) == 0.833
 
 
 def test_every_unmatched_name_is_logged_not_just_counted(curated, caplog):

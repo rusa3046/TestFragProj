@@ -12,9 +12,12 @@
   the item element is <product> rather than <item>, and the currency is an
   attribute of <price> rather than a field of its own.
 
-  Two of the six rows are unmatchable on purpose. Khamrah Qahwa is a
-  genuinely different bottle from Khamrah, and matching it would put the
-  wrong buy link under Khamrah; Xerjoff Naxos is simply not curated.
+  Khamrah Qahwa and Xerjoff Naxos are here as the two rows that must never
+  attach to the wrong bottle. Naxos is not curated and so must match
+  nothing. Khamrah Qahwa is a genuinely different bottle from Khamrah at
+  roughly a third of the price; it was uncurated until 2026-08-11 and had to
+  match nothing, and now that it is curated it must match *itself*. Either
+  way the forbidden outcome is the same one: a Khamrah buy link.
 -->
 <productFeed>
   <product>

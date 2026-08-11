@@ -6,14 +6,19 @@ and its object to be a curated bottle. This is the file that takes the
 funnel off zero.
 
 Ranked by how often each appears in comparison claims, subject or object,
-with case and spelling variants merged. Sixteen entries covering ~29% of
-mention slots.
+with case and spelling variants merged.
 
-**Four frequent mentions are deliberately absent** — Detour Noir, Woody
-Oud, Oajan, Zenith Blue. Their brands could not be established without
-guessing, and a wrong brand is invisible in a test suite and wrong on a
-page. They are 36 of 1,123 mention slots, about 3%, and can be added in
-one line each once known.
+Twenty-six entries. The first seventeen were curated by hand; the last nine
+come from `data/curation/verified.json` and were applied on 2026-08-11 after
+each brand was independently re-corroborated — see the comment above them.
+Four of those nine (Detour Noir, Woody Oud, Oajan, Zenith Blue) were
+deliberately absent until then, because their brands could not be
+established without guessing and a wrong brand is invisible in a test suite
+and wrong on a page. Three of the four guesses recorded at the time turned
+out to be wrong, so the deferral was the right call.
+
+`Perseus` remains deferred, and always will while the corpus stays
+ambiguous: two houses ship one.
 
 Safe to re-run: `add` is skipped for a canonical name that already exists,
 so this can be extended rather than replaced.
@@ -84,17 +89,65 @@ SEED: list[tuple[str, str, list[str]]] = [
         ["Alhambra Perseus", "Maison Alhambra's Perseus",
          "Perseus by Maison Alhambra", "Maison Alhambra - Perseus"],
     ),
+    # --- Applied from data/curation/verified.json, 2026-08-11 ---------------
+    #
+    # The nine mentions Part A of the research resolved. Each brand was
+    # re-corroborated before being written here, because the research ran
+    # with WebFetch blocked by the egress proxy and its evidence was search
+    # snippets rather than pages it read. That block is still in place, so
+    # the standard applied instead was **agreement across independent
+    # sellers, preferring the house's own storefront** — and, where the name
+    # collides across houses, the corpus's own co-occurrence counts, which
+    # docs/CURATION.md treats as the evidence that actually settles a
+    # flanker.
+    #
+    # Three of the four brands the DEFERRED notes guessed at were wrong or
+    # blank, which is why they were deferred rather than seeded.
+    ("Parfums de Marly Oajan", "Parfums de Marly", ["Oajan", "PDM Oajan"]),
+    ("Al Haramain Detour Noir", "Al Haramain", ["Detour Noir", "Détour Noir"]),
+    ("French Avenue Zenith Blue", "French Avenue", ["Zenith Blue"]),
+    # Retailers split on the label because Maison Alhambra is a Lattafa
+    # sub-brand, so "Lattafa Woody Oud" is the same bottle and is carried as
+    # an alias rather than a second entry.
+    (
+        "Maison Alhambra Woody Oud",
+        "Maison Alhambra",
+        ["Woody Oud", "Lattafa Woody Oud", "Alhambra Woody Oud"],
+    ),
+    (
+        "Armaf Club de Nuit Imperiale",
+        "Armaf",
+        ["Imperiale", "Club de Nuit Imperiale", "CDN Imperiale"],
+    ),
+    (
+        "Lattafa Bade'e Al Oud Amethyst",
+        "Lattafa",
+        ["Amethyst", "BAO Amethyst", "Bade'e Al Oud Amethyst"],
+    ),
+    (
+        "Orientica Luxury Collection Royal Bleu",
+        "Orientica",
+        ["Orientica Royal Bleu", "Royal Bleu"],
+    ),
+    ("Fragrance World Oud Wonder", "Fragrance World", ["Oud Wonder"]),
+    # Word order varies in the corpus and normalisation does not reorder
+    # tokens, so both spellings are listed. Taking the bare "Qahwa" is a
+    # judgement about *this* corpus: 6 of its 7 mentions sit beside
+    # "khamrah", and one spells the relationship out — "lattafa debuted a
+    # new version of their OG Khamrah scent called 'Qahwa'". Fragrance World
+    # also ships a bare "Qahwa", and the word is just Arabic for coffee, so
+    # a broader corpus should re-check this one. It also stops "Khamrah
+    # Qahwa" collapsing into plain Khamrah, which is what happens today.
+    (
+        "Lattafa Khamrah Qahwa",
+        "Lattafa",
+        ["Khamrah Qahwa", "Qahwa Khamrah", "Qahwa"],
+    ),
 ]
 
 #: Frequent mentions left out on purpose, with the reason, so the gap is a
 #: recorded decision rather than an oversight.
 DEFERRED = {
-    "Detour Noir": "brand unverified — my guess of Armaf is contradicted by "
-                   "research; see data/curation/verified.json",
-    "Woody Oud": "several houses use this name; unclear which is meant",
-    "Oajan": "brand unverified — my guess of Lattafa is contradicted by "
-             "research; see data/curation/verified.json",
-    "Zenith Blue": "unrecognised by me; research proposes a house",
     "Perseus": "AMBIGUOUS ACROSS HOUSES — deliberately has no bare alias",
 }
 
