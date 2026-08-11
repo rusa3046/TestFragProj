@@ -328,5 +328,111 @@
       "https://www.nordstrom.com/s/tom-ford-private-blend-oud-wood-eau-de-parfum-spray/3623561"
     ],
     "notes": "Lowest-risk of the four large-family entries. Oud Wood Intense is discontinued, which is why it barely registers; Oud Wood Parfum only launched in March 2024 and postdates most of this corpus. Both will appear in future corpora, so keep the family recorded even though it costs nothing today. One nuance worth carrying: because Tom Ford sells an entire Oud Wood *collection* (body spray, candle, shower gel), a future non-YouTube corpus may produce 'Oud Wood' mentions that are not the EDP at all."
+  },
+
+  {
+    "mention": "Perseus",
+    "corpus_count": 16,
+    "canonical_name": "AMBIGUOUS — Maison Alhambra Perseus and Parfums de Marly Perseus are both live in this corpus",
+    "brand": "Maison Alhambra | Parfums de Marly",
+    "year": "unknown",
+    "confidence": "conflicting",
+    "flanker_family": [
+      "Parfums de Marly Perseus (2024, the original)",
+      "Maison Alhambra Perseus (a Parfums de Marly PEGASUS clone — different house, same name, clones a DIFFERENT bottle)",
+      "Maison Alhambra Leyden (Layton clone)",
+      "Maison Alhambra Hercules (Herod clone)",
+      "Maison Alhambra Cassius (Carlisle clone)",
+      "Maison Alhambra Galatea (Godolphin clone)",
+      "Maison Alhambra Kalos"
+    ],
+    "bare_mention_means": "It genuinely splits, and the majority reading is NOT the committed one. Of 16 corpus mentions, SEVEN explicitly say Maison Alhambra: 'How about Perseus by Maison Alhambra? It's a Pegasus clone'; 'Perseus by Maison Alhambra is a great clone of Pegasus. Have had Perseus for some time now and smelled Pegasus the other day and couldn't tell a difference'; 'I have Maison Alhambra's Perseus which is a clone of PDM Pegasus'; 'For Haltane, get Bade'e Al Oud & for Pegasus get Maison Alhambra - Perseus'; 'Alhambra Perseus is a great clone for Layton exclusif too'; 'Hercules (Herod), Perseus (Pegasus), Cassius (Carlyle) are all excellent dupes'; 'Maison Alhambra clones ... like Kalos Hercules, Perseus'. About FOUR read as Parfums de Marly Perseus, all of them treating it as an original that gets cloned: 'French Avenue Pierce is a great clone of Perseus!'; 'Zara Vetiver Pamplemousse = Perseus'; 'Ash, try the Dua Brand inspo of Perseus'; 'Perseus reminds me of Elysium'. The remaining five are undecidable ('Perseus?', 'Perseus is ABSOLUTELY GARBAGE', 'Wasn't Perseus the character from clash of the titans').",
+    "sources": [
+      "https://www.amazon.com/ALHAMBRA-PERSEUS-3-4-PARFUM-SPRAY/dp/B0881C42BN",
+      "https://www.fragrancenet.com/cologne/maison-alhambra/maison-alhambra-perseus/eau-de-parfum",
+      "https://mazzefragrances.com/products/perseus-pegasus-eau-de-parfum-by-maison-alhambra-100-ml-3-4-oz-sealed",
+      "https://pickmyclone.com/blog/maison-alhambra-complete-guide",
+      "https://www.youtube.com/watch?v=AGCreo4SST0"
+    ],
+    "notes": "*** THIS IS THE ONE COMMITTED ENTRY THAT LOOKS WRONG. *** scripts/seed_fragrances.py maps ('Parfums de Marly Perseus', 'Parfums de Marly', ['Perseus']) — a bare 'Perseus' alias with no qualifier. That alias will capture all 16 corpus mentions and attach at least seven of them to the wrong bottle, in the wrong house, cloning the wrong original. The failure is worse than a normal flanker mix-up because the two Perseuses are not siblings: Maison Alhambra Perseus is a clone of Parfums de Marly PEGASUS (almond/heliotrope), while Parfums de Marly Perseus is its own 2024 release. So a comment saying 'Perseus is a great clone of Pegasus' currently resolves to PdM Perseus and produces an edge asserting that Parfums de Marly Perseus is a dupe of Parfums de Marly Pegasus — a false claim about two of this house's own bottles, sourced to a real person who said something else. Note also that 15 of the 16 mentions come from a single video (OPxVZKffBAw), so this is one comment section's vocabulary driving a catalogue entry. RECOMMENDATION: per docs/CURATION.md's own rule — 'when in doubt, reject' — remove the bare 'Perseus' alias. Either drop the entry until the corpus disambiguates, or split it into two entries keyed on qualified aliases only ('Maison Alhambra Perseus', 'Alhambra Perseus', 'PDM Perseus'), leaving bare 'Perseus' unresolved. An unresolved mention stays visible in `resolve.entities report`; this merge would not."
+  },
+  {
+    "mention": "Pegasus",
+    "corpus_count": 19,
+    "canonical_name": "Parfums de Marly Pegasus",
+    "brand": "Parfums de Marly",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Parfums de Marly Pegasus Exclusif (2020)",
+      "Parfums de Marly Pegasus Parfum"
+    ],
+    "bare_mention_means": "Parfums de Marly Pegasus, the standard EDP. The committed entry is CORRECT. Corpus arithmetic: 19 comments mention Pegasus, only 3 attach 'Ex'/'Exclusif', and those three read as deliberate separate references ('Amber Oud Black Edition by Al Haramain - a Pegasus Exclusif clone', 'So I bought Layton, Carlisle and Pegasus Ex', 'Pegasus and the Exclusif are very nice' — the last one names both, proving commenters distinguish them). Everything else is the base bottle being cloned by Al Haramain Royal Stallion, Maison Alhambra Perseus and Armaf Craze.",
+    "sources": [
+      "https://us.parfums-de-marly.com/products/layton",
+      "https://parfums-de-marly.com/pages/the-exclusifs",
+      "https://www.nordstrom.com/s/parfums-de-marly-herod-eau-de-parfum/7423651",
+      "https://pickmyclone.com/blog/maison-alhambra-complete-guide"
+    ],
+    "notes": "NEAR MISS WORTH RECORDING. One corpus commenter writes 'Maison Alhambra's clones of PDM fragrances such as Hercules (Herod), Pegasus (Percival), Cassius (Carlisle) and Galatea (Godolphin)' — which, if taken at face value, would mean Maison Alhambra ships a bottle called 'Pegasus' and the same collision as Perseus applies here too. It does not: the SAME commenter posts a correction in the reply thread — 'I made a mistake on what I thought I had. I have Maison Alhambra's Perseus which is a clone of PDM Pegasus.' Maison Alhambra's PdM clone line is Leyden / Kalos / Perseus / Galatea / Hercules / Cassius, with no 'Pegasus'. So the bare alias is safe. This is a good argument for reading reply threads rather than isolated comments — the raw comment alone would have produced a wrong rejection here, just as it produces a wrong approval for Perseus."
+  },
+  {
+    "mention": "Herod",
+    "corpus_count": 29,
+    "canonical_name": "Parfums de Marly Herod",
+    "brand": "Parfums de Marly",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Maison Alhambra Hercules (the clone — different name, no string collision)"
+    ],
+    "bare_mention_means": "Parfums de Marly Herod. The committed entry is CORRECT. No Herod flanker was found on Parfums de Marly's site or at any retailer searched — no Herod Exclusif, no Herod Parfum — so there is no flanker question to answer. All 29 corpus mentions are the original being compared or cloned.",
+    "sources": [
+      "https://us.parfums-de-marly.com/products/herod",
+      "https://www.nordstrom.com/s/parfums-de-marly-herod-eau-de-parfum/7423651",
+      "https://bluemercury.com/products/parfums-de-marly-herod-eau-de-parfum",
+      "https://www.luckyscent.com/products/herod-by-parfums-de-marly"
+    ],
+    "notes": "Lowest-risk entry in Part B alongside Perseus's opposite. Note the pattern that saved this one: Maison Alhambra clones Herod under the name 'Hercules', not 'Herod'. That is the norm for this clone house — Leyden, Kalos, Galatea, Cassius, Hercules are all deliberately non-colliding names. 'Perseus' is the exception where the clone house reused a name the original house also uses, which is precisely why that entry breaks and this one does not."
+  },
+  {
+    "mention": "Percival",
+    "corpus_count": 24,
+    "canonical_name": "Parfums de Marly Percival",
+    "brand": "Parfums de Marly",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Parfums de Marly Percival Royal Essence (line label on the standard bottle, not a separate bottle)"
+    ],
+    "bare_mention_means": "Parfums de Marly Percival. The committed entry is CORRECT. No Percival Exclusif or other Percival flanker was found on the brand site or at retailers. Corpus usage is consistently the original as a clone target — 'Percival clone, look into Ahmed Al Maghribi Kaaf', 'The funny thing of Percival its a dupe of Fierce' — with no qualifier ever attached.",
+    "sources": [
+      "https://us.parfums-de-marly.com/products/layton",
+      "https://parfums-de-marly.com/pages/the-exclusifs",
+      "https://bluemercury.com/products/parfums-de-marly-herod-eau-de-parfum",
+      "https://pickmyclone.com/blog/maison-alhambra-complete-guide"
+    ],
+    "notes": "'Royal Essence' is Parfums de Marly's line descriptor and appears on the packaging of the standard bottles; it is not a flanker and should never be treated as a distinguishing word. Watch the one corpus comment 'Maison Alhambra's clones of PDM fragrances such as ... Pegasus (Percival)' — that commenter's parenthetical is the mistake described in the Pegasus entry and should not be read as evidence of a Percival-named clone."
+  },
+  {
+    "mention": "Delina",
+    "corpus_count": 34,
+    "canonical_name": "Parfums de Marly Delina",
+    "brand": "Parfums de Marly",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Parfums de Marly Delina Exclusif",
+      "Parfums de Marly Delina La Rosee"
+    ],
+    "bare_mention_means": "Parfums de Marly Delina, the standard EDP. The committed entry is CORRECT, but this is the closest call among the confirmed-correct rows. 34 comments mention Delina and 9 of them attach 'Exclusif' — a 26% flanker rate, by far the highest in the set (Layton is 4%, Oud Wood is 2%).",
+    "sources": [
+      "https://us.parfums-de-marly.com/products/delina",
+      "https://us.parfums-de-marly.com/pages/delina-collection",
+      "https://us.parfums-de-marly.com/products/delina-la-rosee-30ml",
+      "https://parfums-de-marly.com/products/delina-la-rosee",
+      "https://us.parfums-de-marly.com/pages/delina-la-rosee"
+    ],
+    "notes": "FLAG FOR THE REVIEWER even though the entry is right. Delina Exclusif is not background noise here — it is a distinct, actively-discussed bottle, and it is entangled with the 'Imperiale' mention in Part A. Commenters disagree about what Armaf Club de Nuit Imperiale actually clones: 'Club de nuit Imperiale is the best dupe of Delina' versus 'Club de nuit imperiale = Delina Exclusif' versus 'at the drydown imperiale is identical to Exclusif'. If bare 'Delina' and 'Delina Exclusif' both resolve to the single Delina entry, those become contradictory edges on one node instead of two coherent claims on two nodes. Recommend adding Delina Exclusif as its own fragrance before or at the same time as the Imperiale entry. Delina La Rosee appears 3 times and is not yet urgent. Also note the corpus misspelling 'delina exlusif', which fuzzy matching should catch but is worth an alias."
   }
 ]
