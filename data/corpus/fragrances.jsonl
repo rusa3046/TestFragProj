@@ -4,15 +4,20 @@
 {"aliases": ["Amber Oud Ruby", "al haramain amber oud ruby"], "brand": "Al Haramain", "canonical_name": "Al Haramain Amber Oud Ruby", "house_year": null}
 {"aliases": ["Detour Noir", "Détour Noir"], "brand": "Al Haramain", "canonical_name": "Al Haramain Detour Noir", "house_year": null}
 {"aliases": ["Al Haramain L'Aventure Intense", "L'Aventure Intense"], "brand": "Al Haramain", "canonical_name": "Al Haramain L'Aventure Intense", "house_year": null}
+{"aliases": ["Club De Nuit EDP"], "brand": "Armaf", "canonical_name": "Armaf Club De Nuit", "house_year": null}
 {"aliases": ["Club de nuit Iconic"], "brand": "Armaf", "canonical_name": "Armaf Club De Nuit Iconic", "house_year": null}
+{"aliases": ["club de Nuit intense"], "brand": "Armaf", "canonical_name": "Armaf Club De Nuit Intense", "house_year": null}
 {"aliases": ["CDN Imperiale", "Club de Nuit Imperiale", "Imperiale"], "brand": "Armaf", "canonical_name": "Armaf Club de Nuit Imperiale", "house_year": null}
 {"aliases": ["CDNIM", "Club de Nuit", "Club de Nuit Intense", "Club de Nuit Intense Man"], "brand": "Armaf", "canonical_name": "Armaf Club de Nuit Intense Man", "house_year": null}
+{"aliases": ["Craze"], "brand": "Armaf", "canonical_name": "Armaf Craze", "house_year": null}
+{"aliases": ["Atomic Rose"], "brand": "Initio Parfums Prives", "canonical_name": "Atomic Rose", "house_year": null}
 {"aliases": ["Aventus", "Creed Aventus"], "brand": "Creed", "canonical_name": "Creed Aventus", "house_year": null}
 {"aliases": ["Centaurus", "Creed Centaurus"], "brand": "Creed", "canonical_name": "Creed Centaurus", "house_year": null}
 {"aliases": ["Dior Sauvage", "Sauvage"], "brand": "Dior", "canonical_name": "Dior Sauvage", "house_year": null}
 {"aliases": ["Dumont nitro black intense", "Nitro Black Intense"], "brand": "Dumont", "canonical_name": "Dumont Nitro Black Intense", "house_year": null}
 {"aliases": ["Fragrance World Carlisle", "fragrance world carlisle"], "brand": "Fragrance World", "canonical_name": "Fragrance World Carlisle", "house_year": null}
 {"aliases": ["Oud Wonder"], "brand": "Fragrance World", "canonical_name": "Fragrance World Oud Wonder", "house_year": null}
+{"aliases": ["Pure Addiction"], "brand": "Franck Olivier", "canonical_name": "Franck Olivier Pure Addiction", "house_year": null}
 {"aliases": ["Zenith Blue"], "brand": "French Avenue", "canonical_name": "French Avenue Zenith Blue", "house_year": null}
 {"aliases": ["Azure Velvet", "Khadlaj Azure Velvet"], "brand": "Khadlaj", "canonical_name": "Khadlaj Azure Velvet", "house_year": null}
 {"aliases": ["AS", "Angel Share", "Angel Shares", "Angel's Share", "Angels Share", "Angels' Share"], "brand": "By Kilian", "canonical_name": "Kilian Angels' Share", "house_year": null}
@@ -21,6 +26,7 @@
 {"aliases": ["Kamrah", "Khamra", "Khamrah"], "brand": "Lattafa", "canonical_name": "Lattafa Khamrah", "house_year": null}
 {"aliases": ["Khamrah Qahwa", "Qahwa", "Qahwa Khamrah"], "brand": "Lattafa", "canonical_name": "Lattafa Khamrah Qahwa", "house_year": null}
 {"aliases": ["Maahir Legacy"], "brand": "Lattafa", "canonical_name": "Lattafa Maahir Legacy", "house_year": null}
+{"aliases": ["qaed al fursan"], "brand": "Lattafa", "canonical_name": "Lattafa Qaed Al Fursan", "house_year": null}
 {"aliases": ["Lataffa Rave Now", "Rave Now"], "brand": "Lattafa", "canonical_name": "Lattafa Rave Now", "house_year": null}
 {"aliases": ["Delilah", "Maison Alhambra Delilah"], "brand": "Maison Alhambra", "canonical_name": "Maison Alhambra Delilah", "house_year": null}
 {"aliases": ["Hercules", "Hercules (Herod)", "clone hercules from maison alhambra"], "brand": "Maison Alhambra", "canonical_name": "Maison Alhambra Hercules", "house_year": null}
@@ -31,6 +37,7 @@
 {"aliases": ["Cedrat Boise"], "brand": "Mancera", "canonical_name": "Mancera Cedrat Boise", "house_year": null}
 {"aliases": ["Explorer", "Mont Blanc Explorer"], "brand": "Montblanc", "canonical_name": "Montblanc Explorer", "house_year": null}
 {"aliases": ["Orientica Royal Bleu", "Royal Bleu"], "brand": "Orientica", "canonical_name": "Orientica Luxury Collection Royal Bleu", "house_year": null}
+{"aliases": ["Layton Exclusif"], "brand": "Parfums De Marly", "canonical_name": "Parfums De Marly Layton Exclusif", "house_year": null}
 {"aliases": ["Althair"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Althair", "house_year": null}
 {"aliases": ["Carlisle", "Carlyle", "PDM Carlisle"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Carlisle", "house_year": null}
 {"aliases": ["Darcy", "Darcy by Parfums de Marly"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Darcy", "house_year": null}

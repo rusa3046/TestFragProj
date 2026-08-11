@@ -2,74 +2,397 @@
   {
     "alternatives": [
       {
-        "Brand": "Roads",
-        "Name": "This Weekend unisex",
-        "Year": "2014",
-        "corpus_mentions": 0
+        "Brand": "Lattafa",
+        "Name": "Lattafa Khamrah Qahwa",
+        "Year": "2023",
+        "corpus_mentions": 11
       },
       {
-        "Brand": "Floraiku",
-        "Name": "Floraiku This July Evening",
+        "Brand": "Lattafa",
+        "Name": "Lattafa Khamrah Dukhan",
         "Year": "",
-        "corpus_mentions": 0
+        "corpus_mentions": 1
       },
       {
-        "Brand": "Zadig & Voltaire",
-        "Name": "Zadig & Voltaire This Is Us!",
-        "Year": "2020",
-        "corpus_mentions": 0
-      }
-    ],
-    "approved": null,
-    "brand": "This Works",
-    "canonical_name": "This Works",
-    "confident": false,
-    "corpus_mentions": -1,
-    "count": 7,
-    "examples": [
-      "Top note: Stronger with you absolutely + Angel's share",
-      "Easily 24 hours with stronger smell even after that"
-    ],
-    "mention": "this stuff",
-    "note": "name differs from the mention",
-    "score": 0.0,
-    "year": ""
-  },
-  {
-    "alternatives": [
-      {
-        "Brand": "Creed",
-        "Name": "Creed Pour Enfants unisex",
-        "Year": "2015",
-        "corpus_mentions": 0
-      },
-      {
-        "Brand": "Creed",
-        "Name": "Creed Centaurus",
-        "Year": "",
-        "corpus_mentions": 4
-      },
-      {
-        "Brand": "Creed",
-        "Name": "Creed Carmina",
+        "Brand": "FAAN",
+        "Name": "Thanaghum Khamrah for women",
         "Year": "2023",
         "corpus_mentions": 0
       }
     ],
     "approved": null,
-    "brand": "Creed",
-    "canonical_name": "Creed",
+    "brand": "Lattafa",
+    "canonical_name": "Lattafa Khamrah",
+    "confident": true,
+    "corpus_mentions": -1,
+    "count": 12,
+    "examples": [
+      "i hope that's a bit more complex and hopefully i can layer it together with Khamrah to get a 5 out of 10 of angel share",
+      "Khamrah smells like what you smell when you walk into a shop where they are burning incense constantly"
+    ],
+    "mention": "Khamrah",
+    "note": "",
+    "score": 1.0,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Juliette Has A Gun",
+        "Name": "Liquid Illusion",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Skil",
+        "Name": "Skil Liquid Love",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Calvin Klein",
+        "Name": "Euphoria Liquid Gold",
+        "Year": "2014",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "French Avenue",
+    "canonical_name": "Liquid Brun Fragrance World for women",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 11,
+    "examples": [
+      "liquid brun is more like a slightly sweeter version of Althair",
+      "it is the closest you can get to the original in the market"
+    ],
+    "mention": "liquid brun",
+    "note": "name differs from the mention; nobody in the corpus wrote 'fragrance world for women'",
+    "score": 0.458,
+    "year": "2024"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Angel Schlesser",
+        "Name": "Angel Schlesser Femme for women",
+        "Year": "1999",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Angel Schlesser",
+        "Name": "Angel Schlesser Homme for men",
+        "Year": "2001",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Angel Schlesser",
+        "Name": "Angel Schlesser Essential",
+        "Year": "2005",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Angel Schlesser",
+    "canonical_name": "Angel Schlesser",
     "confident": false,
     "corpus_mentions": -1,
+    "count": 10,
+    "examples": [
+      "i hope that's a bit more complex and hopefully i can layer it together with Khamrah to get a 5 out of 10 of angel share",
+      "zimaya shaghaf blend or kismat magic from maison Alhambra they are more accurate than khamrah"
+    ],
+    "mention": "angel share",
+    "note": "name differs from the mention; the mention says 'share' and the catalogue name does not — probably a flanker of it, not the same bottle",
+    "score": 0.0,
+    "year": "2005"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit Iconic",
+        "Year": "2022",
+        "corpus_mentions": 4
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit Imperiale",
+        "Year": "2022",
+        "corpus_mentions": 8
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit Sillage",
+        "Year": "2020",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Club De Nuit",
+    "confident": true,
+    "corpus_mentions": -1,
+    "count": 10,
+    "examples": [
+      "Saying club de nuit smells like aventus is like saying Caitlin Jenner looks like Sidney Sweeney",
+      "probably reminds them of their householding lemon citrus based cleaning products"
+    ],
+    "mention": "club de nuit",
+    "note": "",
+    "score": 1.0,
+    "year": "2015"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Club de Nuit Intense for women",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Club de Nuit Intense Man Parfum for men",
+        "Year": "2022",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Club De Nuit Intense Woman Perfume Oil for women",
+        "Year": "2022",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Club De Nuit Intense",
+    "confident": true,
+    "corpus_mentions": -1,
+    "count": 9,
+    "examples": [
+      "the first 30/40 minutes you're gonna smell like rancid lemons",
+      "smelling like windex sprayed on the leather car seats"
+    ],
+    "mention": "club de Nuit intense",
+    "note": "",
+    "score": 1.0,
+    "year": "2015"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Bill Blass",
+        "Name": "Amazing",
+        "Year": "1999",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Ted Lapidus",
+        "Name": "Creation",
+        "Year": "2011",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Lomani",
+        "Name": "Lomani Amazing",
+        "Year": "",
+        "corpus_mentions": -1
+      }
+    ],
+    "approved": null,
+    "brand": "Paris Bleu",
+    "canonical_name": "Diplomat Extreme",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 8,
+    "examples": [
+      "When I do wear the Diplomat by Amazing Creation to school, I get like 10 compliments per day"
+    ],
+    "mention": "Diplomat by Amazing Creation",
+    "note": "name differs from the mention; the mention says 'amazing creation' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'extreme' — see alternatives (3 better supported)",
+    "score": 0.537,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "A Lab On Fire",
+        "Name": "A Lab On Fire Eau d'Lpanema",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "A Lab on Fire",
+        "Name": "Liquidnight unisex",
+        "Year": "2012",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "A Lab On Fire",
+        "Name": "A Lab On Fire Hallucinogenic Pearl",
+        "Year": "2018",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "A Lab on Fire",
+    "canonical_name": "Hossegor unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 7,
+    "examples": [
+      "Hawas Fire is a dupe of Imperial Valley by Gissah",
+      "Hawas Fire is duping Gissah Imoerial Valley"
+    ],
+    "mention": "Hawas Fire",
+    "note": "name differs from the mention; the mention says 'hawas' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'hossegor unisex'",
+    "score": 0.4,
+    "year": "2018"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Catwalk",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Mistique",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Chic",
+        "Year": "2023",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Club De Nuit Untold",
+    "confident": false,
+    "corpus_mentions": 0,
     "count": 6,
     "examples": [
-      "A lot of companies using DNA are catching up to them for 1/8th of the price",
-      "Creed's quality went down the toilet when they sold out to L'OREAL"
+      "one of the most synthetic",
+      "worst dupe of (540)"
     ],
-    "mention": "Creed",
+    "mention": "Armaf Untold",
+    "note": "name differs from the mention; nobody in the corpus wrote 'club de nuit'",
+    "score": 0.452,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Paris Hilton",
+        "Name": "Paris Hilton Can Can",
+        "Year": "2007",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Paris Hilton",
+        "Name": "Paris Hilton Can Can Burlesque",
+        "Year": "2014",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Chi Chi",
+        "Name": "Persimmon for women",
+        "Year": "2014",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Cra-yon",
+    "canonical_name": "Vanilla CEO unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 6,
+    "examples": [
+      "I'll stick with mont blanc explorer instead",
+      "it is wayyy to much lemon for me"
+    ],
+    "mention": "CDN",
+    "note": "name differs from the mention; the mention says 'cdn' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'vanilla ceo unisex'",
+    "score": 0.19,
+    "year": "2020"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Detour Noir",
+        "Year": "2021",
+        "corpus_mentions": 24
+      },
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Detour Noir Exclusif",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Detour Noir Intense",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Al Haramain",
+    "canonical_name": "Al Haramain Detour Eco",
+    "confident": false,
+    "corpus_mentions": 1,
+    "count": 6,
+    "examples": [
+      "Detour was very close when I smelled the OG",
+      "Not a big fan of Detour"
+    ],
+    "mention": "Detour",
     "note": "name differs from the mention",
-    "score": 0.0,
-    "year": "2010"
+    "score": 0.75,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Dossier",
+        "Name": "Musky Aldehydes unisex",
+        "Year": "2022",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Dossier",
+        "Name": "Green Verbena unisex",
+        "Year": "2021",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Dossier",
+        "Name": "Musky Gaiac unisex",
+        "Year": "2021",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Dossier",
+    "canonical_name": "Aquatic Vanilla unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 6,
+    "examples": [
+      "Some dossiers last long and smell better than the original brand",
+      "they honestly smell the same"
+    ],
+    "mention": "dossier",
+    "note": "name differs from the mention; nobody in the corpus wrote 'aquatic vanilla unisex'",
+    "score": 0.138,
+    "year": "2024"
   },
   {
     "alternatives": [
@@ -110,114 +433,6 @@
   {
     "alternatives": [
       {
-        "Brand": "Armaf",
-        "Name": "Armaf Miss Armaf Catwalk",
-        "Year": "2023",
-        "corpus_mentions": 0
-      },
-      {
-        "Brand": "Armaf",
-        "Name": "Armaf Miss Armaf Mistique",
-        "Year": "2023",
-        "corpus_mentions": 0
-      },
-      {
-        "Brand": "Armaf",
-        "Name": "Armaf Miss Armaf Chic",
-        "Year": "2023",
-        "corpus_mentions": 0
-      }
-    ],
-    "approved": null,
-    "brand": "Armaf",
-    "canonical_name": "Armaf Club De Nuit Untold",
-    "confident": false,
-    "corpus_mentions": 0,
-    "count": 5,
-    "examples": [
-      "one of the most synthetic",
-      "worst dupe of (540)"
-    ],
-    "mention": "Armaf Untold",
-    "note": "name differs from the mention; nobody in the corpus wrote 'club de nuit'",
-    "score": 0.452,
-    "year": "2022"
-  },
-  {
-    "alternatives": [
-      {
-        "Brand": "Lattafa",
-        "Name": "Lattafa Ramz Lattafa Gold",
-        "Year": "",
-        "corpus_mentions": 0
-      },
-      {
-        "Brand": "Lattafa",
-        "Name": "Lattafa Ajwad",
-        "Year": "2021",
-        "corpus_mentions": 0
-      },
-      {
-        "Brand": "Lattafa",
-        "Name": "Lattafa Musamam",
-        "Year": "2022",
-        "corpus_mentions": 0
-      }
-    ],
-    "approved": null,
-    "brand": "Lattafa",
-    "canonical_name": "Lattafa Ramz Lattafa Silver",
-    "confident": false,
-    "corpus_mentions": 0,
-    "count": 5,
-    "examples": [
-      "All of them, like literally all of them had the exact same undertone of something thick, rotten, puke-ish",
-      "I got 6 Lattafa fragrances so far and I'm hugely impressed quality fragrances"
-    ],
-    "mention": "Lattafa",
-    "note": "name differs from the mention; nobody in the corpus wrote 'ramz silver'",
-    "score": 0.111,
-    "year": "2021"
-  },
-  {
-    "alternatives": [
-      {
-        "Brand": "Armaf",
-        "Name": "Armaf Miss Armaf Chic",
-        "Year": "2023",
-        "corpus_mentions": 0
-      },
-      {
-        "Brand": "Armaf",
-        "Name": "Armaf Miss Armaf Catwalk",
-        "Year": "2023",
-        "corpus_mentions": 0
-      },
-      {
-        "Brand": "Armaf",
-        "Name": "Armaf Miss Armaf Mistique",
-        "Year": "2023",
-        "corpus_mentions": 0
-      }
-    ],
-    "approved": null,
-    "brand": "Armaf",
-    "canonical_name": "Armaf Miss Armaf Attitude",
-    "confident": false,
-    "corpus_mentions": 0,
-    "count": 4,
-    "examples": [
-      "my Armaf btl is empty and not my fav or even a dumb reach in my collection. There is no way I wore the 120ml of that yet it's empty",
-      "But nowdays idk I think they changing formula"
-    ],
-    "mention": "Armaf",
-    "note": "name differs from the mention; nobody in the corpus wrote 'miss attitude'",
-    "score": 0.111,
-    "year": "2023"
-  },
-  {
-    "alternatives": [
-      {
         "Brand": "Poesie",
         "Name": "Cloud unisex",
         "Year": "2018",
@@ -241,7 +456,7 @@
     "canonical_name": "Cloud Candy",
     "confident": false,
     "corpus_mentions": 0,
-    "count": 4,
+    "count": 5,
     "examples": [
       "they do share a very similar DNA",
       "Cloud smell cheap to my nose"
@@ -254,74 +469,110 @@
   {
     "alternatives": [
       {
-        "Brand": "Armaf",
-        "Name": "Armaf Club De Nuit Iconic",
-        "Year": "2022",
+        "Brand": "Elixir Attar",
+        "Name": "Mythique unisex",
+        "Year": "2018",
         "corpus_mentions": 0
       },
       {
-        "Brand": "Armaf",
-        "Name": "Armaf Club De Nuit Imperiale",
-        "Year": "2022",
+        "Brand": "Elixir Attar",
+        "Name": "Kalevala unisex",
+        "Year": "2018",
         "corpus_mentions": 0
       },
       {
-        "Brand": "Armaf",
-        "Name": "Armaf Club De Nuit Sillage",
-        "Year": "2020",
+        "Brand": "Elixir Attar",
+        "Name": "Huaxia unisex",
+        "Year": "2022",
         "corpus_mentions": 0
       }
     ],
     "approved": null,
     "brand": "Armaf",
-    "canonical_name": "Armaf Club De Nuit",
-    "confident": true,
-    "corpus_mentions": -1,
-    "count": 4,
+    "canonical_name": "Armaf Club De Nuit Urban Man Elixir",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 5,
     "examples": [
-      "the EDP is a banger and better sillage and longevity",
-      "they are so similar it's crazy"
+      "it's probably the strongest and manliest one out there",
+      "It's not exactly a 1:1 clone of Sauvage"
     ],
-    "mention": "Club De Nuit EDP",
-    "note": "",
-    "score": 0.857,
-    "year": "2015"
+    "mention": "Urban man elixir",
+    "note": "name differs from the mention; nobody in the corpus wrote 'club de nuit'",
+    "score": 0.711,
+    "year": "2022"
   },
   {
     "alternatives": [
       {
-        "Brand": "Grandeur",
-        "Name": "Grandeur Iconic Nuit",
+        "Brand": "Amber Oud",
+        "Name": "Soul unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Amber Oud",
+        "Name": "Dusk unisex",
+        "Year": "2017",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Amber Oud",
+        "Name": "Onyx unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Amber Oud",
+    "canonical_name": "Sillage unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 5,
+    "examples": [
+      "I prefer amber oud. It's more potent and long lasting",
+      "I bought amber oud from clone of layton"
+    ],
+    "mention": "amber oud",
+    "note": "name differs from the mention; nobody in the corpus wrote 'sillage unisex'",
+    "score": 0.348,
+    "year": "2017"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Qaed Al Fursan Unlimited",
+        "Year": "2022",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Asgharali",
+        "Name": "D.Oud Al Fursan unisex",
         "Year": "",
-        "corpus_mentions": -1
+        "corpus_mentions": 0
       },
       {
-        "Brand": "Armaf",
-        "Name": "Armaf Club De Nuit",
-        "Year": "2015",
-        "corpus_mentions": -1
-      },
-      {
-        "Brand": "EPC Experimental Perfume Club",
-        "Name": "Santal Nuit unisex",
+        "Brand": "Le Falcone",
+        "Name": "Le Falcone Highfly Al Fursan",
         "Year": "",
         "corpus_mentions": 0
       }
     ],
     "approved": null,
-    "brand": "Armaf",
-    "canonical_name": "Armaf Club De Nuit Iconic",
+    "brand": "Lattafa",
+    "canonical_name": "Lattafa Qaed Al Fursan",
     "confident": true,
     "corpus_mentions": -1,
-    "count": 4,
+    "count": 5,
     "examples": [
-      "I bought Club de nuit Iconic and dude, I have to disagree. I actually think it's so much worse than the OG.",
-      "the original was definitely leaps better than this"
+      "but then it dries down it becomes woody, fresh and tropical",
+      "it becomes woody, fresh and tropical"
     ],
-    "mention": "Club de nuit Iconic",
+    "mention": "qaed al fursan",
     "note": "",
     "score": 1.0,
-    "year": "2022"
+    "year": "2016"
   },
   {
     "alternatives": [
@@ -355,8 +606,1122 @@
       "ITS EVEN STRONGER THAN THE NEW REFORMULATED LAYTON"
     ],
     "mention": "EXCLUSIF BLUE",
-    "note": "name differs from the mention",
+    "note": "name differs from the mention; the mention says 'exclusif' and the catalogue name does not — probably a flanker of it, not the same bottle",
     "score": 0.0,
     "year": "2017"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Elie Saab",
+        "Name": "Elie Saab Le Parfum",
+        "Year": "2011",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Elie Saab",
+        "Name": "Elie Saab Le Parfum Essentiel",
+        "Year": "2020",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Elie Saab",
+        "Name": "Elie Saab Le Parfum Lumiere",
+        "Year": "2021",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Elie Saab",
+    "canonical_name": "Elie Saab Le Parfum Royal",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "my citrusy-musky-freshie florals with precious woods"
+    ],
+    "mention": "Elie Saab-Le Royal Essence",
+    "note": "name differs from the mention; the mention says 'essence' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'parfum'",
+    "score": 0.488,
+    "year": "2019"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Agar Aura",
+        "Name": "Agar Parisien unisex",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Fresh",
+        "Name": "Fresh",
+        "Year": "2019",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Agar Aura",
+        "Name": "Java unisex",
+        "Year": "2021",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Agar Aura",
+    "canonical_name": "Agar Attar unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "If I had to choose an alternative to Tom Ford's Oud Wood, I'd go with Fresh Agar",
+      "It didn't lasted more an hour or so"
+    ],
+    "mention": "Fresh Agar",
+    "note": "name differs from the mention; the mention says 'fresh' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'attar unisex' — see alternatives (1 better supported)",
+    "score": 0.273,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Love 2 Love",
+        "Name": "Love 2 Love Orange Blossom & White Musk",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Guess",
+        "Name": "Guess Love Nirvana Dream",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Jean Patou",
+        "Name": "Jean Patou 1000",
+        "Year": "1972",
+        "corpus_mentions": -1
+      }
+    ],
+    "approved": null,
+    "brand": "Love 2 Love",
+    "canonical_name": "Love 2 Love Jasmine & Sparkling Mimosa",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "It's a pheromone perfume that's rose and powdery just like Delina but for a fraction of the price",
+      "It's a pheromone perfume that's rose and powdery just like Delina"
+    ],
+    "mention": "dream love 1000",
+    "note": "name differs from the mention; the mention says 'dream 1000' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'jasmine sparkling mimosa' — see alternatives (1 better supported)",
+    "score": 0.205,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Althair",
+        "Year": "2023",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "ALTAIA",
+        "Name": "Amank'ay unisex",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "ALTAIA",
+        "Name": "Ombu unisex",
+        "Year": "2016",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Parfums De Marly",
+    "canonical_name": "Parfums De Marly Althair",
+    "confident": true,
+    "corpus_mentions": -1,
+    "count": 4,
+    "examples": [
+      "Liquid Brun is pretty much indistinguishable to Althair. It's the closest ive ever seen a dupe get to the OG",
+      "Althair best clone is from alexandria fragrances, vanilla stallion. Smells exactly like it."
+    ],
+    "mention": "Althair",
+    "note": "",
+    "score": 1.0,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Initio Parfums Prives",
+        "Name": "Initio Atomic Rose",
+        "Year": "2019",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Initio Parfums Prives",
+        "Name": "Initio Side Effect Edp 90Ml Edp 10Ml Atomic Rose Edp 10Ml",
+        "Year": "2016",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Golden Rose",
+        "Name": "Red Rose for women",
+        "Year": "2022",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Initio Parfums Prives",
+    "canonical_name": "Atomic Rose",
+    "confident": true,
+    "corpus_mentions": -1,
+    "count": 4,
+    "examples": [
+      "It's not an identical clone, but it has an identical feeling",
+      "Atomic Rose is more black leather and mesh"
+    ],
+    "mention": "Atomic Rose",
+    "note": "",
+    "score": 1.0,
+    "year": "2019"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Beverly Hills Polo Club",
+        "Name": "Beverly Hills Polo Club 2",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Beverly Hills Polo Club",
+        "Name": "Beverly Hills Polo Club 9",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Beverly Hills Polo Club",
+        "Name": "Beverly Hills Polo Club 8",
+        "Year": "2018",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Beverly Hills Polo Club",
+    "canonical_name": "Beverly Hills Polo Club 1",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "2 years ago nobody knew about Club and it smelled like 100000 bucks, last longing all day with few sips, great projection, tail... And now it sucks",
+      "Club performance is horrible tho last like 45 mins"
+    ],
+    "mention": "Club",
+    "note": "name differs from the mention; nobody in the corpus wrote '1'",
+    "score": 0.0,
+    "year": "2018"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Khamrah Qahwa",
+        "Year": "2023",
+        "corpus_mentions": 11
+      },
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Khamrah Dukhan",
+        "Year": "",
+        "corpus_mentions": 1
+      },
+      {
+        "Brand": "FAAN",
+        "Name": "Thanaghum Khamrah for women",
+        "Year": "2023",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Lattafa",
+    "canonical_name": "Lattafa Khamrah",
+    "confident": true,
+    "corpus_mentions": 70,
+    "count": 4,
+    "examples": [
+      "Telling Khamra is better than Angel's Share is like saying a slap is better than a kiss",
+      "Khamra doesn't even smell close to Angels' Share"
+    ],
+    "mention": "Khamra",
+    "note": "the mention says 'khamra' and the catalogue name does not — probably a flanker of it, not the same bottle",
+    "score": 0.923,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Ministry Of Oud",
+        "Name": "Ministry Of Oud Oud Satin",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "The House Of Oud",
+        "Name": "The House Of Oud Breath Of The Infinite",
+        "Year": "2016",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "The House Of Oud",
+        "Name": "The House Of Oud Empathy",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Ministry Of Oud",
+    "canonical_name": "Ministry Of Oud Oud Indonesian",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "First spray immediately took me to OFG",
+      "I get better performance from OFG"
+    ],
+    "mention": "OFG",
+    "note": "name differs from the mention; the mention says 'ofg' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'indonesian'",
+    "score": 0.154,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Hiram Green",
+        "Name": "Hiram Green Vivacious",
+        "Year": "2020",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Hiram Green",
+        "Name": "Hiram Green Vetiver",
+        "Year": "2021",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Hiram Green",
+        "Name": "Hiram Green Slowdive",
+        "Year": "2017",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Hiram Green",
+    "canonical_name": "Hiram Green Lustre",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "greenly is one of the most complex perfumes I've ever smelled",
+      "still noticeable on my arm after 12 hours"
+    ],
+    "mention": "greenly",
+    "note": "name differs from the mention; the mention says 'greenly' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'lustre'",
+    "score": 0.308,
+    "year": "2019"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Angel Schlesser",
+        "Name": "Angel Schlesser",
+        "Year": "2005",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Angel Schlesser",
+        "Name": "Angel Schlesser Femme for women",
+        "Year": "1999",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Angel Schlesser",
+        "Name": "Angel Schlesser Homme for men",
+        "Year": "2001",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Maison Alhambra",
+    "canonical_name": "Kismet Angel unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "it's smells better than kismet angel imho",
+      "the longevity is really bad"
+    ],
+    "mention": "kismet angel",
+    "note": "name differs from the mention; nobody in the corpus wrote 'unisex' — see alternatives (1 better supported)",
+    "score": 0.774,
+    "year": "2020"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Zimaya",
+        "Name": "Zimaya Stallion",
+        "Year": "2023",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "CZAR",
+        "Name": "Stallion unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Ojar",
+        "Name": "Ojar Stallion Soul",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Alexandria Fragrances",
+    "canonical_name": "Vanilla Stallion unisex",
+    "confident": true,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "Althair best clone is from alexandria fragrances, vanilla stallion. Smells exactly like it.",
+      "longevity is better than althair in my experience"
+    ],
+    "mention": "vanilla stallion",
+    "note": "nobody in the corpus wrote 'unisex' — see alternatives (1 better supported)",
+    "score": 0.821,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Layton Exclusif",
+        "Year": "2017",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Layton",
+        "Year": "2016",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Mancera",
+        "Name": "Mancera Jasmin Exclusif",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Parfums De Marly",
+    "canonical_name": "Parfums De Marly Layton Exclusif",
+    "confident": true,
+    "corpus_mentions": -1,
+    "count": 4,
+    "examples": [
+      "I think it's the best clone",
+      "it's not really a clone"
+    ],
+    "mention": "Layton Exclusif",
+    "note": "",
+    "score": 1.0,
+    "year": "2017"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "",
+        "Name": "Qahwa Marcoccia unisex",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Fragrance World",
+        "Name": "Qahwa unisex",
+        "Year": "2024",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "O Boticário",
+        "Name": "Quasar Next O Boticario unisex",
+        "Year": "2019",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Lattafa",
+    "canonical_name": "Lattafa Khamrah Qahwa",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "Quawa is almost identical yo rich warm addictive by zara",
+      "Quawa over Angel Shares is downright criminal"
+    ],
+    "mention": "Quawa",
+    "note": "name differs from the mention; the mention says 'quawa' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'khamrah qahwa'",
+    "score": 0.444,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Lvnea",
+        "Name": "Feu Follet unisex",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "FZOTIC",
+        "Name": "Feu Secret unisex",
+        "Year": "2017",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Guerlain",
+        "Name": "Fleur de Feu for women",
+        "Year": "1949",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Loewe",
+    "canonical_name": "Solo Loewe Vulcan",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "I prefer vulcan feu than god of fire",
+      "vulcan feu is bettwr than opulent"
+    ],
+    "mention": "vulcan feu",
+    "note": "name differs from the mention; the mention says 'feu' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'solo'",
+    "score": 0.571,
+    "year": "2024"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Amber Oud",
+        "Name": "Dusk unisex",
+        "Year": "2017",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Amber Oud",
+        "Name": "Onyx unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Amber Oud",
+        "Name": "Soul unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Al Haramain",
+    "canonical_name": "Al Haramain Amber Oud Exclusif Bleu",
+    "confident": true,
+    "corpus_mentions": 3,
+    "count": 3,
+    "examples": [
+      "great longevity and projection, better than Detour Noir and Layton",
+      "The other 2 shit all over Detour Noir as better dupes"
+    ],
+    "mention": "Amber Exclusif Bleu",
+    "note": "",
+    "score": 0.905,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Black Paw",
+        "Name": "Passiflora unisex",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Black Paw",
+        "Name": "L'eau unisex",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Black Paw",
+        "Name": "Grapefruit Dulci unisex",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Tom Ford",
+    "canonical_name": "Tom Ford Rose Exposed",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "That jammy rose is pardon the pun but it's my jam",
+      "It's inspired by Il Padrino de Suspiro"
+    ],
+    "mention": "Black Exposed",
+    "note": "name differs from the mention; the mention says 'black' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'rose'",
+    "score": 0.64,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "DeMer Parfum Limited",
+        "Name": "Santalorium unisex",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "DeMer Parfum Limited",
+        "Name": "Starstricken unisex",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Second Edition Olfactive",
+        "Name": "Verona unisex",
+        "Year": "2023",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "DeMer Parfum Limited",
+    "canonical_name": "Venom unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "CDNIM Limited Edition is waaaay better than the EDT",
+      "CDNIM Limited Edition is better than the original"
+    ],
+    "mention": "CDNIM Limited Edition",
+    "note": "name differs from the mention; the mention says 'cdnim edition' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'venom unisex'",
+    "score": 0.182,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Craze Noir",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Craze Bleu",
+        "Year": "2020",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Victoria's Secret",
+        "Name": "Coconut Craze for women",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Craze",
+    "confident": true,
+    "corpus_mentions": -1,
+    "count": 3,
+    "examples": [
+      "Craze is awesome and long lasting",
+      "Smells like insect spray"
+    ],
+    "mention": "Craze",
+    "note": "",
+    "score": 1.0,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "By Kilian",
+        "Name": "Love by Kilian Rose and Oud unisex",
+        "Year": "2019",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "By Shaik",
+        "Name": "Casanova unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "By Kilian",
+        "Name": "I Don't Need A Prince By My Side To Be A Princess unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "By Kilian",
+    "canonical_name": "Imperial Tea unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "Rasasi Hawas is a dupe of Imperial Valley by Gissah",
+      "Hawas Fire is a dupe of Imperial Valley by Gissah"
+    ],
+    "mention": "Imperial Valley by Gissah",
+    "note": "name differs from the mention; the mention says 'valley gissah' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'tea unisex'",
+    "score": 0.634,
+    "year": "2014"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Sheik Al Shuyukh",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Ramz Lattafa Gold",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Ramz Lattafa Silver",
+        "Year": "2021",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Lattafa",
+    "canonical_name": "Lattafa Sher",
+    "confident": false,
+    "corpus_mentions": 3,
+    "count": 3,
+    "examples": [
+      "overdoses the apple and makes it last longer. It's not a super sweet apple it's just strong than in the original",
+      "Lattafa sherif is way better than aether Extrait imo"
+    ],
+    "mention": "Lattafa sherif",
+    "note": "name differs from the mention; the mention says 'sherif' and the catalogue name does not — probably a flanker of it, not the same bottle",
+    "score": 0.444,
+    "year": "2024"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Parfums Vintage",
+        "Name": "Pineapple Vintage Intense VI. unisex",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Parfums Vintage",
+        "Name": "Pineapple Vintage King Intense unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Parfums Vintage",
+        "Name": "Pineapple Vintage Vanilla Intense unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Parfums Vintage",
+    "canonical_name": "Pineapple Vintage Intense unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "Pineapple vintage intense is by far the closest to smelling like AVENTUS",
+      "it blows CDNIM and Explorer out of the water"
+    ],
+    "mention": "Pineapple vintage intense",
+    "note": "name differs from the mention; nobody in the corpus wrote 'unisex'",
+    "score": 0.694,
+    "year": "2017"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Flavia",
+        "Name": "Georgian's The Golden Precioux",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Moudon",
+        "Name": "Moudon Precieux",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Givenchy",
+        "Name": "Givenchy Songe Precieux",
+        "Year": "2017",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Caron",
+    "canonical_name": "Caron Santal Precioux",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "you want to get closer to absolu then get Precioux",
+      "leans more into a caramel smoky birch aventus vibe"
+    ],
+    "mention": "Precioux",
+    "note": "name differs from the mention; nobody in the corpus wrote 'santal'",
+    "score": 0.696,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Addiction",
+        "Name": "Eau d'Addiction for women",
+        "Year": "2019",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Pure Cosmetics",
+        "Name": "Pure Cosmetics",
+        "Year": "",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Molyneux",
+        "Name": "Quartz Addiction",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Franck Olivier",
+    "canonical_name": "Franck Olivier Pure Addiction",
+    "confident": true,
+    "corpus_mentions": -1,
+    "count": 3,
+    "examples": [
+      "My favorite BR540 alternatives",
+      "RIDICULOUSLY close (85-90٪+)"
+    ],
+    "mention": "Pure Addiction",
+    "note": "",
+    "score": 1.0,
+    "year": "2021"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Rasasi",
+        "Name": "Rasasi Hawas Black",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Rasasi",
+        "Name": "Rasasi Hawas Elixir",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Rasasi",
+        "Name": "Rasasi Hawas For Her",
+        "Year": "2015",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Rasasi",
+    "canonical_name": "Rasasi Hawas Ice",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "Rasasi hawas fire is a clone of Gissah imperial valley",
+      "Rasasi hawas fire is twist in imperial valley dna"
+    ],
+    "mention": "Rasasi hawas fire",
+    "note": "name differs from the mention; the mention says 'fire' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'ice'",
+    "score": 0.615,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Rihanna",
+        "Name": "Rihanna Crush",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Rihanna",
+        "Name": "Rihanna Nude",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Rihanna",
+        "Name": "Rihanna Riri",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "For the Scent of It",
+    "canonical_name": "Blackwood Sun unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "it is in similar category & vibes",
+      "longer lasting"
+    ],
+    "mention": "Rirana Blackwood",
+    "note": "name differs from the mention; the mention says 'rirana' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'sun unisex'",
+    "score": 0.5,
+    "year": "2021"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Rouge Bunny Rouge",
+        "Name": "Rouge Bunny Rouge Silvan",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Rouge Bunny Rouge",
+        "Name": "Rouge Bunny Rouge Cynefin",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Scent by the Sea",
+        "Name": "Cinema Rouge for women",
+        "Year": "2009",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Rouge Bunny Rouge",
+    "canonical_name": "Rouge Bunny Rouge Silhouette",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "Rouge Veil No.13 by The CLONE has that same airy-sweet amberwood vibe BR540 is known for",
+      "the performance is surprisingly strong for the price"
+    ],
+    "mention": "Rouge Veil No.13 by The CLONE",
+    "note": "name differs from the mention; the mention says 'veil no 13 clone' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'silhouette'",
+    "score": 0.25,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Ana Hickmann",
+        "Name": "Donna for women",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Ana Hickmann",
+        "Name": "Dream for women",
+        "Year": "2011",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Ana Hickmann",
+        "Name": "Elegance for women",
+        "Year": "2015",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Ana Hickmann",
+    "canonical_name": "Ana for women",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "Sweeter, denser and so rich"
+    ],
+    "mention": "ana a",
+    "note": "name differs from the mention; nobody in the corpus wrote 'for women'",
+    "score": 0.167,
+    "year": "2009"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Tom Ford",
+        "Name": "Vanille Fatale 2024 unisex",
+        "Year": "2024",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "L'Erbolario",
+        "Name": "Indaco 2024 unisex",
+        "Year": "2024",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Guerlain",
+        "Name": "Muguet 2024 for women",
+        "Year": "2024",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Bath & Body Works",
+    "canonical_name": "Coconut 2024 for women",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "it's smells like edp really",
+      "it sits close to skin"
+    ],
+    "mention": "batch from 2024",
+    "note": "name differs from the mention; the mention says 'batch' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'coconut for women'",
+    "score": 0.375,
+    "year": "2024"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Wesker",
+        "Name": "Wesker Imperial",
+        "Year": "",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Gisada",
+        "Name": "Gisada Imperial",
+        "Year": "2021",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Jaguar",
+        "Name": "Jaguar Imperial",
+        "Year": "2015",
+        "corpus_mentions": -1
+      }
+    ],
+    "approved": null,
+    "brand": "Hamidi",
+    "canonical_name": "Addicted Imperial",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "Hawas red is the dupe of imperial valley",
+      "Hawas Fire is a dupe of imperial valley"
+    ],
+    "mention": "imperial valley",
+    "note": "name differs from the mention; the mention says 'valley' and the catalogue name does not — probably a flanker of it, not the same bottle; nobody in the corpus wrote 'addicted' — see alternatives (3 better supported)",
+    "score": 0.5,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Reef Perfumes",
+        "Name": "Reef 31 unisex",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Reef Perfumes",
+        "Name": "REEF 36 for women",
+        "Year": "2024",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Reef Perfumes",
+        "Name": "Reef 43 unisex",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Reef Perfumes",
+    "canonical_name": "Reef 33 unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 3,
+    "examples": [
+      "gissah imperial valley which is a dupe of reef 33",
+      "reef 33 which is a dupe of tiraaq"
+    ],
+    "mention": "reef 33",
+    "note": "name differs from the mention; nobody in the corpus wrote 'unisex'",
+    "score": 0.25,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "This Works",
+        "Name": "This Works",
+        "Year": "",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Arabian Oud Woody Intense",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Arabian Oud Majestic Woody Intense",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Arabian Oud",
+    "canonical_name": "Arabian Oud Woody",
+    "confident": false,
+    "corpus_mentions": -1,
+    "count": 3,
+    "examples": [
+      "The longest this Woody Oud lasted on my skin was 30 min",
+      "Similarity to original TF: 9,5/10"
+    ],
+    "mention": "this Woody Oud",
+    "note": "name differs from the mention; the mention says 'this' and the catalogue name does not — probably a flanker of it, not the same bottle",
+    "score": 0.526,
+    "year": ""
   }
 ]
