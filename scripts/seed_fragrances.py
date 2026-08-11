@@ -30,11 +30,12 @@ so this can be extended rather than replaced.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
-from fragrance_graph.resolve.entities import add_fragrance
+from fragrance_graph.resolve.entities import add_alias, add_fragrance
 
 log = logging.getLogger("seed_fragrances")
 
@@ -143,6 +144,106 @@ SEED: list[tuple[str, str, list[str]]] = [
         "Lattafa",
         ["Khamrah Qahwa", "Qahwa Khamrah", "Qahwa"],
     ),
+    # --- Second pass, 2026-08-11 -------------------------------------------
+    #
+    # Everything below clears 3 mention slots, which is the floor for ever
+    # reaching the 3-commenter bar. Two kinds of evidence were allowed, and
+    # no others:
+    #
+    #   1. The mention names its own house. "Darcy by Parfums de Marly" and
+    #      "al haramain amber oud ruby" need no lookup — the commenter
+    #      already did it. This is the job Fragella would otherwise be paid
+    #      to do, and for these mentions the corpus does it for free.
+    #   2. Independent sellers agree, preferring the house's own storefront.
+    #
+    # Mentions that cleared neither were left unresolved on purpose, and
+    # stay visible in `resolve.entities report`: Fresh Agar (4), Aether (4),
+    # EXCLUSIF BLUE (4), dream love 1000 (4), Craze (3), Atomic Rose (3).
+    # Searching found no house for them, so they get no guess. Same for
+    # "Armaf Untold" (5) — the house is certain but the bottle's full name
+    # is not, and a canonical name is not a thing to approximate.
+    #
+    # Parfums de Marly, corroborated as one line: Haltane (2021, a Harrods
+    # exclusive), Sedley (2019), Kalan (2019), Carlisle (2015), Darcy.
+    ("Parfums de Marly Haltane", "Parfums de Marly", ["Haltane"]),
+    ("Parfums de Marly Sedley", "Parfums de Marly", ["Sedley"]),
+    ("Parfums de Marly Kalan", "Parfums de Marly", ["Kalan"]),
+    # The corpus spells this "Carlyle"; the house spells it Carlisle.
+    (
+        "Parfums de Marly Carlisle",
+        "Parfums de Marly",
+        ["Carlyle", "Carlisle", "PDM Carlisle"],
+    ),
+    ("Parfums de Marly Darcy", "Parfums de Marly", ["Darcy", "Darcy by Parfums de Marly"]),
+    # Recommended by data/curation/VERIFICATION.md: 9 of 34 Delina comments
+    # attach "Exclusif", the highest flanker rate in the corpus. With one
+    # node, commenters disagreeing about whether Club de Nuit Imperiale
+    # clones Delina or Delina Exclusif become contradictory edges instead of
+    # two coherent claims.
+    ("Parfums de Marly Delina Exclusif", "Parfums de Marly", ["Delina Exclusif"]),
+    # A different bottle from Parfums de Marly Carlisle above — this is the
+    # clone, and the corpus always names the house when it means this one.
+    (
+        "Fragrance World Carlisle",
+        "Fragrance World",
+        ["fragrance world carlisle", "Fragrance World Carlisle"],
+    ),
+    ("Lattafa Maahir Legacy", "Lattafa", ["Maahir Legacy"]),
+    ("Lattafa Rave Now", "Lattafa", ["Rave Now", "Lataffa Rave Now"]),
+    # Not a Middle Eastern clone house, which is why searching mattered: the
+    # corpus discusses it purely as a Layton clone, in the same breath as
+    # Detour Noir.
+    ("The Woods Collection Dusk", "The Woods Collection", ["Dusk"]),
+    # Maison Alhambra's clones, each named by the corpus itself: "clone
+    # hercules from maison alhambra", "Maison Alhambra Delilah", "tobacco
+    # touch ... (alhambra clone of tobacco vanille same line as woody oud)".
+    (
+        "Maison Alhambra Hercules",
+        "Maison Alhambra",
+        ["Hercules", "Hercules (Herod)", "clone hercules from maison alhambra"],
+    ),
+    ("Maison Alhambra Delilah", "Maison Alhambra", ["Delilah", "Maison Alhambra Delilah"]),
+    ("Maison Alhambra Tobacco Touch", "Maison Alhambra", ["tobacco touch"]),
+    # House named in the mention text.
+    ("Creed Centaurus", "Creed", ["Creed Centaurus", "Centaurus"]),
+    ("Khadlaj Azure Velvet", "Khadlaj", ["Khadlaj Azure Velvet", "Azure Velvet"]),
+    (
+        "Al Haramain Amber Oud Black Edition",
+        "Al Haramain",
+        ["Amber Oud Black Edition by Al Haramain", "Amber Oud Black Edition"],
+    ),
+    (
+        "Al Haramain Amber Oud Ruby",
+        "Al Haramain",
+        ["al haramain amber oud ruby", "Amber Oud Ruby"],
+    ),
+    (
+        "Al Haramain L'Aventure Intense",
+        "Al Haramain",
+        ["Al Haramain L'Aventure Intense", "L'Aventure Intense"],
+    ),
+    ("Afnan N.O.I", "Afnan", ["Afnan N.O.I", "N.O.I"]),
+    (
+        "Dumont Nitro Black Intense",
+        "Dumont",
+        ["Dumont nitro black intense", "Nitro Black Intense"],
+    ),
+    ("Lalique White in Black", "Lalique", ["Lalique White in Black"]),
+    (
+        "Thomas Kosmala No. 4",
+        "Thomas Kosmala",
+        ["Thomas Kosmala no.4", "Thomas Kosmala No. 4"],
+    ),
+    ("Swiss Arabian Rose 01", "Swiss Arabian", ["Rose 01 by swiss arabian", "Rose 01"]),
+    ("Abercrombie & Fitch Fierce", "Abercrombie & Fitch", ["Abercromie and Fitch Fierce"]),
+]
+
+#: Spellings the corpus uses for bottles already seeded above. Kept separate
+#: so the entry list stays a list of bottles rather than of strings.
+EXTRA_ALIASES: list[tuple[str, list[str]]] = [
+    ("Parfums de Marly Layton", ["PDM Layton"]),
+    ("Parfums de Marly Percival", ["PDM Percival"]),
+    ("Maison Alhambra Woody Oud", ["Woody Oud by Maison Alhambra"]),
 ]
 
 #: Frequent mentions left out on purpose, with the reason, so the gap is a
@@ -175,6 +276,27 @@ def main(argv: list[str] | None = None) -> int:
             added += 1
 
         print(f"\n{added} added, {skipped} already present.")
+
+        # Idempotent: add_alias unions into the stored set, so re-running
+        # this script neither duplicates an alias nor drops one curated by
+        # hand afterwards.
+        taught = 0
+        for name, aliases in EXTRA_ALIASES:
+            row = conn.execute(
+                "SELECT id, aliases FROM fragrances WHERE canonical_name = ?", (name,)
+            ).fetchone()
+            if row is None:
+                log.warning("no fragrance named %r; cannot teach %s", name, aliases)
+                continue
+            before = set(json.loads(row["aliases"] or "[]"))
+            for alias in aliases:
+                if alias not in before:
+                    add_alias(conn, row["id"], alias)
+                    print(f"  ~ {name}  += {alias!r}")
+                    taught += 1
+        if taught:
+            print(f"\n{taught} alias(es) taught to existing entries.")
+
         if DEFERRED:
             print(f"\n{len(DEFERRED)} frequent mentions deliberately skipped:")
             for mention, why in DEFERRED.items():
