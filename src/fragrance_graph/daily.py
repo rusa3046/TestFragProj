@@ -144,6 +144,10 @@ class RunReport:
     claims_written: int = 0
     spend_usd: float = 0.0
     budget_remaining_usd: float = DAILY_CAP_USD
+    #: The cap this run actually ran under. `render` used to print the
+    #: module default, so a run started with --cap 1.50 reported being
+    #: stopped by a $1.00 cap that was not in force.
+    cap_usd: float = DAILY_CAP_USD
     stopped_on_budget: bool = False
     looked_up: int = 0
     auto_approved: list[str] = field(default_factory=list)
@@ -163,7 +167,7 @@ class RunReport:
             lines += [f"  ! {e}" for e in self.errors]
         if self.stopped_on_budget:
             lines.append(
-                f"  ! Stopped on the ${DAILY_CAP_USD:.2f} daily cap. "
+                f"  ! Stopped on the ${self.cap_usd:.2f} daily cap. "
                 "Un-extracted comments resume tomorrow."
             )
 
@@ -230,7 +234,7 @@ def run(
     """One pass of the loop. Every paid step is guarded by `budget`."""
     from fragrance_graph.pages import build, qualifying_pairs
 
-    report = RunReport(dry_run=dry_run)
+    report = RunReport(dry_run=dry_run, cap_usd=budget.cap_usd)
     report.pages_before = len(qualifying_pairs(conn))
     report.budget_remaining_usd = budget.remaining_usd
 
@@ -239,6 +243,12 @@ def run(
         report.errors.append(
             f"Today's ${budget.cap_usd:.2f} was already spent before this run."
         )
+        # Nothing ran, so nothing changed. Without this the default 0
+        # renders as "Pages 0 (-6 today)" — a run that did nothing at all
+        # reporting that it destroyed every published page. On the loop
+        # whose whole contract is an honest summary, a false alarm is the
+        # most expensive kind of wrong.
+        report.pages_after = report.pages_before
         return report
 
     if not dry_run:

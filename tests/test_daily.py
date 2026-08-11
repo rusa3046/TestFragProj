@@ -266,3 +266,42 @@ class TestReverseFlanker:
         ])
         assert "exclusif" in p.note
         assert "flanker" in p.note
+
+
+class TestTheReportDoesNotLie:
+    """A false alarm is the most expensive kind of wrong in a phone summary."""
+
+    def test_a_run_that_did_nothing_does_not_report_deleting_pages(
+        self, conn, tmp_path, monkeypatch
+    ):
+        """The exhausted-budget early return left pages_after at 0.
+
+        With six pages published that rendered as "Pages 0 (-6 today)": a
+        run that touched nothing claiming it destroyed the site.
+        """
+        monkeypatch.setattr(
+            "fragrance_graph.pages.qualifying_pairs", lambda conn, **k: ["p"] * 6
+        )
+        budget = Budget(cap_usd=1.0, ledger=tmp_path / "spend.jsonl",
+                        spent_usd=5.0)
+        report = run(
+            conn, queries=[], budget=budget,
+            out_dir=tmp_path / "site", dry_run=False,
+        )
+        assert report.pages_before == 6
+        assert report.pages_after == 6, "a no-op run must not lose pages"
+        rendered = report.render()
+        assert "Pages       6" in rendered
+        assert "-6" not in rendered
+
+    def test_the_cap_it_names_is_the_cap_it_ran_under(self, conn, tmp_path):
+        """render() printed DAILY_CAP_USD, not the --cap actually passed."""
+        budget = Budget(cap_usd=1.50, ledger=tmp_path / "spend.jsonl",
+                        spent_usd=9.0)
+        report = run(
+            conn, queries=[], budget=budget,
+            out_dir=tmp_path / "site", dry_run=False,
+        )
+        rendered = report.render()
+        assert "$1.50 daily cap" in rendered
+        assert "$1.00 daily cap" not in rendered
