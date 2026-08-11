@@ -434,5 +434,131 @@
       "https://us.parfums-de-marly.com/pages/delina-la-rosee"
     ],
     "notes": "FLAG FOR THE REVIEWER even though the entry is right. Delina Exclusif is not background noise here — it is a distinct, actively-discussed bottle, and it is entangled with the 'Imperiale' mention in Part A. Commenters disagree about what Armaf Club de Nuit Imperiale actually clones: 'Club de nuit Imperiale is the best dupe of Delina' versus 'Club de nuit imperiale = Delina Exclusif' versus 'at the drydown imperiale is identical to Exclusif'. If bare 'Delina' and 'Delina Exclusif' both resolve to the single Delina entry, those become contradictory edges on one node instead of two coherent claims on two nodes. Recommend adding Delina Exclusif as its own fragrance before or at the same time as the Imperiale entry. Delina La Rosee appears 3 times and is not yet urgent. Also note the corpus misspelling 'delina exlusif', which fuzzy matching should catch but is worth an alias."
+  },
+
+  {
+    "mention": "Aventus",
+    "corpus_count": 72,
+    "canonical_name": "Creed Aventus",
+    "brand": "Creed",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Creed Aventus Cologne",
+      "Creed Aventus for Her",
+      "Creed Absolu Aventus (2025)"
+    ],
+    "bare_mention_means": "Creed Aventus, the men's EDP. The committed entry is CORRECT and the flanker risk is nil in this corpus: 'aventus absolu' and 'aventus for her' each appear ZERO times across 72 Aventus comments, and 'aventus cologne' does not appear either. Three source videos are 'creed aventus dupe' (377 comments), so every mention is the pineapple-birch original being cloned by CDNIM, Montblanc Explorer and others.",
+    "sources": [
+      "https://www.creedfragrance.com/c/aventus-collection/",
+      "https://creedboutique.com/products/aventus",
+      "https://creedboutique.com/collections/aventus",
+      "https://creedboutique.com/products/aventus-cologne",
+      "https://www.creedfragrance.com/p/aventus-for-her/12870031/"
+    ],
+    "notes": "Note that Creed's own naming inverts the usual flanker word order — it is 'Absolu Aventus', not 'Aventus Absolu' — so a distinguishing-word check that only looks for text AFTER the mention will miss it. Same trap would apply to 'Eau Sauvage' vs 'Sauvage'. Recommend any flanker guard match the qualifier on either side of the mention. Also worth knowing for later batches: the corpus contains 'extrait is definitely the best og dupe of Creed Aventus', where 'extrait' means the Armaf Club de Nuit Intense Man Limited Edition Parfum, not any Creed product."
+  },
+  {
+    "mention": "Angels' Share",
+    "corpus_count": 43,
+    "canonical_name": "Kilian Angels' Share",
+    "brand": "By Kilian",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Kilian Angels' Share Paradis Extrait de Parfum (limited 2025, permanent from Jan 2026)",
+      "Kilian Angels' Share on the Rocks",
+      "Kilian Angels' Share layering set / body mist",
+      "Kilian Roses on Ice (same Liquors collection)",
+      "Kilian Apple Brandy on the Rocks (same Liquors collection)"
+    ],
+    "bare_mention_means": "By Kilian Angels' Share, the cognac-and-praline original from The Liquors collection. The committed entry is CORRECT. None of the flankers appears in the corpus — no 'Paradis', no 'on the Rocks' — and every mention is the original being compared to Khamrah and its clones ('so apparently Khamrah is like 50% similar to Angels Share', 'Ash try Kismet Angel by Maison Alhambra its cheaper and comes closer to Angel Share').",
+    "sources": [
+      "https://www.bykilian.com/product/19797/82905/perfume/angels-share/the-liquors",
+      "https://www.bykilian.com/angels-share-iconic-fragrance",
+      "https://www.bykilian.com/angels-share-paradis",
+      "https://www.bykilian.com/product/19797/139800/perfume/angels-share-on-the-rocks/the-liquors",
+      "https://www.sephora.com/product/kilian-angels-share-eau-de-parfum-P465332"
+    ],
+    "notes": "THE ALIAS LIST IS THE PROBLEM HERE, NOT THE BOTTLE. The committed entry carries the two-letter alias 'AS'. In this corpus that alias is only borderline defensible: the case-sensitive token 'AS' appears in exactly 3 comments, and 2 of them genuinely mean Angels' Share ('its supposed to clone AS', 'he claims it's not a clone to AS'). The third does not. But 'as' is one of the most common words in English — 161 corpus comments contain it — so this alias is safe only for as long as matching stays case-sensitive and whole-token. Any normalisation step that lowercases before matching, or any fuzzy match at FUZZY_THRESHOLD = 0.88 against a short string, turns 'AS' into a firehose. Recommend dropping 'AS' and accepting the loss of two mentions; that trade is exactly the asymmetry docs/CURATION.md argues for. Two smaller points: the house now brands itself 'KILIAN PARIS' rather than 'By Kilian' (cosmetic, per CURATION.md), and the flanker family grew in 2025-26 with Paradis and On the Rocks, so a refreshed corpus will need them."
+  },
+  {
+    "mention": "Baccarat Rouge 540",
+    "corpus_count": 43,
+    "canonical_name": "Maison Francis Kurkdjian Baccarat Rouge 540",
+    "brand": "Maison Francis Kurkdjian",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Maison Francis Kurkdjian Baccarat Rouge 540 Extrait de Parfum",
+      "Maison Francis Kurkdjian Baccarat Rouge 540 scented candle / body products",
+      "Baccarat Rouge 540 (the Baccarat crystal house co-branding)"
+    ],
+    "bare_mention_means": "Maison Francis Kurkdjian Baccarat Rouge 540 Eau de Parfum. The committed entry is CORRECT. The corpus overwhelmingly uses the shorthand 'BR540' (12 occurrences) and '540' rather than the full name, and treats it as the single original that Zara Red Temptation, Al Haramain Amber Oud and Orientica Amber Rouge clone.",
+    "sources": [
+      "https://www.franciskurkdjian.com/us-en/p/baccarat-rouge-540-extrait-de-parfum-RA14232.html",
+      "https://www.baccarat.com/en_us/fragrance/all-fragrance/perfumes/baccarat-rouge-540-extrait-de-parfum-70-ml-2812497.html",
+      "https://www.dillards.com/p/maison-francis-kurkdjian-baccarat-rouge-540-extrait-de-parfum/519043435",
+      "https://www.macys.com/shop/product/maison-francis-kurkdjian-baccarat-rouge-540-extrait-de-parfum?ID=22070690"
+    ],
+    "notes": "SECOND-WORST TRAP FOR THE corpus_mentions METHOD, after 'sillage'. The word that distinguishes the Extrait from the EDP is 'extrait' — and 'extrait' appears in 39 corpus comments. A reviewer applying CURATION.md's arithmetic would read 39 as overwhelming evidence for the Extrait and move the canonical name. It is not: almost none of those 39 are about BR540. They are 'Electimuss Baroque Extrait', 'CDNIM EXTRAIT', 'an extrait de parfum' used as a concentration noun, and the Orientica 'extrait' on the bottle. Only one comment is plausibly about the BR540 Extrait ('I felt it was closer to the Extrait version') plus one adjacent ('the closest to the extrait'). The Extrait is real and does get discussed, but at roughly 2 mentions, not 39. The alias list is otherwise good; note that the committed alias 'Baccarat Rouge' is a prefix of 'Baccarat Rouge 540 Extrait de Parfum', so prefix-style matching would swallow the flanker."
+  },
+  {
+    "mention": "Cedrat Boise",
+    "corpus_count": 7,
+    "canonical_name": "Mancera Cedrat Boise",
+    "brand": "Mancera",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Mancera Intense Cedrat Boise",
+      "Montale (sister house, same perfumer Pierre Montale — frequently confused)"
+    ],
+    "bare_mention_means": "Mancera Cedrat Boise, the standard EDP. The committed entry is CORRECT. All 7 corpus mentions are the original being weighed as an Aventus alternative, and the discussion is specifically about whether it counts as a clone at all ('Cedrat Boise is not a clone. Inspired by the DNA, maybe', 'Cedrat Boise isn't an Aventus clone'). No corpus mention attaches 'Intense'.",
+    "sources": [
+      "https://manceraparfums.us/products/cedrat-boise",
+      "https://manceraparfums.us/products/intense-cedrat-boise",
+      "https://www.amazon.com/MANCERA-Cedrat-Boise-Parfum-Spray/dp/B013V7BK9S",
+      "https://zgoperfumery.com/products/mancera-cedrat-boise-eau-de-parfum"
+    ],
+    "notes": "A flanker does exist and was not obvious: Mancera sells 'Intense Cedrat Boise' on its own storefront. Like Creed's 'Absolu Aventus', the qualifier is a PREFIX, so a suffix-only flanker check would miss it entirely. Mancera and Montale share a founder (Pierre Montale) and are routinely mixed up by commenters, so if a future corpus produces 'Montale Cedrat Boise' that is a misattribution of this bottle, not a new one. Lowest corpus count of the sixteen at 7 mentions, so it decides few edges either way."
+  },
+  {
+    "mention": "Explorer",
+    "corpus_count": 16,
+    "canonical_name": "Montblanc Explorer",
+    "brand": "Montblanc",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [
+      "Montblanc Explorer Ultra Blue (2021)",
+      "Montblanc Explorer Platinum",
+      "Montblanc Legend / Legend Blue (adjacent Montblanc line, different fragrance)"
+    ],
+    "bare_mention_means": "Montblanc Explorer, the original EDP. The committed entry is CORRECT. 'ultra blue' and 'platinum' appear ZERO times in the corpus. Every mention is the Aventus clone conversation — 'Mont blanc explorer hands down better dupe of creed', 'If you dislike the harshness of club de nuit intense, try Montblanc Explorer' — and commenters almost always prefix the house, which is why the committed alias 'Mont Blanc Explorer' is well chosen.",
+    "sources": [
+      "https://www.montblanc.com/en-us/fragrances/collection/explorer",
+      "https://www.montblanc.com/en-us/eau-de-parfum_cod18706561955854421.html",
+      "https://us.amazon.com/MONTBLANC-Explorer-Ultra-Blue-Parfum/dp/B09259W4F6",
+      "https://www.fragrancenet.com/cologne/mont-blanc/mont-blanc-explorer-ultra-blue/eau-de-parfum"
+    ],
+    "notes": "The bare word 'Explorer' is generic enough that it is worth keeping the two-word alias as the primary hook — 'explorer' unqualified could match a Jaguar or Ralph Lauren product in a broader corpus, and it is an ordinary English noun. In this corpus that has not happened: all 16 hits are the Montblanc bottle, 13 of them with 'mont blanc'/'montblanc' adjacent. Both flankers are real and current, so keep them recorded for the next corpus refresh."
+  },
+  {
+    "mention": "Althair",
+    "corpus_count": 15,
+    "canonical_name": "Parfums de Marly Althair",
+    "brand": "Parfums de Marly",
+    "year": "unknown",
+    "confidence": "high",
+    "flanker_family": [],
+    "bare_mention_means": "Parfums de Marly Althair. The committed entry is CORRECT. No flanker exists — no Althair Exclusif was found at the brand or any retailer — so a bare mention has only one possible referent once the house is right. All 15 corpus mentions are the original being cloned (Alexandria Vanilla Stallion, Scentual Obsessions Eagle Star) or compared to Armani Code Absolu.",
+    "sources": [
+      "https://us.parfums-de-marly.com/products/layton",
+      "https://parfums-de-marly.com/pages/the-exclusifs",
+      "https://bluemercury.com/products/parfums-de-marly-herod-eau-de-parfum",
+      "https://www.nordstrom.com/s/parfums-de-marly-herod-eau-de-parfum/7423651"
+    ],
+    "notes": "Parfums de Marly spells this 'Althaïr' with a diaeresis. The committed entry uses 'Althair', which is correct per docs/CURATION.md ('whether the brand is spelled the house's preferred way' is explicitly cosmetic and not part of the judgement) and is also what every corpus commenter types. Worth carrying 'Althaïr' as an alias only so that catalogue- or retailer-sourced strings resolve; nothing in the corpus needs it. Newest of the Parfums de Marly entries in the set, which is why no flanker exists yet."
   }
 ]
