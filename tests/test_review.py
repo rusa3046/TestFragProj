@@ -1,0 +1,147 @@
+"""Reviewing drafted labels.
+
+The property that matters: `drafted_by` is removed only on rows a person
+actually answered for. Everything else here is about that being true even
+when the session is interrupted.
+"""
+
+import json
+
+from fragrance_graph.evals.labels import UnreviewedDraft, check_reviewable
+from fragrance_graph.evals.review import render_entry, review
+
+
+def drafted(**over):
+    entry = {
+        "source": "youtube",
+        "source_id": "a",
+        "body": "khamrah is basically a dupe of angels share",
+        "_stratum": "edge",
+        "claims": [{
+            "claim_type": "SIMILAR_TO",
+            "raw_subject_text": "khamrah",
+            "raw_object_text": "angels share",
+            "sentiment": "POSITIVE",
+        }],
+        "drafted_by": "claude-opus-5",
+        "pronoun_policy": "skip",
+    }
+    entry.update(over)
+    return entry
+
+
+def answers(*keys):
+    """A canned reviewer."""
+    queue = list(keys)
+    return lambda _prompt: queue.pop(0) if queue else "q"
+
+
+class TestSigningOff:
+    def test_accepting_clears_the_marker(self):
+        entries = [drafted()]
+        progress = review(entries, ask=answers("a"), say=lambda _: None)
+        assert "drafted_by" not in entries[0]
+        assert "pronoun_policy" not in entries[0]
+        assert progress.accepted == 1
+        # And the file now passes the import guard.
+        check_reviewable(entries, labeler="aanya-verified")
+
+    def test_skipping_leaves_it_marked(self):
+        entries = [drafted()]
+        review(entries, ask=answers("s"), say=lambda _: None)
+        assert entries[0]["drafted_by"] == "claude-opus-5"
+        # Still refused, which is the point of skipping.
+        try:
+            check_reviewable(entries, labeler="aanya-verified")
+        except UnreviewedDraft:
+            pass
+        else:  # pragma: no cover - the guard must fire
+            raise AssertionError("a skipped row must not import")
+
+    def test_asserting_nothing_is_a_decision_not_a_skip(self):
+        """"This comment makes no claim" is a real label, and signed for."""
+        entries = [drafted()]
+        progress = review(entries, ask=answers("n"), say=lambda _: None)
+        assert entries[0]["claims"] == []
+        assert "drafted_by" not in entries[0]
+        assert progress.emptied == 1
+
+    def test_quitting_stops_without_signing_the_rest(self):
+        entries = [drafted(source_id="a"), drafted(source_id="b"),
+                   drafted(source_id="c")]
+        review(entries, ask=answers("a", "q"), say=lambda _: None)
+        assert "drafted_by" not in entries[0]
+        assert entries[1]["drafted_by"]
+        assert entries[2]["drafted_by"]
+
+    def test_a_resumed_session_skips_what_is_done(self):
+        entries = [drafted(source_id="a"), drafted(source_id="b")]
+        review(entries, ask=answers("a", "q"), say=lambda _: None)
+        progress = review(entries, ask=answers("a"), say=lambda _: None)
+        assert progress.reviewed == 1, "should only revisit the marked row"
+        assert all("drafted_by" not in e for e in entries)
+
+    def test_progress_is_saved_after_every_answer(self):
+        """An hour lost to a closed terminal is an hour nobody redoes."""
+        saves = []
+        entries = [drafted(source_id="a"), drafted(source_id="b")]
+        review(entries, ask=answers("a", "a"), say=lambda _: None,
+               save=lambda: saves.append(len(
+                   [e for e in entries if "drafted_by" not in e])))
+        assert saves == [1, 2]
+
+
+class TestRetyping:
+    def test_a_claim_type_can_be_corrected(self):
+        """DUPE_OF vs SIMILAR_TO is the disagreement calibration found."""
+        entries = [drafted()]
+        review(entries, ask=answers("t", "DUPE_OF", "a"), say=lambda _: None)
+        assert entries[0]["claims"][0]["claim_type"] == "DUPE_OF"
+        assert "drafted_by" not in entries[0]
+
+    def test_retyping_alone_does_not_sign_the_row(self):
+        """A correction is not an approval; the row still needs answering."""
+        entries = [drafted()]
+        review(entries, ask=answers("t", "DUPE_OF", "s"), say=lambda _: None)
+        assert entries[0]["claims"][0]["claim_type"] == "DUPE_OF"
+        assert entries[0]["drafted_by"], "skipped after editing stays a draft"
+
+    def test_a_nonsense_type_changes_nothing(self):
+        entries = [drafted()]
+        review(entries, ask=answers("t", "NOT_A_TYPE", "a"), say=lambda _: None)
+        assert entries[0]["claims"][0]["claim_type"] == "SIMILAR_TO"
+
+    def test_choosing_by_number_works(self):
+        from fragrance_graph.models import ClaimType
+
+        entries = [drafted()]
+        review(entries, ask=answers("t", "1", "a"), say=lambda _: None)
+        assert entries[0]["claims"][0]["claim_type"] == list(ClaimType)[0].value
+
+
+class TestRendering:
+    def test_it_shows_the_comment_and_the_claims(self):
+        out = render_entry(drafted(), position=1, total=35)
+        assert "1 of 35" in out
+        assert "khamrah is basically a dupe" in out
+        assert "SIMILAR_TO" in out
+        assert "edge" in out
+
+    def test_an_empty_draft_says_so_loudly(self):
+        """The drafter finding nothing is the case worth reading closely."""
+        out = render_entry(drafted(claims=[]), position=2, total=3)
+        assert "NO CLAIMS" in out
+
+    def test_an_unmarked_file_is_a_no_op(self):
+        entries = [drafted()]
+        entries[0].pop("drafted_by")
+        progress = review(entries, ask=answers("a"), say=lambda _: None)
+        assert progress.reviewed == 0
+
+
+def test_a_reviewed_file_round_trips_as_json(tmp_path):
+    entries = [drafted()]
+    review(entries, ask=answers("a"), say=lambda _: None)
+    path = tmp_path / "batch.json"
+    path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    assert "drafted_by" not in json.loads(path.read_text())[0]

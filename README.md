@@ -565,6 +565,17 @@ uv run python -m fragrance_graph.evals.autolabel draft drafted.json --from todra
 missed; asking a second model whether the first model missed something, then
 accepting "no", records an empty label and learns nothing. Label those cold.
 
+Then review them one at a time:
+
+```bash
+uv run python -m fragrance_graph.evals.review drafted.json
+```
+
+Each row shows the comment and what the drafter said; `a` accepts, `n` records
+that it asserts nothing, `t` fixes a claim type, `s` defers, `q` saves and
+quits. Progress is written after every answer, so ten rows now and the rest
+later is fine.
+
 Drafts carry `drafted_by`, and `labels import` refuses to store them under a
 non-draft labeler. Reviewing means deleting that marker — a deliberate act
 that records a person standing behind the row. An all-empty file is refused
