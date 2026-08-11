@@ -523,3 +523,83 @@ class TestLookupsAreNotWasted:
         # Merging also lifts the pair over min_count, which neither
         # spelling clears alone.
         assert aether[0][1] == 4
+
+
+class TestNoDuplicateNodes:
+    """A name already answered to must not become a second fragrance."""
+
+    @staticmethod
+    def _approved(mention, name, brand):
+        return Proposal(
+            mention=mention, count=9, canonical_name=name, brand=brand,
+            confident=True, corpus_mentions=-1, approved=True,
+        )
+
+    def test_an_existing_alias_blocks_a_new_node(self, conn):
+        """The duplicate that actually happened, 2026-08-11.
+
+        "Club de Nuit Intense" was already an alias of Intense Man. The
+        catalogue offered it as a canonical name of its own, and the old
+        exact-canonical check let it through.
+        """
+        from fragrance_graph.resolve.enrich import apply_review
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(
+            conn, "Armaf Club de Nuit Intense Man", brand="Armaf",
+            aliases=["Club de Nuit", "Club de Nuit Intense"],
+        )
+        conn.commit()
+
+        stats = apply_review(conn, [
+            self._approved("club de Nuit intense",
+                           "Armaf Club De Nuit Intense", "Armaf"),
+        ])
+        assert stats.added == 0
+        assert stats.skipped_existing == 1
+
+    def test_the_brand_does_not_disguise_a_duplicate(self, conn):
+        """"Armaf Club de Nuit" is the same claim as the alias "Club de Nuit"."""
+        from fragrance_graph.resolve.enrich import apply_review
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(
+            conn, "Armaf Club de Nuit Intense Man", brand="Armaf",
+            aliases=["Club de Nuit"],
+        )
+        conn.commit()
+
+        stats = apply_review(conn, [
+            self._approved("Club De Nuit EDP", "Armaf Club De Nuit", "Armaf"),
+        ])
+        assert stats.added == 0, "a de-branded duplicate must not be written"
+
+    def test_a_genuine_flanker_is_still_added(self, conn):
+        """The guard must not swallow real siblings."""
+        from fragrance_graph.resolve.enrich import apply_review
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Parfums de Marly Layton", brand="Parfums de Marly",
+                      aliases=["Layton"])
+        add_fragrance(conn, "Armaf Club de Nuit Intense Man", brand="Armaf",
+                      aliases=["Club de Nuit"])
+        conn.commit()
+
+        stats = apply_review(conn, [
+            self._approved("Layton Exclusif",
+                           "Parfums De Marly Layton Exclusif",
+                           "Parfums De Marly"),
+            self._approved("Club de nuit Iconic",
+                           "Armaf Club De Nuit Iconic", "Armaf"),
+        ])
+        assert stats.added == 2, "Exclusif and Iconic are distinct bottles"
+
+    def test_two_proposals_for_one_bottle_add_it_once(self, conn):
+        from fragrance_graph.resolve.enrich import apply_review
+
+        stats = apply_review(conn, [
+            self._approved("khamrah", "Lattafa Khamrah", "Lattafa"),
+            self._approved("Khamrah", "Khamrah", "Lattafa"),
+        ])
+        assert stats.added == 1
+        assert stats.skipped_existing == 1

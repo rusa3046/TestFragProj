@@ -558,6 +558,41 @@ class ApplyStats:
         )
 
 
+def claimed_names(conn: sqlite3.Connection) -> set[str]:
+    """Every name an existing fragrance already answers to, de-branded.
+
+    Checking canonical names alone was not enough, and the gap wrote a
+    duplicate on 2026-08-11. The corpus held `Armaf Club de Nuit Intense
+    Man`, whose aliases already included "Club de Nuit Intense". The
+    catalogue then offered `Armaf Club De Nuit Intense` for the mention
+    "club de Nuit intense" — a different string, so the old check passed
+    it, and the same bottle became two nodes with one name pointing at
+    both. Every edge on it splits, and the resolver cannot say which node
+    that name means.
+
+    So a name is taken if *anything* already answers to it, alias or
+    canonical, and the comparison is de-branded because "Armaf Club de
+    Nuit" and "Club de Nuit" are the same claim on the same words.
+    """
+    names: set[str] = set()
+    for row in conn.execute(
+        "SELECT canonical_name, brand, aliases FROM fragrances"
+    ):
+        brand = row["brand"] or ""
+        candidates = [row["canonical_name"]]
+        try:
+            candidates += json.loads(row["aliases"] or "[]")
+        except (TypeError, ValueError):
+            pass
+        for name in candidates:
+            if not name:
+                continue
+            names.add(normalize_name(name))
+            names.add(normalize_name(debranded(name, brand)))
+    names.discard("")
+    return names
+
+
 def apply_review(conn: sqlite3.Connection, proposals: list[Proposal]) -> ApplyStats:
     """Add the approved proposals as fragrances.
 
@@ -566,10 +601,7 @@ def apply_review(conn: sqlite3.Connection, proposals: list[Proposal]) -> ApplySt
     failure: the catalogue proposes, a person decides.
     """
     stats = ApplyStats()
-    existing = {
-        normalize_name(row["canonical_name"])
-        for row in conn.execute("SELECT canonical_name FROM fragrances")
-    }
+    existing = claimed_names(conn)
     for p in proposals:
         if p.approved is None:
             stats.skipped_unapproved += 1
@@ -581,7 +613,13 @@ def apply_review(conn: sqlite3.Connection, proposals: list[Proposal]) -> ApplySt
             log.warning("Approved but has no name: %r", p.mention)
             stats.skipped_unapproved += 1
             continue
-        if normalize_name(p.canonical_name) in existing:
+        # De-branded too: a catalogue name carrying the house is the same
+        # claim as a bare one the corpus already holds.
+        forms = {
+            normalize_name(p.canonical_name),
+            normalize_name(debranded(p.canonical_name, p.brand or "")),
+        }
+        if forms & existing:
             # Still teach the existing entry the mention it missed.
             stats.skipped_existing += 1
             continue
@@ -590,7 +628,8 @@ def apply_review(conn: sqlite3.Connection, proposals: list[Proposal]) -> ApplySt
         add_fragrance(
             conn, p.canonical_name, brand=p.brand, aliases=[p.mention]
         )
-        existing.add(normalize_name(p.canonical_name))
+        existing |= forms
+        existing.add(normalize_name(p.mention))
         stats.added += 1
     return stats
 
