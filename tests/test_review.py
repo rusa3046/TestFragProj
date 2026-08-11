@@ -205,3 +205,68 @@ def test_the_drafter_is_asked_for_polarity():
     prompt = build_prompt("skip")
     assert "DENIED" in prompt
     assert "not sentiment" in prompt
+
+
+class TestRecheckingSignedRows:
+    """Rows signed before polarity existed carry denials as assertions.
+
+    Once a row is signed its marker is gone, so the normal pass skips it.
+    28 rows were signed that way on 2026-08-11.
+    """
+
+    def _signed(self, body, claims):
+        return {"source": "youtube", "source_id": "a", "body": body,
+                "claims": claims}
+
+    def test_a_signed_denial_is_found(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entry = self._signed(
+            "I just try latafa it is nothing like angel share",
+            [{"claim_type": "SIMILAR_TO", "raw_subject_text": "latafa",
+              "raw_object_text": "angel share", "sentiment": "NEGATIVE"}],
+        )
+        assert looks_like_a_denial(entry) is True
+
+    def test_one_already_marked_denied_is_left_alone(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entry = self._signed(
+            "nothing like angel share",
+            [{"claim_type": "SIMILAR_TO", "raw_subject_text": "latafa",
+              "raw_object_text": "angel share", "polarity": "DENIED"}],
+        )
+        assert looks_like_a_denial(entry) is False
+
+    def test_an_ordinary_row_is_not_reopened(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entry = self._signed(
+            "khamrah is a great dupe of angels share",
+            [{"claim_type": "DUPE_OF", "raw_subject_text": "khamrah",
+              "raw_object_text": "angels share"}],
+        )
+        assert looks_like_a_denial(entry) is False
+
+    def test_a_row_with_no_claims_is_not_reopened(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        assert looks_like_a_denial(
+            self._signed("nothing like angel share", [])
+        ) is False
+
+    def test_the_selector_drives_which_rows_are_shown(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entries = [
+            self._signed("nothing like angel share", [
+                {"claim_type": "SIMILAR_TO", "raw_subject_text": "latafa",
+                 "raw_object_text": "angel share"}]),
+            self._signed("khamrah is a lovely dupe of angels share", [
+                {"claim_type": "DUPE_OF", "raw_subject_text": "khamrah",
+                 "raw_object_text": "angels share"}]),
+        ]
+        review(entries, ask=answers("p", "a"), say=lambda _: None,
+               select=looks_like_a_denial)
+        assert entries[0]["claims"][0]["polarity"] == "DENIED"
+        assert "polarity" not in entries[1]["claims"][0], "untouched"

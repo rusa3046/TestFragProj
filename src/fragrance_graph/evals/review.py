@@ -32,6 +32,33 @@ from pathlib import Path
 
 from fragrance_graph.models import ClaimType
 
+#: How a commenter says the relationship does *not* hold. Used only to
+#: find rows worth a second look — a hit means "read this again", never
+#: "this is a denial".
+DENIAL_LANGUAGE = (
+    "nothing like", "not like", "no clone", "not a clone", "not a dupe",
+    "isn't a dupe", "is not a dupe", "doesn't smell", "does not smell",
+    "far from", "not similar", "nowhere near", "not even close",
+    "smells nothing", "no dupe", "not the same",
+)
+
+
+def looks_like_a_denial(entry: dict) -> bool:
+    """Whether a signed row may have recorded a denial as an assertion.
+
+    Rows signed before the reviewer could express polarity carry claims
+    that are implicitly ASSERTED. This finds the ones whose comment reads
+    like a rejection so they can be re-opened, rather than re-reviewing
+    everything.
+    """
+    claims = entry.get("claims") or []
+    if not claims:
+        return False
+    if any(c.get("polarity") == "DENIED" for c in claims):
+        return False  # already answered
+    body = (entry.get("body") or "").lower()
+    return any(word in body for word in DENIAL_LANGUAGE)
+
 log = logging.getLogger("fragrance_graph.evals.review")
 
 MENU = """
@@ -166,6 +193,7 @@ def review(
     ask: Callable[[str], str] = input,
     say: Callable[[str], None] = print,
     save: Callable[[], None] = lambda: None,
+    select: Callable[[dict], bool] = lambda e: bool(e.get("drafted_by")),
 ) -> Progress:
     """Walk the still-drafted entries. Mutates `entries` in place.
 
@@ -174,7 +202,7 @@ def review(
     nobody starts again.
     """
     progress = Progress()
-    pending = [e for e in entries if e.get("drafted_by")]
+    pending = [e for e in entries if select(e)]
     progress.remaining = len(pending)
     if not pending:
         return progress
@@ -220,7 +248,7 @@ def review(
         progress.reviewed += 1
         save()
 
-    progress.remaining = sum(1 for e in entries if e.get("drafted_by"))
+    progress.remaining = sum(1 for e in entries if select(e))
     return progress
 
 
@@ -229,6 +257,18 @@ def main(argv: list[str] | None = None) -> int:
         description="Review drafted labels one at a time, and sign for them."
     )
     parser.add_argument("file", type=Path, help="A drafted template")
+    parser.add_argument(
+        "--recheck-denials", action="store_true",
+        help=(
+            "Re-open rows already signed whose comment reads like a "
+            "rejection but whose claims are all ASSERTED. For batches "
+            "signed before the reviewer could express polarity."
+        ),
+    )
+    parser.add_argument(
+        "--all", action="store_true", dest="review_all",
+        help="Re-open every row, signed or not.",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -240,18 +280,27 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
 
-    pending = sum(1 for e in entries if e.get("drafted_by"))
+    if args.review_all:
+        select = lambda e: True  # noqa: E731
+        what = "every row"
+    elif args.recheck_denials:
+        select = looks_like_a_denial  # type: ignore[assignment]
+        what = "rows that read like a denial but were signed as asserted"
+    else:
+        select = lambda e: bool(e.get("drafted_by"))  # noqa: E731
+        what = "entries still marked as drafts"
+
+    pending = sum(1 for e in entries if select(e))
     if not pending:
         print(
-            f"Nothing left to review in {args.file}: no entry is marked as a "
-            "draft.\n\n"
+            f"Nothing to review in {args.file}: no {what}.\n\n"
             f"  python -m fragrance_graph.evals.labels import {args.file} "
             "--labeler you"
         )
         return 0
 
-    print(f"{pending} of {len(entries)} entries still need a person.")
-    progress = review(entries, save=save)
+    print(f"{pending} of {len(entries)} entries: {what}.")
+    progress = review(entries, save=save, select=select)
     save()
 
     print(
