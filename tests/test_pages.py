@@ -26,8 +26,13 @@ from fragrance_graph.resolve.entities import add_fragrance
 from tests.conftest import make_comment
 
 
-def add_comment(conn, i, *, body, author, video):
-    """One comment, by a named person, under a named video."""
+def add_comment(conn, i, *, body, author, video, channel=None):
+    """One comment, by a named person, under a named video.
+
+    `channel` defaults to one uploader per video, which is the ordinary
+    case. Tests about creator independence pass it explicitly to put two
+    videos behind one uploader.
+    """
     ingest(
         conn,
         [
@@ -35,6 +40,7 @@ def add_comment(conn, i, *, body, author, video):
                 i,
                 body=body,
                 permalink=f"https://example.test/c/{i}",
+                source_channel=channel or f"UC-{video}",
                 raw_json=json.dumps({"author": author, "videoId": video}),
             )
         ],
@@ -377,3 +383,70 @@ def test_query_count_reaches_the_pair(conn):
     (pair,) = qualifying_pairs(conn)
     assert pair.queries == 2
     assert queries_behind(conn, pair) == ["layton dupe", "layton review"]
+
+
+def test_a_page_says_creators_not_videos(conn):
+    """The gate counts `source_channel`, which is the uploading channel.
+
+    Pages said "across 2 videos" until 2026-08-11. Two videos by one
+    YouTuber are one audience, so the label understated a bar the code
+    had always enforced correctly. Pinned because it is public-facing
+    text describing what the evidence actually is.
+    """
+    from fragrance_graph.pages import qualifying_pairs, render_pair
+
+    pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+    pairs = qualifying_pairs(conn)
+    assert pairs, "fixture should clear the gate"
+    html = render_pair(pairs[0])
+    assert "creators" in html or "creator" in html
+    assert "video" not in html.lower(), "the gate does not count videos"
+
+
+def test_the_index_says_creators_too(conn):
+    from fragrance_graph.pages import qualifying_pairs, render_index
+
+    pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+    index = render_index(qualifying_pairs(conn))
+    assert "creators" in index
+    assert "videos" not in index
+
+
+def test_two_videos_by_one_creator_are_one_source(conn):
+    """The counting behind the word, not the word.
+
+    `test_a_page_says_creators_not_videos` pins the label. This pins what
+    the label is counting, which is the half that can silently drift: the
+    gate read distinct videos while the page said creators, and the two
+    are equal on this corpus for every publishable pair — so the wording
+    was true by luck rather than by construction.
+
+    Three people, two videos, one uploading channel. One creator framed
+    both audiences, so this must not publish.
+    """
+    a = add_fragrance(conn, "Aventus")
+    b = add_fragrance(conn, "Club de Nuit Intense Man")
+    for i in range(3):
+        ingest(
+            conn,
+            [
+                make_comment(
+                    i,
+                    body=f"person {i} wrote this",
+                    permalink=f"https://example.test/c/{i}",
+                    source_channel="UC-one-channel",
+                    raw_json=json.dumps(
+                        {"author": f"person-{i}", "videoId": f"vid-{i % 2}"}
+                    ),
+                )
+            ],
+        )
+        cid = conn.execute(
+            "SELECT id FROM comments WHERE source_id = ?", (f"t1_fake{i:05d}",)
+        ).fetchone()[0]
+        add_claim(conn, cid, subject=b, obj=a, evidence=f"person {i} wrote this")
+
+    ev = pair_stats(conn, a, b)
+    assert ev.sources == 2, "two distinct videos"
+    assert ev.creators == 1, "but one channel uploaded both"
+    assert qualifying_pairs(conn) == []

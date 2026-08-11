@@ -1,0 +1,272 @@
+"""Reviewing drafted labels.
+
+The property that matters: `drafted_by` is removed only on rows a person
+actually answered for. Everything else here is about that being true even
+when the session is interrupted.
+"""
+
+import json
+
+from fragrance_graph.evals.labels import UnreviewedDraft, check_reviewable
+from fragrance_graph.evals.review import render_entry, review
+
+
+def drafted(**over):
+    entry = {
+        "source": "youtube",
+        "source_id": "a",
+        "body": "khamrah is basically a dupe of angels share",
+        "_stratum": "edge",
+        "claims": [{
+            "claim_type": "SIMILAR_TO",
+            "raw_subject_text": "khamrah",
+            "raw_object_text": "angels share",
+            "sentiment": "POSITIVE",
+        }],
+        "drafted_by": "claude-opus-5",
+        "pronoun_policy": "skip",
+    }
+    entry.update(over)
+    return entry
+
+
+def answers(*keys):
+    """A canned reviewer."""
+    queue = list(keys)
+    return lambda _prompt: queue.pop(0) if queue else "q"
+
+
+class TestSigningOff:
+    def test_accepting_clears_the_marker(self):
+        entries = [drafted()]
+        progress = review(entries, ask=answers("a"), say=lambda _: None)
+        assert "drafted_by" not in entries[0]
+        assert "pronoun_policy" not in entries[0]
+        assert progress.accepted == 1
+        # And the file now passes the import guard.
+        check_reviewable(entries, labeler="aanya-verified")
+
+    def test_skipping_leaves_it_marked(self):
+        entries = [drafted()]
+        review(entries, ask=answers("s"), say=lambda _: None)
+        assert entries[0]["drafted_by"] == "claude-opus-5"
+        # Still refused, which is the point of skipping.
+        try:
+            check_reviewable(entries, labeler="aanya-verified")
+        except UnreviewedDraft:
+            pass
+        else:  # pragma: no cover - the guard must fire
+            raise AssertionError("a skipped row must not import")
+
+    def test_asserting_nothing_is_a_decision_not_a_skip(self):
+        """"This comment makes no claim" is a real label, and signed for."""
+        entries = [drafted()]
+        progress = review(entries, ask=answers("n"), say=lambda _: None)
+        assert entries[0]["claims"] == []
+        assert "drafted_by" not in entries[0]
+        assert progress.emptied == 1
+
+    def test_quitting_stops_without_signing_the_rest(self):
+        entries = [drafted(source_id="a"), drafted(source_id="b"),
+                   drafted(source_id="c")]
+        review(entries, ask=answers("a", "q"), say=lambda _: None)
+        assert "drafted_by" not in entries[0]
+        assert entries[1]["drafted_by"]
+        assert entries[2]["drafted_by"]
+
+    def test_a_resumed_session_skips_what_is_done(self):
+        entries = [drafted(source_id="a"), drafted(source_id="b")]
+        review(entries, ask=answers("a", "q"), say=lambda _: None)
+        progress = review(entries, ask=answers("a"), say=lambda _: None)
+        assert progress.reviewed == 1, "should only revisit the marked row"
+        assert all("drafted_by" not in e for e in entries)
+
+    def test_progress_is_saved_after_every_answer(self):
+        """An hour lost to a closed terminal is an hour nobody redoes."""
+        saves = []
+        entries = [drafted(source_id="a"), drafted(source_id="b")]
+        review(entries, ask=answers("a", "a"), say=lambda _: None,
+               save=lambda: saves.append(len(
+                   [e for e in entries if "drafted_by" not in e])))
+        assert saves == [1, 2]
+
+
+class TestRetyping:
+    def test_a_claim_type_can_be_corrected(self):
+        """DUPE_OF vs SIMILAR_TO is the disagreement calibration found."""
+        entries = [drafted()]
+        review(entries, ask=answers("t", "DUPE_OF", "a"), say=lambda _: None)
+        assert entries[0]["claims"][0]["claim_type"] == "DUPE_OF"
+        assert "drafted_by" not in entries[0]
+
+    def test_retyping_alone_does_not_sign_the_row(self):
+        """A correction is not an approval; the row still needs answering."""
+        entries = [drafted()]
+        review(entries, ask=answers("t", "DUPE_OF", "s"), say=lambda _: None)
+        assert entries[0]["claims"][0]["claim_type"] == "DUPE_OF"
+        assert entries[0]["drafted_by"], "skipped after editing stays a draft"
+
+    def test_a_nonsense_type_changes_nothing(self):
+        entries = [drafted()]
+        review(entries, ask=answers("t", "NOT_A_TYPE", "a"), say=lambda _: None)
+        assert entries[0]["claims"][0]["claim_type"] == "SIMILAR_TO"
+
+    def test_choosing_by_number_works(self):
+        from fragrance_graph.models import ClaimType
+
+        entries = [drafted()]
+        review(entries, ask=answers("t", "1", "a"), say=lambda _: None)
+        assert entries[0]["claims"][0]["claim_type"] == list(ClaimType)[0].value
+
+
+class TestRendering:
+    def test_it_shows_the_comment_and_the_claims(self):
+        out = render_entry(drafted(), position=1, total=35)
+        assert "1 of 35" in out
+        assert "khamrah is basically a dupe" in out
+        assert "SIMILAR_TO" in out
+        assert "edge" in out
+
+    def test_an_empty_draft_says_so_loudly(self):
+        """The drafter finding nothing is the case worth reading closely."""
+        out = render_entry(drafted(claims=[]), position=2, total=3)
+        assert "NO CLAIMS" in out
+
+    def test_an_unmarked_file_is_a_no_op(self):
+        entries = [drafted()]
+        entries[0].pop("drafted_by")
+        progress = review(entries, ask=answers("a"), say=lambda _: None)
+        assert progress.reviewed == 0
+
+
+def test_a_reviewed_file_round_trips_as_json(tmp_path):
+    entries = [drafted()]
+    review(entries, ask=answers("a"), say=lambda _: None)
+    path = tmp_path / "batch.json"
+    path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    assert "drafted_by" not in json.loads(path.read_text())[0]
+
+
+class TestPolarity:
+    """A denial recorded as an assertion is the worst defect this corpus had.
+
+    The drafter emits no polarity at all, so every drafted claim arrives as
+    an implicit assertion — including "there's no clone of TF oud wood that
+    captures the scent", which drafts as two claims saying those houses
+    *are* dupes.
+    """
+
+    def test_a_denial_is_visible_before_it_is_signed(self):
+        entry = drafted()
+        entry["claims"][0]["polarity"] = "DENIED"
+        out = render_entry(entry, position=1, total=1)
+        assert "DENIED" in out
+
+    def test_flipping_marks_the_claim_denied(self):
+        entries = [drafted()]
+        review(entries, ask=answers("p", "a"), say=lambda _: None)
+        assert entries[0]["claims"][0]["polarity"] == "DENIED"
+        assert "drafted_by" not in entries[0]
+
+    def test_flipping_twice_returns_to_asserted(self):
+        entries = [drafted()]
+        review(entries, ask=answers("p", "p", "a"), say=lambda _: None)
+        assert entries[0]["claims"][0]["polarity"] == "ASSERTED"
+
+    def test_all_claims_can_be_flipped_at_once(self):
+        """The real case: one denial covering several bottles."""
+        entries = [drafted(claims=[
+            {"claim_type": "DUPE_OF", "raw_subject_text": "Maison Alhambra",
+             "raw_object_text": "TF Oud Wood", "sentiment": "NEGATIVE"},
+            {"claim_type": "DUPE_OF", "raw_subject_text": "Afnan",
+             "raw_object_text": "TF Oud Wood", "sentiment": "NEGATIVE"},
+        ])]
+        review(entries, ask=answers("p", "all", "a"), say=lambda _: None)
+        assert [c["polarity"] for c in entries[0]["claims"]] == \
+            ["DENIED", "DENIED"]
+
+    def test_flipping_alone_does_not_sign_the_row(self):
+        entries = [drafted()]
+        review(entries, ask=answers("p", "s"), say=lambda _: None)
+        assert entries[0]["claims"][0]["polarity"] == "DENIED"
+        assert entries[0]["drafted_by"], "a correction is not an approval"
+
+
+def test_the_drafter_is_asked_for_polarity():
+    """The schema must let a denial be expressed, or it never will be."""
+    from fragrance_graph.evals.autolabel import RESPONSE_SCHEMA, build_prompt
+
+    claim = (RESPONSE_SCHEMA["properties"]["results"]["items"]["properties"]
+             ["claims"]["items"])
+    assert "polarity" in claim["properties"]
+    assert "polarity" in claim["required"]
+    assert set(claim["properties"]["polarity"]["enum"]) == {"ASSERTED", "DENIED"}
+
+    prompt = build_prompt("skip")
+    assert "DENIED" in prompt
+    assert "not sentiment" in prompt
+
+
+class TestRecheckingSignedRows:
+    """Rows signed before polarity existed carry denials as assertions.
+
+    Once a row is signed its marker is gone, so the normal pass skips it.
+    28 rows were signed that way on 2026-08-11.
+    """
+
+    def _signed(self, body, claims):
+        return {"source": "youtube", "source_id": "a", "body": body,
+                "claims": claims}
+
+    def test_a_signed_denial_is_found(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entry = self._signed(
+            "I just try latafa it is nothing like angel share",
+            [{"claim_type": "SIMILAR_TO", "raw_subject_text": "latafa",
+              "raw_object_text": "angel share", "sentiment": "NEGATIVE"}],
+        )
+        assert looks_like_a_denial(entry) is True
+
+    def test_one_already_marked_denied_is_left_alone(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entry = self._signed(
+            "nothing like angel share",
+            [{"claim_type": "SIMILAR_TO", "raw_subject_text": "latafa",
+              "raw_object_text": "angel share", "polarity": "DENIED"}],
+        )
+        assert looks_like_a_denial(entry) is False
+
+    def test_an_ordinary_row_is_not_reopened(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entry = self._signed(
+            "khamrah is a great dupe of angels share",
+            [{"claim_type": "DUPE_OF", "raw_subject_text": "khamrah",
+              "raw_object_text": "angels share"}],
+        )
+        assert looks_like_a_denial(entry) is False
+
+    def test_a_row_with_no_claims_is_not_reopened(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        assert looks_like_a_denial(
+            self._signed("nothing like angel share", [])
+        ) is False
+
+    def test_the_selector_drives_which_rows_are_shown(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entries = [
+            self._signed("nothing like angel share", [
+                {"claim_type": "SIMILAR_TO", "raw_subject_text": "latafa",
+                 "raw_object_text": "angel share"}]),
+            self._signed("khamrah is a lovely dupe of angels share", [
+                {"claim_type": "DUPE_OF", "raw_subject_text": "khamrah",
+                 "raw_object_text": "angels share"}]),
+        ]
+        review(entries, ask=answers("p", "a"), say=lambda _: None,
+               select=looks_like_a_denial)
+        assert entries[0]["claims"][0]["polarity"] == "DENIED"
+        assert "polarity" not in entries[1]["claims"][0], "untouched"

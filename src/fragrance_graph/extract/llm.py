@@ -385,7 +385,28 @@ DEFAULT_OUTPUT_TOKENS_PER_COMMENT = 50
 #: tokens on every call — so at a batch size of 20, more than half the
 #: input bill is the prompt being re-sent. Output is still 69% of the total
 #: bill, so claim volume remains the thing that moves cost most.
-MEASURED_RUNS = "youtube-2026-08-09: $0.3656/1k comments, 0.441 claims/comment"
+#:
+#: youtube-2026-08-11: 864 comments over three runs of the daily loop
+#:   cost    $0.3810         ($0.4410 per 1k comments)
+#:   claims  377             (0.436/comment)
+#:   range   $0.3730-$0.5020 per 1k across the three runs
+#:
+#: 21% above 2026-08-09 in aggregate and 37% at the top of the range, on
+#: the same source and the same prompt. Claims per comment is what moved
+#: (0.318 -> 0.547 across the three runs, as the queries narrowed from
+#: "fragrance dupe" to named bottles like "cedrat boise"): a comment
+#: thread about one specific fragrance asserts far more per comment than a
+#: general one. Since output is ~69% of the bill, targeting the search
+#: makes extraction proportionally more expensive — worth knowing, because
+#: targeted queries are also what the publishing gate needs.
+#:
+#: The lesson for anyone reading a number here: these are corpus-specific
+#: and move with the *questions being asked*, not just the source.
+MEASURED_RUNS = (
+    "youtube-2026-08-09: $0.3656/1k comments, 0.441 claims/comment; "
+    "youtube-2026-08-11: $0.4410/1k comments, 0.436 claims/comment "
+    "(range $0.3730-$0.5020)"
+)
 
 
 def estimate_tokens(text: str) -> int:
@@ -756,18 +777,38 @@ def iter_batches(
 # --------------------------------------------------------------------------
 
 
+#: Checked when `ANTHROPIC_API_KEY` is absent.
+#:
+#: Some managed runners reserve `ANTHROPIC_API_KEY` for their own agent
+#: auth and will not pass a user-supplied one through to the process —
+#: Claude Code says so outright: "ANTHROPIC_API_KEY won't be used to
+#: authenticate requests." On those runners the name is unusable no matter
+#: how it is set, and extraction cannot run. This alias is a name nothing
+#: else claims, so a key set under it arrives intact.
+ALT_KEY_ENV = "FRAGRANCE_ANTHROPIC_API_KEY"
+
+
+def anthropic_api_key() -> str | None:
+    """The extraction key, preferring the standard name."""
+    return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get(ALT_KEY_ENV)
+
+
 def build_client() -> Any:
     """Construct an Anthropic client, checking credentials first."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    key = anthropic_api_key()
+    if not key:
         raise SystemExit(
-            "ANTHROPIC_API_KEY must be set. "
+            "No Anthropic API key. Set ANTHROPIC_API_KEY, or "
+            f"{ALT_KEY_ENV} if the runner reserves that name.\n\n"
             "Copy .env.example to .env and fill it in."
         )
     try:
         import anthropic
     except ImportError as exc:  # pragma: no cover - depends on install state
         raise SystemExit("anthropic is not installed. Run: uv sync") from exc
-    return anthropic.Anthropic()
+    # Passed explicitly rather than left to the SDK's own env lookup, which
+    # only knows the standard name.
+    return anthropic.Anthropic(api_key=key)
 
 
 def call_model(

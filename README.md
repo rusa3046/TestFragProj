@@ -76,7 +76,8 @@ page.
 
 **Curation is still the live bottleneck**, and it is no longer the only
 thing standing between the corpus and a page. 50 entries yield 32 pairs, of
-which **6 clear the publishing gate** of 3+ commenters across 2+ videos.
+which **6 clear the publishing gate** of 3+ commenters across 2+ creators
+(distinct uploading channels, not distinct videos).
 The measured curve below says 60-80 entries yields ~45 pairs.
 
 First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
@@ -104,7 +105,7 @@ Measured from the committed corpus, 2026-08-11:
   524  evidence verified     (-5)
    86  both ends resolved    <- 50 fragrances curated
    32  distinct pairs
-    6  pages published       <- 3+ commenters AND 2+ videos
+    6  pages published       <- 3+ commenters AND 2+ creators
 ```
 
 **An edge needs *both* its subject and its object to be a curated bottle**,
@@ -186,8 +187,8 @@ cp .env.example .env         # fill in the keys below
 | variable | needed for | notes |
 |---|---|---|
 | `YOUTUBE_API_KEY` | ingest | Google Cloud console, issued instantly. 10,000 units/day |
-| `ANTHROPIC_API_KEY` | extraction, label drafting | ~$0.40 per 1,000 comments |
-| `FRAGELLA_API_KEY` | curation (`resolve.enrich`) | free tier is 20 requests/month |
+| `ANTHROPIC_API_KEY` | extraction, label drafting | $0.37-$0.50 per 1,000 comments, see below |
+| `FRAGELLA_API_KEY` | curation (`resolve.enrich`) | $0.05 per request on pay-per-use; billed to the same cap |
 
 Reddit refused API access to this project, which is why YouTube is the only
 comment source. `ingest/reddit.py` still exists — see the naming wart above —
@@ -368,7 +369,7 @@ a loud minority as consensus.
 
 Each row also reports `(N sources; M for the pair)`:
 
-- **sources** — how many distinct videos back it. Three commenters in one
+- **sources** — how many distinct creators back it. Three commenters in one
   comment section is not three independent observations, and two of the
   eight currently resolved pairs are single-source. `--min-sources 2`
   filters them out.
@@ -449,21 +450,33 @@ candidate pairs and one pair changes gate status.
 uncomfortable:
 
 ```
-7 people  4 videos  2 queries   Al Haramain Detour Noir vs Parfums de Marly Layton
-7 people  3 videos  1 query     Parfums de Marly Layton vs The Woods Collection Dusk   <- one query only
-7 people  2 videos  1 query     Kilian Angels' Share vs Lattafa Khamrah                <- one query only
-5 people  3 videos  2 queries   Armaf Club de Nuit Intense Man vs Creed Aventus
-4 people  2 videos  1 query     Orientica Royal Bleu vs Parfums de Marly Layton        <- one query only
-3 people  2 videos  1 query     Armaf Club de Nuit Imperiale vs Delina Exclusif        <- one query only
+9 people  6 creators  2 queries  Al Haramain Detour Noir vs Parfums de Marly Layton   (+2 video(s) with no retrieval record, so this is a lower bound)
+9 people  3 creators  1 query  Kilian Angels' Share vs Lattafa Khamrah   (+1 video(s) with no retrieval record, so this is a lower bound)
+8 people  4 creators  1 query  Parfums de Marly Layton vs The Woods Collection Dusk   (+1 video(s) with no retrieval record, so this is a lower bound)
+7 people  4 creators  2 queries  Armaf Club de Nuit Intense Man vs Creed Aventus   (+1 video(s) with no retrieval record, so this is a lower bound)
+5 people  3 creators  1 query  Creed Aventus vs Montblanc Explorer   (+1 video(s) with no retrieval record, so this is a lower bound)
+5 people  3 creators  1 query  Orientica Luxury Collection Royal Bleu vs Parfums de Marly Layton   (+1 video(s) with no retrieval record, so this is a lower bound)
+3 people  2 creators  1 query  Armaf Club de Nuit Imperiale vs Parfums de Marly Delina Exclusif   <- one query only
+3 people  2 creators  1 query  Lalique White in Black vs Parfums de Marly Layton   (+1 video(s) with no retrieval record, so this is a lower bound)
 ```
 
-**Four of six published pages rest on a single search query.** Three
-different `parfums de marly layton dupe` videos are three separate comment
-sections, so the video bar passes them — but they are three rooms in which
-the same question was put to an audience assembled for that question. The
-guard against one comment section does not guard against one *query*.
+**The clean measurement is on the first 24 videos, where provenance is
+complete: four of the six pairs publishing then rested on a single search
+query.** Three different `parfums de marly layton dupe` videos are three
+separate comment sections, so the creator bar passes them — but they are
+three rooms in which the same question was put to an audience assembled for
+that question. The guard against one comment section does not guard against
+one *query*.
 
-`--min-queries 2` would cut 6 pages to 2. It defaults to **1 — off** —
+**On today's larger corpus the number is a lower bound, and says so.**
+15 of 39 videos were ingested before discovery tracking existed and their
+queries cannot be reconstructed — inventing a plausible one would be the
+fabrication this project refuses everywhere else. So only 1 of 8 pairs is
+*confirmed* single-query; the other 7 are unknown, not innocent. The counts
+converge on the truth as undocumented videos are re-found by recorded
+searches.
+
+`--min-queries 2` defaults to **1 — off** —
 because the number cannot yet distinguish "these edges are weak" from "the
 eight seed queries were too narrow", and those want opposite fixes. Six of
 the eight seeds contain the word "dupe" (see
@@ -543,6 +556,80 @@ uv run python -m fragrance_graph.evals.score
 the first N rows by id, which are N comments from one video's comment section —
 a labelled set that measures that video rather than the corpus. The sample is
 deterministic, so a labelling session can be resumed.
+
+### Label the comments that are worth an evening
+
+Uniform sampling is right for estimating typical performance and wasteful for
+everything else: at ~0.44 claims per comment, most of a uniform hour is spent
+typing empty lists. `evals.sample` picks the rows that discriminate instead:
+
+```bash
+uv run python -m fragrance_graph.evals.sample coverage        # what you have
+uv run python -m fragrance_graph.evals.sample plan next.json -n 50
+# fill in "claims"; `_why` says why each row is there
+uv run python -m fragrance_graph.evals.labels import next.json --labeler you
+```
+
+Four strata, and one of them is the point:
+
+| stratum | why |
+|---|---|
+| `rejected` | extraction produced something the schema refused |
+| `silent` | extraction produced **nothing**, but the comment talks like a comparison |
+| `edge` | produced a SIMILAR_TO / DUPE_OF / BETTER_THAN claim — what actually gets published |
+| `control` | uniform, so precision on an ordinary comment stays measurable |
+
+**`silent` is the eval's structural blind spot.** Scoring compares labels
+against extracted claims, so a comment the extractor passed over in silence
+contributes nothing to inspect and its false negatives cannot be counted — no
+matter how many claims you read. On the current corpus `coverage` reports
+**402** such comments. The only way to see them is to label comments the
+extractor said nothing about.
+
+`control` is not optional and is held at a third of each batch. A set built
+only from failures measures failure; precision on ordinary comments — the
+number that says whether the extractor is usable at all — can only come from
+rows that were not chosen for being hard.
+
+### Drafting, and the line a draft must not cross
+
+A stronger model can draft the labels so the hour is spent reviewing rather
+than authoring — but **only for the strata where agreement means something**:
+
+```bash
+python3 -c "
+import json; d=json.load(open('next50.json'))
+json.dump([e for e in d if e['_stratum']=='silent'], open('silent.json','w'), indent=2)
+json.dump([e for e in d if e['_stratum']!='silent'], open('todraft.json','w'), indent=2)"
+
+uv run python -m fragrance_graph.evals.autolabel draft drafted.json --from todraft.json
+```
+
+`--from` drafts the rows you chose. Without it, `draft` samples fresh and
+**overwrites its output path**, which discards a targeted plan.
+
+**Do not draft the `silent` rows.** They exist to find claims the extractor
+missed; asking a second model whether the first model missed something, then
+accepting "no", records an empty label and learns nothing. Label those cold.
+
+Then review them one at a time:
+
+```bash
+uv run python -m fragrance_graph.evals.review drafted.json
+```
+
+Each row shows the comment and what the drafter said; `a` accepts, `n` records
+that it asserts nothing, `t` fixes a claim type, `s` defers, `q` saves and
+quits. Progress is written after every answer, so ten rows now and the rest
+later is fine.
+
+Drafts carry `drafted_by`, and `labels import` refuses to store them under a
+non-draft labeler. Reviewing means deleting that marker — a deliberate act
+that records a person standing behind the row. An all-empty file is refused
+too, needing `--allow-empty`. Both guards exist because both failures
+happened: 50 unreviewed drafts and 15 unread comments were imported as
+ground truth on 2026-08-11, overwriting two hand-labelled rows, one with its
+subject and object reversed.
 
 Templates are keyed on `(source, source_id)`. Importing one into a database it
 was not exported from fails loudly rather than attaching your labels to

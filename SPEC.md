@@ -127,11 +127,22 @@ from: a comparison type with a FRAGRANCE subject and a FRAGRANCE object.
   |---|---|---|---|
   | Reddit v2 sample | 17 | $1.14-1.22 | ~1.5 |
   | YouTube, 2026-08-09 | 3,155 | **$0.3656** | 0.441 |
+  | YouTube, 2026-08-11 | 864 | **$0.4410** | 0.436 |
 
   Output tokens are 69% of the bill, so cost tracks claim volume rather
   than comment volume — Reddit review posts are long and assert several
   claims each; YouTube comments are short and most assert nothing. At the
-  YouTube rate, 100k comments is about **$37**, or ~$18 on the Batch API.
+  YouTube rate, 100k comments is about **$44**, or ~$22 on the Batch API.
+
+  **The rate moves with the question, not just the source.** The three
+  runs behind the 2026-08-11 row spanned $0.3730-$0.5020 per 1k on one
+  source and one prompt, rising as the searches narrowed from "fragrance
+  dupe" to named bottles like "cedrat boise". A thread about one specific
+  fragrance asserts more claims per comment than a general one, and
+  output dominates the bill. Since targeted queries are exactly what the
+  publishing gate needs — it wants two distinct creators per pair — the
+  cheap searches and the useful ones are not the same searches. Budget
+  for the top of the range, not the average.
 
   A third of the input bill is avoidable: the system prompt plus JSON
   schema costs ~1,206 tokens on every call, against comments averaging ~54
@@ -140,6 +151,54 @@ from: a comparison type with a FRAGRANCE subject and a FRAGRANCE object.
   ~8%. Not done yet: batch size changes how many comments share a context
   window, which changes extraction behaviour, and that cannot be evaluated
   before the eval set exists.
+
+### `NOTE_DESCRIPTOR` is the new magnet (2026-08-11)
+
+Measured, not predicted. Every claim dropped in a 47-comment run — 5 of 16
+emitted, 31% — failed the same way: `NOTE_DESCRIPTOR` with no object at
+all. Reading the five rejects back out of `rejected_claims`:
+
+| comment says | what it actually is |
+|---|---|
+| "layton is **soft asf**" | projection, and `PROJECTION` takes no object |
+| "I rather not smell like **every guy on the party**" | ubiquity — no slot exists for it |
+| "smells like **fruity pebbles & Vicks vapor rub**" | the descriptors are present and were dropped |
+| "bought Layton… maybe it's fake… I love it" | no descriptor at all; the claim is invented |
+
+This is the v1 `LONGEVITY_COMPLAINT` failure again, in a new type: a
+lexically broad category collecting anything that sounds like description.
+The fix that worked then was naming the misclassified quotes in the
+prompt, and the four above are that evidence, kept here for when the eval
+can measure a change.
+
+**The tell is `object_kind`.** For "layton is soft" the model emitted
+`NONE`, which is *invalid for `NOTE_DESCRIPTOR` and valid for
+`PROJECTION`* — it chose the wrong type while emitting the object kind the
+right type requires. So this is a type-selection failure, not a
+field-filling one.
+
+**A deterministic fix was considered and ruled out by measurement.**
+Because `object_kind` is determined by `claim_type` for 11 of 12 types,
+the hypothesis was that the model was mislabelling a redundant field and
+the claims could be recovered by coercing the kind. `rejects recoverable`
+tests that against stored payloads without paying to extract again, and
+answered 0% coercible: every one of these has no `raw_object_text` to
+keep. The content is in the comment, not in the payload, so nothing can
+be recovered by re-parsing. Cost of finding out: $0.02.
+
+Two smaller observations from the same five:
+
+- One comment produced the **identical claim twice**, so duplicate
+  emission is real and currently costs output tokens rather than
+  correctness.
+- One subject was `'$300 vicks vapeorub'`, which is not a fragrance. The
+  subject extraction fails on the same comments the type selection does.
+
+**Not fixed.** The eval is still 13 comments, and the ±1 noise floor
+recorded above means a change this size cannot be distinguished from
+drift. These rejects are, however, exactly the labelled examples the eval
+needs — which makes growing it the unlock for this and for the batch-size
+question above.
 
 ### The first measured prompt change (2026-08-10)
 
@@ -709,7 +768,8 @@ the number a page should lead with.
 CDNIM showed three distinct commenters, all from video `ZOd2QEVJX8c` —
 possibly replying to each other. "3 people said this" implies three
 independent observations and a single thread cannot support that.
-`Related.sources` counts distinct videos, and `min_sources` filters on it.
+`Related.sources` counts distinct creators (the uploading channel), and
+`min_sources` filters on it.
 
 Measured on the eight resolved pairs: **two of eight are single-source.**
 A quarter of the graph's current pairs would have implied a consensus that
@@ -856,14 +916,14 @@ people and readers were summing them. Rows share videos for exactly the same
 reason.
 
 Gating a row-scoped source count beside a pair-scoped commenter count would
-have printed page headings like *"5 people across 2 videos"* where the two
+have printed page headings like *"5 people across 2 creators"* where the two
 numbers count different things — the original defect, re-introduced one
 field over. So `pair_sources` was added alongside `pair_commenters`, and the
 gate reads both.
 
 **It is not cosmetic.** On the committed corpus the scopes disagree on 8 of
 21 candidate pairs, and one changes gate status: Club de Nuit Imperiale <->
-Delina Exclusif is 3 people across 2 videos, which is precisely what the bar
+Delina Exclusif is 3 people across 2 creators, which is precisely what the bar
 asks for, and a row-scoped check refused it.
 
 #### Counting a pair from one end under-counts it
@@ -950,7 +1010,7 @@ name and brand, the mention must clear 3 slots, and an explicit human
 hand-curated entry called "confident" named the wrong house — two houses
 ship a Perseus — which is ~6% on carefully checked entries; automatic
 curation will do worse. What keeps a bad merge off a page is not this rule
-but the Phase D gate: 3 distinct commenters across 2 videos. The rule only
+but the Phase D gate: 3 distinct commenters across 2 creators. The rule only
 has to be good enough that the gate is not carrying the whole load alone.
 
 ### Videos are not independent samples (2026-08-11)
@@ -964,16 +1024,32 @@ one level up.
 video, as prose. Read as data, it says this about the six pairs that
 currently publish:
 
-| pair | people | videos | queries |
+| pair | people | creators | queries |
 |---|---|---|---|
-| Detour Noir <-> Layton | 7 | 4 | 2 |
-| Layton <-> Dusk | 7 | 3 | **1** |
-| Angels' Share <-> Khamrah | 7 | 2 | **1** |
-| CDNIM <-> Aventus | 5 | 3 | 2 |
-| Royal Bleu <-> Layton | 4 | 2 | **1** |
+| Detour Noir <-> Layton | 9 | 6 | 2 |
+| Angels' Share <-> Khamrah | 9 | 3 | **1** |
+| Layton <-> Dusk | 8 | 4 | **1** |
+| CDNIM <-> Aventus | 7 | 4 | 2 |
+| Aventus <-> Explorer | 5 | 3 | **1** |
+| Royal Bleu <-> Layton | 5 | 3 | **1** |
 | Imperiale <-> Delina Exclusif | 3 | 2 | **1** |
+| Lalique White in Black <-> Layton | 3 | 2 | **1** |
 
-**Four of six rest on a single query.** Three different `parfums de marly
+The table above is the **first 24 videos**, where every video has a
+retrieval record: **four of six rested on a single query**. That is the
+clean measurement, and it is the one to reason from.
+
+On the merged 39-video corpus the counts are **lower bounds**. 15 videos
+were ingested by runs predating discovery tracking; their queries are not
+recoverable, and inventing plausible ones would be the fabrication refused
+everywhere else here. Only 1 of 8 pairs is confirmed single-query and 7 are
+unknown — which is worse than it sounds, not better, because unknown is
+where a narrow seed would hide. `PairEvidence.videos_without_provenance`
+carries the gap and the CLI prints it, so a lower bound can never be read
+as a measurement.
+
+This is also why the gate stays off: raising a bar against a lower bound
+would unpublish pairs for lacking evidence about our own bookkeeping. Three different `parfums de marly
 layton dupe` videos are three comment sections — the video bar is honestly
 satisfied — but they are three rooms in which the same question was put to
 an audience gathered for that question. The independence the headline
@@ -984,8 +1060,8 @@ why it is built first. Whether a given comment was spontaneous or prompted
 by its video's framing is a fuzzier question needing a classifier and an
 eval; whether two different searches found the evidence is a fact.
 
-**The gate is off by default (`MIN_QUERIES = 1`).** Enforcing 2 cuts six
-pages to two, and that number cannot distinguish two opposite diagnoses:
+**The gate is off by default (`MIN_QUERIES = 1`).** On the fully
+provenanced 24-video corpus, enforcing 2 cut six pages to two, and that number cannot distinguish two opposite diagnoses:
 the edges are weak, or the seeds were narrow. Six of the eight seed queries
 contain "dupe", so narrow seeding is the live hypothesis and broadening
 discovery is the fix that should be tried first. Measured and shown now;
@@ -994,6 +1070,32 @@ enforced once the seeds are broader.
 `queries == 0` means no retrieval record, not narrow retrieval. The gate
 treats it as unknown and passes it, so raising the bar cannot silently
 unpublish everything ingested before provenance existed.
+
+#### The creator bar counted uploads, not creators
+
+A related error, found while wiring the above and fixed with it. Pages have
+said "N creators" since the wording change on 2026-08-11, on the stated
+grounds that `source_channel` holds the uploading channel and the
+`video_id` fallback had never fired.
+
+The fallback had never fired in the *other* direction. The expression was
+`coalesce(video_id, source_channel)`, which returns the video whenever a
+video is present — and all 4,866 comments carry one, so the gate counted
+**uploads** while the page said **creators**. The corpus holds 39 videos
+across 29 channels, so the two genuinely differ.
+
+The argument behind the wording was right: two uploads by one YouTuber are
+one audience framed by one person, which is the independence this SPEC
+wanted. So the code now does what the page already claimed — the gate reads
+distinct channels. No page changes on today's corpus, because every
+publishable pair happens to have one video per channel; the defect was
+latent rather than live, and this is the cheapest moment to close it.
+
+The lesson is narrower than "check your SQL": the test added with the
+wording change pinned *the word on the page*, not the number behind it. A
+test that asserts rendered text cannot notice that the text has become
+true by luck. `test_two_videos_by_one_creator_are_one_source` pins the
+counting instead.
 
 #### Schema: discovery is many-to-many, on purpose
 

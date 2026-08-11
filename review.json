@@ -1,0 +1,1666 @@
+[
+  {
+    "alternatives": [
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Arabian Oud Woody",
+        "Year": ""
+      },
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Arabian Oud Woody Intense",
+        "Year": ""
+      },
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Woody Style unisex",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Maison Alhambra",
+    "canonical_name": "Maison Alhambra Woody Oud",
+    "confident": false,
+    "count": 13,
+    "mention": "Woody Oud",
+    "note": "name differs from the mention — check this one",
+    "score": 0.529,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Bdk Parfums",
+        "Name": "Bdk Tubereuse Imperiale",
+        "Year": "2016"
+      },
+      {
+        "Brand": "Chopard",
+        "Name": "Chopard Imperiale Vanille Malika",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Bois 1920",
+        "Name": "Bois 1920 Sushi Imperiale",
+        "Year": "2005"
+      }
+    ],
+    "approved": null,
+    "brand": "Guerlain",
+    "canonical_name": "Imperiale Guerlain",
+    "confident": false,
+    "count": 9,
+    "mention": "Imperiale",
+    "note": "name differs from the mention — check this one",
+    "score": 0.667,
+    "year": "1860"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Lalique",
+        "Name": "Amethyst Lalique",
+        "Year": "2007"
+      },
+      {
+        "Brand": "Lalique",
+        "Name": "Amethyst Exquise Lalique",
+        "Year": "2017"
+      },
+      {
+        "Brand": "Lalique",
+        "Name": "Lalique Amethyst Eclat",
+        "Year": "2014"
+      }
+    ],
+    "approved": null,
+    "brand": "Elizabeth And James",
+    "canonical_name": "Nirvana Amethyst",
+    "confident": false,
+    "count": 8,
+    "mention": "Amethyst",
+    "note": "name differs from the mention — check this one",
+    "score": 0.667,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Detour Noir Exclusif",
+        "Year": ""
+      },
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Detour Noir Intense",
+        "Year": ""
+      },
+      {
+        "Brand": "Le Ré Noir",
+        "Name": "#269 Noir Le Re Noir unisex",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Al Haramain",
+    "canonical_name": "Al Haramain Detour Noir",
+    "confident": false,
+    "count": 8,
+    "mention": "Detour Noir",
+    "note": "name differs from the mention — check this one",
+    "score": 0.647,
+    "year": "2021"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Detour Noir Exclusif",
+        "Year": ""
+      },
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Detour Noir Intense",
+        "Year": ""
+      },
+      {
+        "Brand": "Le Ré Noir",
+        "Name": "#269 Noir Le Re Noir unisex",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Al Haramain",
+    "canonical_name": "Al Haramain Detour Noir",
+    "confident": false,
+    "count": 8,
+    "mention": "Detour noir",
+    "note": "name differs from the mention — check this one",
+    "score": 0.647,
+    "year": "2021"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Orientica",
+        "Name": "Orientica Royal Amber",
+        "Year": "2021"
+      },
+      {
+        "Brand": "Orientica",
+        "Name": "Royal Amber unisex",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Orientica",
+        "Name": "Orientica Xo Xclusif Oud Bleu",
+        "Year": "2022"
+      }
+    ],
+    "approved": null,
+    "brand": "Orientica",
+    "canonical_name": "Orientica Royal Bleu",
+    "confident": true,
+    "count": 8,
+    "mention": "Orientica Royal Bleu",
+    "note": "",
+    "score": 1.0,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "",
+        "Name": "Qahwa Marcoccia unisex",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Fragrance World",
+        "Name": "Qahwa unisex",
+        "Year": "2024"
+      },
+      {
+        "Brand": "Al Wataniah",
+        "Name": "Al Wataniah Qahir",
+        "Year": "2022"
+      }
+    ],
+    "approved": null,
+    "brand": "Lattafa",
+    "canonical_name": "Lattafa Khamrah Qahwa",
+    "confident": false,
+    "count": 8,
+    "mention": "Qahwa",
+    "note": "name differs from the mention — check this one",
+    "score": 0.385,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Ensar Oud",
+        "Name": "Oud Dhul Kifl Organic Oud unisex",
+        "Year": ""
+      },
+      {
+        "Brand": "Aristocrazy",
+        "Name": "Aristocrazy Wonder",
+        "Year": ""
+      },
+      {
+        "Brand": "Marmol & Son",
+        "Name": "Wonder Woman",
+        "Year": "2017"
+      }
+    ],
+    "approved": null,
+    "brand": "Blend Oud",
+    "canonical_name": "Blend Oud Gold Oud",
+    "confident": false,
+    "count": 7,
+    "mention": "oud wonder",
+    "note": "name differs from the mention — check this one",
+    "score": 0.429,
+    "year": "2018"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Roads",
+        "Name": "This Weekend unisex",
+        "Year": "2014"
+      },
+      {
+        "Brand": "Floraiku",
+        "Name": "Floraiku This July Evening",
+        "Year": ""
+      },
+      {
+        "Brand": "Zadig & Voltaire",
+        "Name": "Zadig & Voltaire This Is Us!",
+        "Year": "2020"
+      }
+    ],
+    "approved": null,
+    "brand": "This Works",
+    "canonical_name": "This Works",
+    "confident": false,
+    "count": 7,
+    "mention": "this stuff",
+    "note": "name differs from the mention — check this one",
+    "score": 0.6,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Khamrah",
+        "Year": "2022"
+      },
+      {
+        "Brand": "",
+        "Name": "Qahwa Marcoccia unisex",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Khamrah Dukhan",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Lattafa",
+    "canonical_name": "Lattafa Khamrah Qahwa",
+    "confident": false,
+    "count": 6,
+    "mention": "Qahwa Khamrah",
+    "note": "name differs from the mention — check this one",
+    "score": 0.588,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Fragrance World",
+        "Name": "Mocha unisex",
+        "Year": "2024"
+      },
+      {
+        "Brand": "Fragrance World",
+        "Name": "Suits unisex",
+        "Year": "2022"
+      },
+      {
+        "Brand": "Fragrance World",
+        "Name": "King unisex",
+        "Year": "2022"
+      }
+    ],
+    "approved": null,
+    "brand": "Fragrance World",
+    "canonical_name": "Nuit unisex",
+    "confident": false,
+    "count": 6,
+    "mention": "fragrance world carlisle",
+    "note": "name differs from the mention — check this one",
+    "score": 0.286,
+    "year": "2024"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Catwalk",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Mistique",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Chic",
+        "Year": "2023"
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Club De Nuit Untold",
+    "confident": false,
+    "count": 5,
+    "mention": "Armaf Untold",
+    "note": "name differs from the mention — check this one",
+    "score": 0.649,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Creed",
+        "Name": "Creed Pour Enfants unisex",
+        "Year": "2015"
+      },
+      {
+        "Brand": "Creed",
+        "Name": "Creed Centaurus",
+        "Year": ""
+      },
+      {
+        "Brand": "Creed",
+        "Name": "Creed Carmina",
+        "Year": "2023"
+      }
+    ],
+    "approved": null,
+    "brand": "Creed",
+    "canonical_name": "Creed",
+    "confident": true,
+    "count": 5,
+    "mention": "Creed",
+    "note": "",
+    "score": 1.0,
+    "year": "2010"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Amber Oud",
+        "Name": "Dusk unisex",
+        "Year": "2017"
+      },
+      {
+        "Brand": "Jennifer Aniston",
+        "Name": "Jennifer Aniston Near Dusk",
+        "Year": ""
+      },
+      {
+        "Brand": "Molton Brown",
+        "Name": "Molton Brown Labdanum Dusk",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Oakcha",
+    "canonical_name": "Dusk unisex",
+    "confident": false,
+    "count": 5,
+    "mention": "Dusk",
+    "note": "name differs from the mention — check this one",
+    "score": 0.533,
+    "year": ""
+  },
+  {
+    "alternatives": [],
+    "approved": null,
+    "brand": "Maison Alhambra",
+    "canonical_name": "Maison Alhambra Hercules",
+    "confident": false,
+    "count": 5,
+    "mention": "Hercules",
+    "note": "name differs from the mention — check this one",
+    "score": 0.5,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Oajan",
+        "Year": "2013"
+      },
+      {
+        "Brand": "Ocean Pacific",
+        "Name": "Ocean Pacific",
+        "Year": "2003"
+      },
+      {
+        "Brand": "Ocean Pacific",
+        "Name": "Ocean Pacific Variety",
+        "Year": "2004"
+      }
+    ],
+    "approved": null,
+    "brand": "Parfums De Marly",
+    "canonical_name": "Parfums De Marly Oajan",
+    "confident": false,
+    "count": 5,
+    "mention": "Oajan",
+    "note": "name differs from the mention — check this one",
+    "score": 0.37,
+    "year": "2013"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Arabian Oud Woody",
+        "Year": ""
+      },
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Arabian Oud Woody Intense",
+        "Year": ""
+      },
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Woody Style unisex",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Maison Alhambra",
+    "canonical_name": "Maison Alhambra Woody Oud",
+    "confident": false,
+    "count": 5,
+    "mention": "Woody oud",
+    "note": "name differs from the mention — check this one",
+    "score": 0.529,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Clementine",
+        "Year": "2022"
+      },
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Lilacs & Gooseberries",
+        "Year": "2021"
+      },
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Amber Rose",
+        "Year": "2013"
+      }
+    ],
+    "approved": null,
+    "brand": "Blue Bloom",
+    "canonical_name": "Blue Bloom",
+    "confident": false,
+    "count": 5,
+    "mention": "Zenith Blue",
+    "note": "name differs from the mention — check this one",
+    "score": 0.381,
+    "year": "2017"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Clementine",
+        "Year": "2022"
+      },
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Lilacs & Gooseberries",
+        "Year": "2021"
+      },
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Amber Rose",
+        "Year": "2013"
+      }
+    ],
+    "approved": null,
+    "brand": "Blue Bloom",
+    "canonical_name": "Blue Bloom",
+    "confident": false,
+    "count": 5,
+    "mention": "Zenith blue",
+    "note": "name differs from the mention — check this one",
+    "score": 0.381,
+    "year": "2017"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Detour Noir Exclusif",
+        "Year": ""
+      },
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Detour Noir Intense",
+        "Year": ""
+      },
+      {
+        "Brand": "Le Ré Noir",
+        "Name": "#269 Noir Le Re Noir unisex",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Al Haramain",
+    "canonical_name": "Al Haramain Detour Noir",
+    "confident": false,
+    "count": 5,
+    "mention": "detour noir",
+    "note": "name differs from the mention — check this one",
+    "score": 0.647,
+    "year": "2021"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Arabian Oud Woody",
+        "Year": ""
+      },
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Arabian Oud Woody Intense",
+        "Year": ""
+      },
+      {
+        "Brand": "Arabian Oud",
+        "Name": "Woody Style unisex",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Maison Alhambra",
+    "canonical_name": "Maison Alhambra Woody Oud",
+    "confident": false,
+    "count": 5,
+    "mention": "woody oud",
+    "note": "name differs from the mention — check this one",
+    "score": 0.529,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Aether",
+        "Name": "Supaer unisex",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Aether",
+        "Name": "Muskethanol unisex",
+        "Year": "2016"
+      },
+      {
+        "Brand": "Aether",
+        "Name": "Celluloid unisex",
+        "Year": "2017"
+      }
+    ],
+    "approved": null,
+    "brand": "Aether",
+    "canonical_name": "Aether Oxyde unisex",
+    "confident": false,
+    "count": 4,
+    "mention": "Aether",
+    "note": "name differs from the mention — check this one",
+    "score": 0.48,
+    "year": "2016"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Al Haramain Perfumes",
+        "Name": "Amber Oud Black Edition unisex",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Amber Oud",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Black Oud",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Al Haramain",
+    "canonical_name": "Al Haramain Azlan Oud Amber Edition",
+    "confident": false,
+    "count": 4,
+    "mention": "Amber Oud Black Edition by Al Haramain",
+    "note": "name differs from the mention — check this one",
+    "score": 0.314,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Chic",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Catwalk",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Mistique",
+        "Year": "2023"
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Miss Armaf Attitude",
+    "confident": false,
+    "count": 4,
+    "mention": "Armaf",
+    "note": "name differs from the mention — check this one",
+    "score": 0.333,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Poesie",
+        "Name": "Cloud unisex",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Ariana Grande",
+        "Name": "Cloud Ariana Grande",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Zarkoperfume",
+        "Name": "Zarkoperfume Cloud Collection 1",
+        "Year": "2017"
+      }
+    ],
+    "approved": null,
+    "brand": "Khadlaj",
+    "canonical_name": "Cloud Candy",
+    "confident": false,
+    "count": 4,
+    "mention": "Cloud",
+    "note": "name differs from the mention — check this one",
+    "score": 0.625,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit Iconic",
+        "Year": "2022"
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit Imperiale",
+        "Year": "2022"
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit Sillage",
+        "Year": "2020"
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Club De Nuit",
+    "confident": false,
+    "count": 4,
+    "mention": "Club De Nuit EDP",
+    "note": "name differs from the mention — check this one",
+    "score": 0.706,
+    "year": "2015"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit",
+        "Year": "2015"
+      },
+      {
+        "Brand": "EPC Experimental Perfume Club",
+        "Name": "Santal Nuit unisex",
+        "Year": ""
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit Sillage",
+        "Year": "2020"
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Club De Nuit Imperiale",
+    "confident": true,
+    "count": 4,
+    "mention": "Club de Nuit Imperiale",
+    "note": "",
+    "score": 0.88,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Creed",
+        "Name": "Creed Centaurus",
+        "Year": ""
+      },
+      {
+        "Brand": "Creed",
+        "Name": "Creed",
+        "Year": "2010"
+      },
+      {
+        "Brand": "Creed",
+        "Name": "Creed Pour Enfants unisex",
+        "Year": "2015"
+      }
+    ],
+    "approved": null,
+    "brand": "Creed",
+    "canonical_name": "Creed Centaurus",
+    "confident": true,
+    "count": 4,
+    "mention": "Creed Centaurus",
+    "note": "",
+    "score": 1.0,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Darley",
+        "Year": "2009"
+      },
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Valaya",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Kalan",
+        "Year": "2019"
+      }
+    ],
+    "approved": null,
+    "brand": "Parfums De Marly",
+    "canonical_name": "Parfums De Marly Darcy",
+    "confident": false,
+    "count": 4,
+    "mention": "Darcy by Parfums de Marly",
+    "note": "name differs from the mention — check this one",
+    "score": 0.727,
+    "year": "2014"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Delina Exclusif",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Delina",
+        "Year": "2017"
+      },
+      {
+        "Brand": "Mancera",
+        "Name": "Mancera Jasmin Exclusif",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Parfums De Marly",
+    "canonical_name": "Parfums De Marly Delina Exclusif",
+    "confident": false,
+    "count": 4,
+    "mention": "Delina Exclusif",
+    "note": "name differs from the mention — check this one",
+    "score": 0.638,
+    "year": "2018"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Dumont Paris",
+        "Name": "Nitro Black Pour Homme",
+        "Year": "2020"
+      },
+      {
+        "Brand": "Laurence Dumont",
+        "Name": "Black Oud unisex",
+        "Year": "2013"
+      },
+      {
+        "Brand": "Dumont Paris",
+        "Name": "Nitro Pour Homme",
+        "Year": "2020"
+      }
+    ],
+    "approved": null,
+    "brand": "Dumont Paris",
+    "canonical_name": "Nitro Intense Pour Homme",
+    "confident": false,
+    "count": 4,
+    "mention": "Dumont nitro black intense",
+    "note": "name differs from the mention — check this one",
+    "score": 0.52,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Clementine",
+        "Year": "2022"
+      },
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Lilacs & Gooseberries",
+        "Year": "2021"
+      },
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Amber Rose",
+        "Year": "2013"
+      }
+    ],
+    "approved": null,
+    "brand": "Blue Bloom",
+    "canonical_name": "Blue Bloom",
+    "confident": false,
+    "count": 4,
+    "mention": "EXCLUSIF BLUE",
+    "note": "name differs from the mention — check this one",
+    "score": 0.348,
+    "year": "2017"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Elie Saab",
+        "Name": "Elie Saab Le Parfum",
+        "Year": "2011"
+      },
+      {
+        "Brand": "Elie Saab",
+        "Name": "Elie Saab Le Parfum Essentiel",
+        "Year": "2020"
+      },
+      {
+        "Brand": "Elie Saab",
+        "Name": "Elie Saab Le Parfum Lumiere",
+        "Year": "2021"
+      }
+    ],
+    "approved": null,
+    "brand": "Elie Saab",
+    "canonical_name": "Elie Saab Le Parfum Royal",
+    "confident": false,
+    "count": 4,
+    "mention": "Elie Saab-Le Royal Essence",
+    "note": "name differs from the mention — check this one",
+    "score": 0.706,
+    "year": "2019"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Agar Aura",
+        "Name": "Agar Parisien unisex",
+        "Year": ""
+      },
+      {
+        "Brand": "Fresh",
+        "Name": "Fresh",
+        "Year": "2019"
+      },
+      {
+        "Brand": "Agar Aura",
+        "Name": "Java unisex",
+        "Year": "2021"
+      }
+    ],
+    "approved": null,
+    "brand": "Agar Aura",
+    "canonical_name": "Agar Attar unisex",
+    "confident": false,
+    "count": 4,
+    "mention": "Fresh Agar",
+    "note": "name differs from the mention — check this one",
+    "score": 0.296,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Haltane",
+        "Year": "2021"
+      },
+      {
+        "Brand": "Les Indemodables",
+        "Name": "Vanille Havane unisex",
+        "Year": "2020"
+      },
+      {
+        "Brand": "Carven",
+        "Name": "Paris La Havane for men",
+        "Year": "2019"
+      }
+    ],
+    "approved": null,
+    "brand": "Parfums De Marly",
+    "canonical_name": "Parfums De Marly Haltane",
+    "confident": false,
+    "count": 4,
+    "mention": "Haltane",
+    "note": "name differs from the mention — check this one",
+    "score": 0.452,
+    "year": "2021"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Khadlaj",
+        "Name": "Khadlaj Ghazlaan",
+        "Year": ""
+      },
+      {
+        "Brand": "Khadlaj",
+        "Name": "Khadlaj Gaith",
+        "Year": ""
+      },
+      {
+        "Brand": "Khadlaj",
+        "Name": "Khadlaj Farasha",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Khadlaj",
+    "canonical_name": "Khadlaj Infini",
+    "confident": false,
+    "count": 4,
+    "mention": "Khadlaj Azure Velvet",
+    "note": "name differs from the mention — check this one",
+    "score": 0.471,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Legacy",
+        "Name": "1956 unisex",
+        "Year": "2019"
+      },
+      {
+        "Brand": "Legacy",
+        "Name": "1974 unisex",
+        "Year": "2024"
+      },
+      {
+        "Brand": "Legacy",
+        "Name": "1953 unisex",
+        "Year": "2019"
+      }
+    ],
+    "approved": null,
+    "brand": "Lattafa",
+    "canonical_name": "Lattafa Maahir Legacy",
+    "confident": false,
+    "count": 4,
+    "mention": "Maahir Legacy",
+    "note": "name differs from the mention — check this one",
+    "score": 0.765,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Layton Exclusif",
+        "Year": "2017"
+      },
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Layton",
+        "Year": "2016"
+      },
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Layton Exclusif",
+        "Year": "2017"
+      }
+    ],
+    "approved": null,
+    "brand": "Parfums De Marly",
+    "canonical_name": "Parfums De Marly Layton",
+    "confident": false,
+    "count": 4,
+    "mention": "PDM Layton",
+    "note": "name differs from the mention — check this one",
+    "score": 0.606,
+    "year": "2016"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Rave",
+        "Name": "Rave Now Intense",
+        "Year": ""
+      },
+      {
+        "Brand": "Rave",
+        "Name": "Rave Now Rouge",
+        "Year": ""
+      },
+      {
+        "Brand": "Rave",
+        "Name": "Rave Now White",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Rave",
+    "canonical_name": "Rave Now",
+    "confident": true,
+    "count": 4,
+    "mention": "Rave Now",
+    "note": "",
+    "score": 1.0,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Tom Ford",
+        "Name": "Tom Ford Metallique",
+        "Year": "2019"
+      },
+      {
+        "Brand": "Tom Ford",
+        "Name": "Tom Ford Noir",
+        "Year": "2012"
+      },
+      {
+        "Brand": "Tom Ford",
+        "Name": "Tom Ford for Men for men",
+        "Year": "2007"
+      }
+    ],
+    "approved": null,
+    "brand": "Tom Ford",
+    "canonical_name": "Tom Ford",
+    "confident": true,
+    "count": 4,
+    "mention": "Tom Ford",
+    "note": "",
+    "score": 1.0,
+    "year": "2017"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Elixir Attar",
+        "Name": "Mythique unisex",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Elixir Attar",
+        "Name": "Kalevala unisex",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Elixir Attar",
+        "Name": "Huaxia unisex",
+        "Year": "2022"
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Club De Nuit Urban Man Elixir",
+    "confident": false,
+    "count": 4,
+    "mention": "Urban man elixir",
+    "note": "name differs from the mention — check this one",
+    "score": 0.627,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Amber Oud",
+        "Name": "Soul unisex",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Amber Oud",
+        "Name": "Dusk unisex",
+        "Year": "2017"
+      },
+      {
+        "Brand": "Amber Oud",
+        "Name": "Onyx unisex",
+        "Year": "2018"
+      }
+    ],
+    "approved": null,
+    "brand": "Amber Oud",
+    "canonical_name": "Sillage unisex",
+    "confident": false,
+    "count": 4,
+    "mention": "amber oud",
+    "note": "name differs from the mention — check this one",
+    "score": 0.348,
+    "year": "2017"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Creed",
+        "Name": "Creed Pour Enfants unisex",
+        "Year": "2015"
+      },
+      {
+        "Brand": "Creed",
+        "Name": "Creed Centaurus",
+        "Year": ""
+      },
+      {
+        "Brand": "Creed",
+        "Name": "Creed Carmina",
+        "Year": "2023"
+      }
+    ],
+    "approved": null,
+    "brand": "Creed",
+    "canonical_name": "Creed",
+    "confident": true,
+    "count": 4,
+    "mention": "creed",
+    "note": "",
+    "score": 1.0,
+    "year": "2010"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Love 2 Love",
+        "Name": "Love 2 Love Orange Blossom & White Musk",
+        "Year": ""
+      },
+      {
+        "Brand": "Guess",
+        "Name": "Guess Love Nirvana Dream",
+        "Year": ""
+      },
+      {
+        "Brand": "Jean Patou",
+        "Name": "Jean Patou 1000",
+        "Year": "1972"
+      }
+    ],
+    "approved": null,
+    "brand": "Love 2 Love",
+    "canonical_name": "Love 2 Love Jasmine & Sparkling Mimosa",
+    "confident": false,
+    "count": 4,
+    "mention": "dream love 1000",
+    "note": "name differs from the mention — check this one",
+    "score": 0.275,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Ainash",
+        "Name": "Ainash Elion Extrait",
+        "Year": ""
+      },
+      {
+        "Brand": "Amberfig",
+        "Name": "Amberfig Extrait unisex",
+        "Year": "2016"
+      },
+      {
+        "Brand": "Maison Alhambra",
+        "Name": "Maison Alhambra Baroque Rouge Extrait",
+        "Year": "2022"
+      }
+    ],
+    "approved": null,
+    "brand": "Lattafa",
+    "canonical_name": "Lattafa Fakhar Extrait",
+    "confident": false,
+    "count": 4,
+    "mention": "extrait",
+    "note": "name differs from the mention — check this one",
+    "score": 0.483,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Orientica",
+        "Name": "Sara Bleu for women",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Orientica",
+        "Name": "Orientica Xo Xclusif Oud Bleu",
+        "Year": "2022"
+      },
+      {
+        "Brand": "Orientica",
+        "Name": "Orientica Royal Amber",
+        "Year": "2021"
+      }
+    ],
+    "approved": null,
+    "brand": "Orientica",
+    "canonical_name": "Orientica Royal Bleu",
+    "confident": true,
+    "count": 4,
+    "mention": "orientica royale bleu",
+    "note": "",
+    "score": 0.976,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Abercrombie & Fitch",
+        "Name": "Abercrombie & Fitch Naturally Fierce",
+        "Year": "2021"
+      },
+      {
+        "Brand": "Abercrombie & Fitch",
+        "Name": "Fierce Night for men",
+        "Year": "2021"
+      },
+      {
+        "Brand": "Abercrombie & Fitch",
+        "Name": "Fierce Intense for men",
+        "Year": "2014"
+      }
+    ],
+    "approved": null,
+    "brand": "Abercrombie & Fitch",
+    "canonical_name": "Abercrombie & Fitch Fierce",
+    "confident": true,
+    "count": 3,
+    "mention": "Abercromie and Fitch Fierce",
+    "note": "",
+    "score": 0.902,
+    "year": "2002"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Afnan",
+        "Name": "Khayaal unisex",
+        "Year": ""
+      },
+      {
+        "Brand": "Afnan",
+        "Name": "Rahaal unisex",
+        "Year": "2019"
+      },
+      {
+        "Brand": "Afnan",
+        "Name": "Afnan Kiaana Crush",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Afnan",
+    "canonical_name": "Afzal Abeer for women",
+    "confident": false,
+    "count": 3,
+    "mention": "Afnan N.O.I",
+    "note": "name differs from the mention — check this one",
+    "score": 0.188,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Detour Noir Intense",
+        "Year": ""
+      },
+      {
+        "Brand": "Al Haramain Perfumes",
+        "Name": "Haramain Oud Cambodi Intense unisex",
+        "Year": ""
+      },
+      {
+        "Brand": "Al Haramain",
+        "Name": "Al Haramain Madinah",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Al Haramain",
+    "canonical_name": "Al Haramain Dazzle Intense",
+    "confident": false,
+    "count": 3,
+    "mention": "Al Haramain L'Aventure Intense",
+    "note": "name differs from the mention — check this one",
+    "score": 0.786,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Maison Alhambra",
+        "Name": "Maison Alhambra Berlinetta",
+        "Year": "2022"
+      },
+      {
+        "Brand": "Maison Alhambra",
+        "Name": "Maison Alhambra Victorioso",
+        "Year": "2022"
+      },
+      {
+        "Brand": "Maison Alhambra",
+        "Name": "Maison Alhambra Avant",
+        "Year": "2022"
+      }
+    ],
+    "approved": null,
+    "brand": "Maison Alhambra",
+    "canonical_name": "Maison Alhambra Minerva",
+    "confident": false,
+    "count": 3,
+    "mention": "Alhambra",
+    "note": "name differs from the mention — check this one",
+    "score": 0.516,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Amber Oud",
+        "Name": "Dusk unisex",
+        "Year": "2017"
+      },
+      {
+        "Brand": "Amber Oud",
+        "Name": "Onyx unisex",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Amber Oud",
+        "Name": "Soul unisex",
+        "Year": "2018"
+      }
+    ],
+    "approved": null,
+    "brand": "Al Haramain",
+    "canonical_name": "Al Haramain Amber Oud Exclusif Bleu",
+    "confident": false,
+    "count": 3,
+    "mention": "Amber Exclusif Bleu",
+    "note": "name differs from the mention — check this one",
+    "score": 0.704,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Initio Parfums Prives",
+        "Name": "Initio Atomic Rose",
+        "Year": "2019"
+      },
+      {
+        "Brand": "Initio Parfums Prives",
+        "Name": "Initio Side Effect Edp 90Ml Edp 10Ml Atomic Rose Edp 10Ml",
+        "Year": "2016"
+      },
+      {
+        "Brand": "Golden Rose",
+        "Name": "Red Rose for women",
+        "Year": "2022"
+      }
+    ],
+    "approved": null,
+    "brand": "Initio Parfums Prives",
+    "canonical_name": "Atomic Rose",
+    "confident": true,
+    "count": 3,
+    "mention": "Atomic Rose",
+    "note": "",
+    "score": 1.0,
+    "year": "2019"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Black Paw",
+        "Name": "Passiflora unisex",
+        "Year": ""
+      },
+      {
+        "Brand": "Black Paw",
+        "Name": "L'eau unisex",
+        "Year": ""
+      },
+      {
+        "Brand": "Black Paw",
+        "Name": "Grapefruit Dulci unisex",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Tom Ford",
+    "canonical_name": "Tom Ford Rose Exposed",
+    "confident": false,
+    "count": 3,
+    "mention": "Black Exposed",
+    "note": "name differs from the mention — check this one",
+    "score": 0.471,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Whatever It Takes",
+        "Name": "Whatever It Takes George Clooney",
+        "Year": ""
+      },
+      {
+        "Brand": "Whatever It Takes",
+        "Name": "Whatever It Takes Lucy Liu",
+        "Year": ""
+      },
+      {
+        "Brand": "Whatever It Takes",
+        "Name": "Whatever It Takes Daniel Craig",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Whatever It Takes",
+    "canonical_name": "Whatever It Takes Pink",
+    "confident": false,
+    "count": 3,
+    "mention": "Bought it",
+    "note": "name differs from the mention — check this one",
+    "score": 0.323,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Paris Hilton",
+        "Name": "Paris Hilton Can Can",
+        "Year": "2007"
+      },
+      {
+        "Brand": "Paris Hilton",
+        "Name": "Paris Hilton Can Can Burlesque",
+        "Year": "2014"
+      },
+      {
+        "Brand": "Chi Chi",
+        "Name": "Persimmon for women",
+        "Year": "2014"
+      }
+    ],
+    "approved": null,
+    "brand": "Cra-yon",
+    "canonical_name": "Vanilla CEO unisex",
+    "confident": false,
+    "count": 3,
+    "mention": "CDN",
+    "note": "name differs from the mention — check this one",
+    "score": 0.19,
+    "year": "2020"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "DeMer Parfum Limited",
+        "Name": "Santalorium unisex",
+        "Year": "2023"
+      },
+      {
+        "Brand": "DeMer Parfum Limited",
+        "Name": "Starstricken unisex",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Second Edition Olfactive",
+        "Name": "Verona unisex",
+        "Year": "2023"
+      }
+    ],
+    "approved": null,
+    "brand": "DeMer Parfum Limited",
+    "canonical_name": "Venom unisex",
+    "confident": false,
+    "count": 3,
+    "mention": "CDNIM Limited Edition",
+    "note": "name differs from the mention — check this one",
+    "score": 0.182,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Parfums De Marly",
+        "Name": "Parfums De Marly Carlisle",
+        "Year": "2015"
+      },
+      {
+        "Brand": "Fulton & Roark",
+        "Name": "Calle Ocho unisex",
+        "Year": ""
+      },
+      {
+        "Brand": "Loewe",
+        "Name": "Paseando por la Calle Mayor unisex",
+        "Year": "2019"
+      }
+    ],
+    "approved": null,
+    "brand": "DS&Durga",
+    "canonical_name": "The Carlyle unisex",
+    "confident": false,
+    "count": 3,
+    "mention": "Carlyle",
+    "note": "name differs from the mention — check this one",
+    "score": 0.667,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Beverly Hills Polo Club",
+        "Name": "Beverly Hills Polo Club 2",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Beverly Hills Polo Club",
+        "Name": "Beverly Hills Polo Club 9",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Beverly Hills Polo Club",
+        "Name": "Beverly Hills Polo Club 8",
+        "Year": "2018"
+      }
+    ],
+    "approved": null,
+    "brand": "Beverly Hills Polo Club",
+    "canonical_name": "Beverly Hills Polo Club 1",
+    "confident": false,
+    "count": 3,
+    "mention": "Club",
+    "note": "name differs from the mention — check this one",
+    "score": 0.276,
+    "year": "2018"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Craze Noir",
+        "Year": "2018"
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Craze Bleu",
+        "Year": "2020"
+      },
+      {
+        "Brand": "Victoria's Secret",
+        "Name": "Coconut Craze for women",
+        "Year": ""
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Craze",
+    "confident": false,
+    "count": 3,
+    "mention": "Craze",
+    "note": "name differs from the mention — check this one",
+    "score": 0.625,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Maison Alhambra",
+        "Name": "Maison Alhambra Delilah Blanc",
+        "Year": ""
+      },
+      {
+        "Brand": "Maison Alhambra",
+        "Name": "Maison Alhambra Delilah Pour Femme",
+        "Year": "2023"
+      },
+      {
+        "Brand": "Delikad",
+        "Name": "Delikad Baby unisex",
+        "Year": "2018"
+      }
+    ],
+    "approved": null,
+    "brand": "SweDoft",
+    "canonical_name": "Delilah unisex",
+    "confident": false,
+    "count": 3,
+    "mention": "Delilah",
+    "note": "name differs from the mention — check this one",
+    "score": 0.667,
+    "year": "2022"
+  }
+]

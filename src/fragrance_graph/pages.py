@@ -17,17 +17,25 @@ SPEC records why each exists. Three commenters is the point below which
 against a single comment section, where three people replying to each other
 look like three independent observations.
 
+**A source is a creator, not a video.** `comments.source_channel` holds the
+uploading channel, so the bar is two distinct channels — every video by one
+YouTuber counts once. This page called them "videos" until 2026-08-11,
+which understated the bar to the reader: two videos by one creator are one
+audience, and the guard is meant to be about independence rather than about
+upload count. Counting creators is the stronger reading and the one the
+code has always implemented; only the wording was wrong.
+
 Both bars are measured **on the pair, across every claim type** — not on a
-single claim-type row. Rows share people and rows share videos, so gating a
-row-scoped source count beside a pair-scoped commenter count would produce
-pages headed "5 people across 2 videos" where the two numbers count
+single claim-type row. Rows share people and rows share creators, so gating
+a row-scoped source count beside a pair-scoped commenter count would produce
+pages headed "5 people across 2 creators" where the two numbers count
 different things. That is the same defect SPEC already recorded once, when
 per-row commenter counts were being summed by readers into a total no
 single fact supported.
 
 It is not cosmetic. On the committed corpus the two scopes disagree on 8 of
 21 candidate pairs, and one pair changes gate status: Club de Nuit Imperiale
-<-> Delina Exclusif is 3 people across 2 videos, and a row-scoped check
+<-> Delina Exclusif is 3 people across 2 creators, and a row-scoped check
 would refuse it on a technicality while its own evidence satisfies exactly
 what the bar was written to require.
 
@@ -81,8 +89,11 @@ log = logging.getLogger("fragrance_graph.pages")
 #: this, "people say this" is one person and an echo.
 MIN_COMMENTERS = 3
 
-#: Distinct videos those people must span. Three commenters in one comment
-#: section is one conversation, not three observations.
+#: Distinct *creators* those people must span — `source_channel` is the
+#: uploading channel, so every video by one YouTuber counts once. Three
+#: commenters in one comment section is one conversation, not three
+#: observations, and three comment sections belonging to one channel are
+#: one audience.
 MIN_SOURCES = 2
 
 #: Distinct *search queries* those videos must span. Deliberately 1 — i.e.
@@ -124,9 +135,14 @@ class Pair:
     right_id: int
     commenters: int
     sources: int
+    #: Distinct uploading channels. Named `sources` because that is what
+    #: the gate has always been called; it counts creators, not uploads.
     #: Distinct searches that retrieved the backing videos. Reported, and
     #: not yet gated on — see `MIN_QUERIES`.
     queries: int
+    #: Backing videos with no retrieval record. While non-zero, `queries`
+    #: is a lower bound and must be reported as one.
+    unprovenanced: int
     #: Rows as `query.similar_to` returned them, read from `left`.
     rows: tuple[Related, ...]
 
@@ -194,7 +210,14 @@ def qualifying_pairs(
             # visible from this end, which drops an inbound BETTER_THAN and
             # can gate out a pair that clears the bar from the other side.
             ev = pair_stats(conn, frag_id, related.fragrance_id)
-            if ev.commenters < min_commenters or ev.sources < min_sources:
+            # Gate on distinct *creators*, not distinct videos. Two uploads
+            # by one YouTuber are one audience framed by one person, which
+            # is the independence SPEC asked for. Pages have said
+            # "creators" since 2026-08-11; until now the number behind that
+            # word counted videos, which are equal on this corpus for every
+            # publishable pair and diverge the moment one creator backs a
+            # pair twice.
+            if ev.commenters < min_commenters or ev.creators < min_sources:
                 continue
             # Query diversity is reported but only gates when asked for.
             # A pair with no retrieval record has queries == 0, which means
@@ -215,8 +238,9 @@ def qualifying_pairs(
                 left_id=frag_id,
                 right_id=related.fragrance_id,
                 commenters=ev.commenters,
-                sources=ev.sources,
+                sources=ev.creators,
                 queries=ev.queries,
+                unprovenanced=ev.videos_without_provenance,
                 rows=rows,
             )
 
@@ -251,7 +275,7 @@ def _people(n: int) -> str:
 
 
 def _sources(n: int) -> str:
-    return "1 video" if n == 1 else f"{n} videos"
+    return "1 creator" if n == 1 else f"{n} creators"
 
 
 def render_pair(pair: Pair) -> str:
@@ -332,7 +356,7 @@ def render_index(pairs: list[Pair]) -> str:
         f"<p>{len(pairs)} comparison"
         f"{'' if len(pairs) == 1 else 's'}, each backed by at least "
         f"{MIN_COMMENTERS} people writing across at least {MIN_SOURCES} "
-        "videos.</p>",
+        "creators.</p>",
         "<ul>",
     ]
     for p in pairs:
@@ -403,14 +427,17 @@ def main(argv: list[str] | None = None) -> int:
             )
             single = 0
             for pair in pairs:
-                thin = pair.queries == 1
+                thin = pair.queries == 1 and not pair.unprovenanced
                 single += thin
                 print(
                     f"  {pair.commenters:>3} people  "
-                    f"{pair.sources} videos  "
+                    f"{pair.sources} creators  "
                     f"{pair.queries} quer{'y' if pair.queries == 1 else 'ies'}  "
                     f"{pair.title}"
                     + ("   <- one query only" if thin else "")
+                    + (f"   (+{pair.unprovenanced} video(s) with no retrieval "
+                       "record, so this is a lower bound)"
+                       if pair.unprovenanced else "")
                 )
                 if args.show_queries:
                     for q in queries_behind(conn, pair):
@@ -419,7 +446,7 @@ def main(argv: list[str] | None = None) -> int:
             if single:
                 print(
                     f"{single} of them rest on a single search query. Those "
-                    "satisfy the video bar while being one question asked "
+                    "satisfy the creator bar while being one question asked "
                     "in several rooms — see MIN_QUERIES."
                 )
             return 0
@@ -436,7 +463,7 @@ def main(argv: list[str] | None = None) -> int:
         if not pairs:
             print(
                 "\nNothing cleared the gate. That is the gate working: a pair "
-                "needs both ends curated, then 3 people across 2 videos. "
+                "needs both ends curated, then 3 people across 2 creators. "
                 "`resolve.entities report` ranks what to curate next."
             )
     finally:

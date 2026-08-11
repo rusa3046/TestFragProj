@@ -381,3 +381,225 @@ def test_a_name_adding_nothing_is_the_plain_bottle(conn):
                     support={"Layton": -1})
     assert p.corpus_mentions == -1
     assert "nobody in the corpus wrote" not in p.note
+
+
+# --- the brand prefix made the auto-rule unreachable -------------------------
+
+
+def test_the_house_is_not_a_flanker_qualifier():
+    """The bug that made auto-curation impossible.
+
+    People write bare names; catalogues return the house. Without the
+    brand, "Layton" against "Parfums de Marly Layton" yields three words
+    that read as flanker qualifiers and are nothing of the kind.
+    """
+    from fragrance_graph.resolve.enrich import distinguishing_words as dw
+
+    assert dw("Layton", "Parfums de Marly Layton") == ["parfums", "de", "marly"]
+    assert dw("Layton", "Parfums de Marly Layton", "Parfums de Marly") == []
+
+
+@pytest.mark.parametrize(
+    "mention,candidate,brand,expected",
+    [
+        ("Khamrah", "Lattafa Khamrah Qahwa", "Lattafa", ["qahwa"]),
+        ("Layton", "Parfums de Marly Layton Exclusif", "Parfums de Marly",
+         ["exclusif"]),
+        ("Club de Nuit", "Armaf Club de Nuit Sillage", "Armaf", ["sillage"]),
+        ("Sauvage", "Dior Eau Sauvage", "Dior", ["eau"]),
+    ],
+)
+def test_flankers_survive_brand_exclusion(mention, candidate, brand, expected):
+    """Excluding the house must not blunt the thing the rule is for.
+
+    `Eau Sauvage` is the one that matters most: Dior's 1966 citrus shares a
+    word with the 2015 Sauvage everyone discusses, and attaching modern
+    clone talk to it would be the worst merge available.
+    """
+    from fragrance_graph.resolve.enrich import distinguishing_words
+
+    assert distinguishing_words(mention, candidate, brand) == expected
+
+
+def test_similarity_is_measured_against_the_debranded_name():
+    """`CONFIDENT` had the same brand problem as the word comparison.
+
+    "Khamrah" against "Lattafa Khamrah" scores 0.64 and fails the gate,
+    despite being the exact bottle.
+    """
+    from fragrance_graph.resolve.enrich import CONFIDENT, debranded
+    from fragrance_graph.resolve.names import similarity
+
+    assert similarity("Khamrah", "Lattafa Khamrah") < CONFIDENT
+    assert similarity("Khamrah", debranded("Lattafa Khamrah", "Lattafa")) == 1.0
+
+
+def test_a_plain_bottle_reaches_the_auto_rule(conn):
+    """End to end: the two gates a proposal must clear to be auto-approved."""
+    from fragrance_graph.resolve.enrich import (
+        CONFIDENT,
+        corpus_support,
+        debranded,
+        distinguishing_words,
+    )
+    from fragrance_graph.resolve.names import similarity
+
+    mention, name, brand = "Khamrah", "Lattafa Khamrah", "Lattafa"
+    words = distinguishing_words(mention, name, brand)
+
+    assert corpus_support(conn, words, mention=mention) == -1
+    assert similarity(mention, debranded(name, brand)) >= CONFIDENT
+
+
+class TestLookupsAreNotWasted:
+    """Every candidate costs a real request, so the filter is a spend guard."""
+
+    @pytest.mark.parametrize("text", [
+        "this stuff", "extrait", "limited edition", "my batch", "clones",
+        "the scent", "EdP", "rogue edition", "vintage",
+    ])
+    def test_describing_words_alone_are_unnameable(self, text):
+        from fragrance_graph.resolve.enrich import is_unnameable
+
+        assert is_unnameable(text) is True
+
+    @pytest.mark.parametrize("text", [
+        "Khamrah Intense", "Oud Wood Extrait", "Baccarat Rouge 540",
+        "Club de Nuit", "Layton",
+    ])
+    def test_a_real_name_survives_a_generic_word(self, text):
+        from fragrance_graph.resolve.enrich import is_unnameable
+
+        assert is_unnameable(text) is False
+
+    @staticmethod
+    def _mention(conn, i, text):
+        """One comment carrying `text` as an unresolved subject."""
+        cid = add_comment(conn, i, body=f"{text} is nice", author=f"u{i}")
+        conn.execute(
+            "INSERT INTO claims (comment_id, claim_type, subject_kind,"
+            " raw_subject_text, object_kind, confidence, polarity,"
+            " evidence_span, evidence_verified, extraction_model,"
+            " created_at)"
+            " VALUES (?, 'SIMILAR_TO', 'FRAGRANCE', ?, 'NONE', 0.9,"
+            " 'ASSERTED', ?, 1, 'test', '2026-01-01')",
+            (cid, text, f"{text} is nice"),
+        )
+
+    def test_bare_houses_are_not_looked_up(self, conn):
+        """A house search returns an arbitrary bottle from that house."""
+        from fragrance_graph.resolve.enrich import candidates
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        add_fragrance(conn, "Maison Alhambra Woody Oud", brand="Maison Alhambra")
+        i = 0
+        for text in ("Lattafa", "Alhambra", "Maison Alhambra", "Qahwa"):
+            for _ in range(4):
+                self._mention(conn, i, text)
+                i += 1
+        conn.commit()
+
+        got = {m for m, _ in candidates(conn, 50, min_count=3)}
+        assert "Lattafa" not in got
+        assert "Alhambra" not in got, "a shortened house is still a house"
+        assert "Maison Alhambra" not in got
+        assert "Qahwa" in got, "a real mention must survive"
+
+    def test_case_variants_are_one_lookup(self, conn):
+        """'Creed' and 'creed' were billed twice on the live run."""
+        from fragrance_graph.resolve.enrich import candidates
+
+        i = 0
+        for text in ("Aether", "aether"):
+            for _ in range(2):
+                self._mention(conn, i, text)
+                i += 1
+        conn.commit()
+
+        got = candidates(conn, 50, min_count=3)
+        aether = [(m, n) for m, n in got if m.lower() == "aether"]
+        assert len(aether) == 1, f"billed twice: {aether}"
+        # Merging also lifts the pair over min_count, which neither
+        # spelling clears alone.
+        assert aether[0][1] == 4
+
+
+class TestNoDuplicateNodes:
+    """A name already answered to must not become a second fragrance."""
+
+    @staticmethod
+    def _approved(mention, name, brand):
+        return Proposal(
+            mention=mention, count=9, canonical_name=name, brand=brand,
+            confident=True, corpus_mentions=-1, approved=True,
+        )
+
+    def test_an_existing_alias_blocks_a_new_node(self, conn):
+        """The duplicate that actually happened, 2026-08-11.
+
+        "Club de Nuit Intense" was already an alias of Intense Man. The
+        catalogue offered it as a canonical name of its own, and the old
+        exact-canonical check let it through.
+        """
+        from fragrance_graph.resolve.enrich import apply_review
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(
+            conn, "Armaf Club de Nuit Intense Man", brand="Armaf",
+            aliases=["Club de Nuit", "Club de Nuit Intense"],
+        )
+        conn.commit()
+
+        stats = apply_review(conn, [
+            self._approved("club de Nuit intense",
+                           "Armaf Club De Nuit Intense", "Armaf"),
+        ])
+        assert stats.added == 0
+        assert stats.skipped_existing == 1
+
+    def test_the_brand_does_not_disguise_a_duplicate(self, conn):
+        """"Armaf Club de Nuit" is the same claim as the alias "Club de Nuit"."""
+        from fragrance_graph.resolve.enrich import apply_review
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(
+            conn, "Armaf Club de Nuit Intense Man", brand="Armaf",
+            aliases=["Club de Nuit"],
+        )
+        conn.commit()
+
+        stats = apply_review(conn, [
+            self._approved("Club De Nuit EDP", "Armaf Club De Nuit", "Armaf"),
+        ])
+        assert stats.added == 0, "a de-branded duplicate must not be written"
+
+    def test_a_genuine_flanker_is_still_added(self, conn):
+        """The guard must not swallow real siblings."""
+        from fragrance_graph.resolve.enrich import apply_review
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Parfums de Marly Layton", brand="Parfums de Marly",
+                      aliases=["Layton"])
+        add_fragrance(conn, "Armaf Club de Nuit Intense Man", brand="Armaf",
+                      aliases=["Club de Nuit"])
+        conn.commit()
+
+        stats = apply_review(conn, [
+            self._approved("Layton Exclusif",
+                           "Parfums De Marly Layton Exclusif",
+                           "Parfums De Marly"),
+            self._approved("Club de nuit Iconic",
+                           "Armaf Club De Nuit Iconic", "Armaf"),
+        ])
+        assert stats.added == 2, "Exclusif and Iconic are distinct bottles"
+
+    def test_two_proposals_for_one_bottle_add_it_once(self, conn):
+        from fragrance_graph.resolve.enrich import apply_review
+
+        stats = apply_review(conn, [
+            self._approved("khamrah", "Lattafa Khamrah", "Lattafa"),
+            self._approved("Khamrah", "Khamrah", "Lattafa"),
+        ])
+        assert stats.added == 1
+        assert stats.skipped_existing == 1

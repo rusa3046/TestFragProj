@@ -107,6 +107,172 @@ def render(entry: dict) -> str:
     )
 
 
+#: Claim types whose object kind the taxonomy already determines. For
+#: these, `object_kind` restates something `claim_type` fixes — the model
+#: is asked for a field with exactly one legal answer, and when it gets
+#: that redundant field wrong an otherwise usable claim is destroyed.
+def _determined_kinds() -> dict[str, str]:
+    from fragrance_graph.models import ALLOWED_OBJECT_KINDS
+
+    return {
+        claim_type.value: next(iter(kinds)).value
+        for claim_type, kinds in ALLOWED_OBJECT_KINDS.items()
+        if len(kinds) == 1
+    }
+
+
+#: Buckets, worst-understood first. Only COERCIBLE is safe to recover
+#: automatically; the rest are the model disagreeing with the taxonomy,
+#: which is a judgement and belongs to a person.
+COERCIBLE = "coercible: object_kind is determined by claim_type"
+NO_OBJECT = "not recoverable: object required, none supplied"
+DISAGREEMENT = "not recoverable: model asserted a kind the type forbids"
+OTHER = "not recoverable: other"
+
+
+def classify(entry: dict) -> tuple[str, str | None]:
+    """Which bucket a rejection falls into, and the kind it would take.
+
+    The verdict is not reasoned about — it is **tested**. A candidate is
+    only called coercible if a `Claim` actually validates once the kind is
+    corrected, using the same model the extractor uses. Anything that
+    still fails for a second reason stays where it is.
+    """
+    from pydantic import ValidationError
+
+    from fragrance_graph.models import Claim
+
+    claim = dict(entry.get("claim") or {})
+    claim_type = claim.get("claim_type")
+    determined = _determined_kinds().get(claim_type)
+    if determined is None:
+        # SIMILAR_TO is the only type with a real choice to make, so a
+        # wrong kind there is genuinely ambiguous, not a clerical slip.
+        return OTHER, None
+
+    has_text = bool((claim.get("raw_object_text") or "").strip())
+    if determined == "NONE":
+        if has_text:
+            return DISAGREEMENT, None
+    elif not has_text:
+        # "requires raw_object_text": the claim asserts nothing about an
+        # object. Coercing the kind would invent content.
+        return NO_OBJECT, None
+
+    stated = claim.get("object_kind")
+    if stated == determined:
+        return OTHER, None
+
+    # Only `NONE` is coercible, and the distinction is the whole safety
+    # argument. `NONE` means the model declined to fill a field the
+    # taxonomy already fixes — there is nothing to overrule. Any *other*
+    # kind is a positive assertion about what the object is, and
+    # overriding it invents content: "BETTER_THAN got TAG" on "better than
+    # most vanillas" would be rewritten into a claim that "most vanillas"
+    # is a bottle, which is the fabricated-entity failure this project
+    # guards against everywhere else.
+    if stated != "NONE":
+        return DISAGREEMENT, None
+
+    candidate = {**claim, "object_kind": determined}
+    try:
+        Claim.model_validate(candidate)
+    except ValidationError:
+        # Broken for a second reason. The verdict is tested rather than
+        # reasoned about, so this stays rejected.
+        return DISAGREEMENT, None
+    return COERCIBLE, determined
+
+
+def recoverable(conn: sqlite3.Connection) -> dict:
+    """How much of the rejected pile a deterministic fix would return.
+
+    Answers the question that decides whether the extraction prompt needs
+    touching at all: are these claims the model got *wrong*, or claims it
+    got right and mislabelled in a field the schema already determines?
+
+    Costs nothing — `rejected_claims` stores the payload verbatim, so this
+    reads history rather than paying to extract again.
+    """
+    buckets: dict[str, list[dict]] = {}
+    by_type: dict[str, int] = {}
+    total = 0
+    for row in conn.execute(
+        "SELECT r.id, r.comment_id, r.reason, r.raw_json, c.body"
+        "  FROM rejected_claims r JOIN comments c ON c.id = r.comment_id"
+    ):
+        try:
+            claim = json.loads(row["raw_json"])
+        except (TypeError, ValueError):
+            claim = {}
+        entry = {
+            "comment_id": row["comment_id"],
+            "reason": row["reason"],
+            "claim": claim,
+            "body": row["body"],
+        }
+        bucket, kind = classify(entry)
+        entry["would_become"] = kind
+        buckets.setdefault(bucket, []).append(entry)
+        total += 1
+        if bucket == COERCIBLE:
+            key = f"{claim.get('claim_type')} -> {kind}"
+            by_type[key] = by_type.get(key, 0) + 1
+    return {"total": total, "buckets": buckets, "coercible_by_type": by_type}
+
+
+def render_recoverable(result: dict, *, examples: int = 3) -> str:
+    """The report, written so the decision is readable without the code."""
+    total = result["total"]
+    if not total:
+        return (
+            "No rejected claims stored.\n\n"
+            "rejected_claims is not part of the committed corpus, so a "
+            "database rebuilt with `corpus import` starts empty. Run an "
+            "extraction first, then re-run this."
+        )
+    lines = [f"{total} rejected claims stored.", ""]
+    order = [COERCIBLE, NO_OBJECT, DISAGREEMENT, OTHER]
+    for bucket in order:
+        rows = result["buckets"].get(bucket, [])
+        if not rows:
+            continue
+        lines.append(f"{len(rows):>5}  ({100 * len(rows) / total:4.1f}%)  {bucket}")
+    lines.append("")
+
+    coercible = result["buckets"].get(COERCIBLE, [])
+    if coercible:
+        lines.append("Coercible, by claim type:")
+        for key, n in sorted(result["coercible_by_type"].items(),
+                             key=lambda kv: -kv[1]):
+            lines.append(f"  {n:>4}  {key}")
+        lines.append("")
+        lines.append(f"Examples (first {min(examples, len(coercible))}):")
+        for entry in coercible[:examples]:
+            claim = entry["claim"]
+            lines.append(
+                f"  {claim.get('claim_type')} "
+                f"subject={claim.get('raw_subject_text')!r} "
+                f"object={claim.get('raw_object_text')!r} "
+                f"object_kind={claim.get('object_kind')!r} "
+                f"-> {entry['would_become']}"
+            )
+            lines.append(f"      {entry['body'][:110]!r}")
+        lines.append("")
+        lines.append(
+            "These validate once object_kind is set from claim_type, which "
+            "the taxonomy already fixes for these types. Recovering them is "
+            "a deterministic parse change, testable without an API call — "
+            "it does not touch the prompt and does not need the eval set."
+        )
+    else:
+        lines.append(
+            "Nothing is coercible. The rejections are the model disagreeing "
+            "with the taxonomy, which needs a person, not a parse fix."
+        )
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Inspect claims that failed validation during extraction."
@@ -115,6 +281,10 @@ def main(argv: list[str] | None = None) -> int:
 
     rep = sub.add_parser("report", help="Rejection reasons, most frequent first")
 
+    rec = sub.add_parser(
+        "recoverable",
+        help="How many rejections a deterministic object_kind fix would return",
+    )
     show = sub.add_parser("show", help="Individual rejections, with the comment")
     show.add_argument(
         "--reason",
@@ -123,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     show.add_argument("--limit", type=int, default=20)
 
-    for p in (rep, show):
+    for p in (rep, show, rec):
         p.add_argument("--db-path", default=DEFAULT_DB_PATH)
 
     args = parser.parse_args(argv)
@@ -145,6 +315,9 @@ def main(argv: list[str] | None = None) -> int:
             for count in counts:
                 print(f"{count.claims:>7}  {count.comments:>8}  {count.reason}")
             print(f"\n{total} rejected claims across {len(counts)} distinct reasons.")
+
+        elif args.command == "recoverable":
+            print(render_recoverable(recoverable(conn)))
 
         else:
             entries = rejected(conn, reason_like=args.reason, limit=args.limit)

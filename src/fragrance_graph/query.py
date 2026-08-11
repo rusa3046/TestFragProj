@@ -40,7 +40,7 @@ page should lead with.
 **Sources are counted separately from people.** Three commenters in one
 video's comment section, possibly replying to each other, is not three
 independent observations, and "3 people said this" implies that it is.
-`sources` records how many distinct videos back a claim so a page can
+`sources` records how many distinct creators back a claim so a page can
 decline to imply consensus that a single thread cannot support.
 
 **Evidence is required.** Only claims whose `evidence_span` was verified
@@ -116,7 +116,7 @@ class Related:
     #: Distinct videos/threads backing the *pair* across every claim type,
     #: standing in the same relation to `sources` as `pair_commenters` does
     #: to `commenters`. Quoting one scope beside the other is how a page
-    #: ends up saying "5 people across 2 videos" where the 5 counts the
+    #: ends up saying "5 people across 2 creators" where the 5 counts the
     #: pair and the 2 counts a single row. Measured on the committed
     #: corpus, the two differ on 8 of 21 pairs.
     pair_sources: int
@@ -230,6 +230,7 @@ SELECT co.author_id AS author_id,
        co.id        AS comment_id,
        co.source    AS source,
        co.video_id  AS video_id,
+       co.source_channel AS channel,
        coalesce(co.video_id, co.source_channel)
                     AS source_ref
   FROM claims c
@@ -258,6 +259,15 @@ class PairEvidence:
     #: Distinct videos. Guards against one comment section, where three
     #: people may simply be replying to each other.
     sources: int
+    #: Distinct uploading channels. Strictly stronger than `sources`: two
+    #: videos by one YouTuber are one audience, addressed by one person
+    #: who framed both. The gate reads this rather than `sources`.
+    #:
+    #: They are equal on today's corpus for every publishable pair, which
+    #: is why the distinction was invisible — but the corpus holds 39
+    #: videos across 29 channels, so the two diverge as soon as a pair is
+    #: backed by two uploads from one creator.
+    creators: int
     #: Distinct search queries that retrieved those videos. Guards against
     #: *our own sampling*: three different `parfums de marly layton dupe`
     #: videos are three comment sections, so `sources` is satisfied — but
@@ -269,6 +279,16 @@ class PairEvidence:
     #: that they were found by no query. Absence of provenance is not
     #: evidence of narrowness, so a gate must treat 0 as unknown.
     queries: int
+    #: Backing videos with no row in `video_discoveries`. While this is
+    #: non-zero, `queries` is a **lower bound**: those videos were found by
+    #: some search, and it may or may not be one already counted.
+    #:
+    #: Non-zero for most pairs today, because 15 of 39 videos were ingested
+    #: by runs that predate discovery tracking and their queries cannot be
+    #: reconstructed — inventing a plausible one would be exactly the
+    #: fabrication this project refuses everywhere else. It falls to zero
+    #: as those videos age out or are re-found by a recorded search.
+    videos_without_provenance: int
 
 
 def pair_stats(conn: sqlite3.Connection, a_id: int, b_id: int) -> PairEvidence:
@@ -281,11 +301,13 @@ def pair_stats(conn: sqlite3.Connection, a_id: int, b_id: int) -> PairEvidence:
     rows = conn.execute(PAIR_STATS_SQL, {"a": a_id, "b": b_id}).fetchall()
     commenters = {_commenter_key(row) for row in rows}
     sources = {row["source_ref"] for row in rows if row["source_ref"]}
+    creators = {row["channel"] for row in rows if row["channel"]}
 
     videos = {(row["source"], row["video_id"]) for row in rows if row["video_id"]}
     queries: set[str] = set()
+    undocumented = 0
     for source, video_id in videos:
-        queries |= {
+        found = {
             r["retrieval_query"]
             for r in conn.execute(
                 "SELECT DISTINCT retrieval_query FROM video_discoveries "
@@ -293,7 +315,12 @@ def pair_stats(conn: sqlite3.Connection, a_id: int, b_id: int) -> PairEvidence:
                 (source, video_id),
             )
         }
-    return PairEvidence(len(commenters), len(sources), len(queries))
+        if not found:
+            undocumented += 1
+        queries |= found
+    return PairEvidence(
+        len(commenters), len(sources), len(creators), len(queries), undocumented
+    )
 
 
 def _commenter_key(row: sqlite3.Row) -> str:
@@ -537,7 +564,7 @@ def main(argv: list[str] | None = None) -> int:
         "--min-sources",
         type=int,
         default=1,
-        help="Hide results backed by fewer than N distinct videos/threads",
+        help="Hide results backed by fewer than N distinct creators/channels",
     )
     parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
     args = parser.parse_args(argv)

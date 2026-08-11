@@ -43,6 +43,7 @@ import os
 import re
 import sqlite3
 import sys
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -88,6 +89,62 @@ def is_pronoun(text: str) -> bool:
     return bool(PRONOUN.match(text.strip()))
 
 
+#: Words that describe a bottle without naming one. A mention made only of
+#: these cannot be looked up: "extrait" is a concentration, "limited
+#: edition" is a release, "my batch" is a unit someone owns. Every entry
+#: was observed in the live unresolved report.
+GENERIC_WORDS = frozenset({
+    "stuff", "scent", "smell", "fragrance", "perfume", "cologne", "juice",
+    "batch", "bottle", "sample", "samples", "decant", "decants", "tester",
+    "clone", "clones", "dupe", "dupes", "flanker", "flankers",
+    "edp", "edt", "edc", "extrait", "parfum", "eau", "elixir", "intense",
+    "limited", "edition", "rogue", "vintage", "new", "old", "original",
+    "formulation", "reformulation", "bought", "got", "have", "own", "my",
+    "this", "that", "it", "one", "ones", "same", "og",
+})
+
+
+def is_unnameable(text: str) -> bool:
+    """Whether a mention is made only of words that describe, never name.
+
+    Separate from `names.looks_like_junk`, which asks whether a string may
+    enter the *graph*. This asks whether it is worth *money*: every mention
+    reaching the catalogue costs a request, and "this stuff", "extrait" and
+    "limited edition" are guaranteed misses that still bill.
+
+    Kept deliberately blunt — it only fires when **every** word is generic,
+    so "Khamrah Intense" and "Oud Wood Extrait" survive. A real name plus a
+    generic word is still a real name.
+    """
+    words = normalize_name(text).split()
+    return bool(words) and all(w in GENERIC_WORDS for w in words)
+
+
+def house_names(conn: sqlite3.Connection) -> set[str]:
+    """Normalised brand names, and the distinctive tail of each.
+
+    A bare house is not a bottle. Searching one returns whichever of its
+    fragrances the catalogue likes — the live run spent requests on
+    `Creed`, `Lattafa` and `Armaf` and got back Ramz Silver and Miss
+    Attitude, neither of which anyone had mentioned.
+
+    The tail is included because people shorten houses: the corpus says
+    "Alhambra" for Maison Alhambra, "Marly" for Parfums de Marly.
+    """
+    houses: set[str] = set()
+    for row in conn.execute(
+        "SELECT DISTINCT brand FROM fragrances WHERE brand IS NOT NULL"
+    ):
+        normalized = normalize_name(row["brand"])
+        if not normalized:
+            continue
+        houses.add(normalized)
+        words = normalized.split()
+        if len(words) > 1:
+            houses.add(words[-1])
+    return houses
+
+
 @dataclass
 class Proposal:
     """One mention, and what the catalogue offered for it."""
@@ -127,16 +184,90 @@ def _kept(record: dict) -> dict:
     return {f: record.get(f) for f in KEPT_FIELDS}
 
 
-def distinguishing_words(mention: str, candidate: str) -> list[str]:
+def distinguishing_words(
+    mention: str, candidate: str, brand: str = ""
+) -> list[str]:
     """The words in a catalogue name that the mention does not have.
 
     For mention "Club de Nuit" against "Club de Nuit Sillage" this is
     ["sillage"] — the word that makes it a different bottle. Flankers are
     the failure that actually happens in review, and the extra word is
     what separates them.
+
+    **The brand is excluded, and omitting it made the auto-rule
+    unreachable.** People write bare names; catalogues return the house.
+    Without `brand`, "Layton" against "Parfums de Marly Layton" yields
+    ["parfums", "de", "marly"] — three words that read as flanker
+    qualifiers and are nothing of the kind. Measured against the 25
+    hand-verified entries in `data/curation/verified.json`, **zero**
+    cleared the rule; with the brand excluded, the ones a human approved
+    clear it and the flanker family does not:
+
+        Khamrah  vs Lattafa Khamrah Qahwa            -> ["qahwa"]
+        Layton   vs Parfums de Marly Layton Exclusif -> ["exclusif"]
+        Sauvage  vs Dior Eau Sauvage                 -> ["eau"]
+        Khamrah  vs Lattafa Khamrah                  -> []
+
+    The brand is a separate field the catalogue already returns, so this
+    costs nothing and asks the question that was always intended: what
+    does this name add *beyond the bottle the mention names*.
     """
-    mention_words = set(normalize_name(mention).split())
-    return [w for w in normalize_name(candidate).split() if w not in mention_words]
+    known = set(normalize_name(mention).split())
+    known |= set(normalize_name(brand or "").split())
+    return [w for w in normalize_name(candidate).split() if w not in known]
+
+
+def mention_only_words(
+    mention: str, candidate: str, brand: str = ""
+) -> list[str]:
+    """The words the *mention* has that the catalogue name does not.
+
+    The mirror of `distinguishing_words`, and it has to be checked too.
+    That function asks what the candidate adds; on its own it treats a
+    mention *more specific than the name it matched* as having nothing to
+    decide, because the candidate adds no word:
+
+        "Layton Exclusif" vs "Parfums de Marly Layton" -> [] -> auto-merge
+
+    which is the single worst merge this project can make, and
+    `docs/CURATION.md` is largely about not making it. Measured on the
+    first live run, this fired: "Club De Nuit EDP" was auto-merged into
+    "Armaf Club De Nuit", creating a second node for a bottle the corpus
+    already had as "Armaf Club de Nuit Intense Man" and splitting its
+    edges across both.
+
+    A flanker qualifier is a flanker qualifier whichever side it sits on.
+    So auto-approval requires agreement in *both* directions: neither the
+    mention nor the name may add a word the other lacks.
+    """
+    known = set(normalize_name(candidate).split())
+    known |= set(normalize_name(brand or "").split())
+    return [w for w in normalize_name(mention).split() if w not in known]
+
+
+def names_agree(mention: str, candidate: str, brand: str = "") -> bool:
+    """Whether mention and catalogue name are the same bottle, word for word.
+
+    Brand words are excluded from both sides: people write bare names and
+    catalogues return the house.
+    """
+    return not distinguishing_words(mention, candidate, brand) and not (
+        mention_only_words(mention, candidate, brand)
+    )
+
+
+def debranded(candidate: str, brand: str = "") -> str:
+    """A catalogue name with the house removed.
+
+    Name similarity has the same brand problem as `distinguishing_words`:
+    "Khamrah" against "Lattafa Khamrah" scores 0.64 and fails `CONFIDENT`,
+    even though it is the exact bottle. Comparing against the de-branded
+    name scores 1.00.
+    """
+    brand_words = set(normalize_name(brand or "").split())
+    return " ".join(
+        w for w in normalize_name(candidate).split() if w not in brand_words
+    )
 
 
 def corpus_support(
@@ -221,7 +352,9 @@ def propose_for(
     proposal.canonical_name = top["Name"]
     proposal.brand = top["Brand"]
     proposal.year = top["Year"]
-    proposal.score = round(similarity(mention, top["Name"] or ""), 3)
+    proposal.score = round(
+        similarity(mention, debranded(top["Name"] or "", top["Brand"] or "")), 3
+    )
     proposal.confident = proposal.score >= CONFIDENT
     proposal.corpus_mentions = support.get(top["Name"], -1)
     proposal.alternatives = [
@@ -232,6 +365,14 @@ def propose_for(
     notes = []
     if not proposal.confident:
         notes.append("name differs from the mention")
+    extra = mention_only_words(mention, top["Name"] or "", top["Brand"] or "")
+    if extra:
+        # Loud, because this is the merge that costs the most: the reader
+        # said something more specific than the name they were matched to.
+        notes.append(
+            f"the mention says {' '.join(extra)!r} and the catalogue name "
+            "does not — probably a flanker of it, not the same bottle"
+        )
     if proposal.corpus_mentions == 0:
         # The decisive one. A flanker whose distinguishing word appears
         # nowhere in the corpus is a bottle nobody was talking about.
@@ -239,7 +380,7 @@ def propose_for(
                   if a["corpus_mentions"] != 0]
         notes.append(
             "nobody in the corpus wrote "
-            f"{' '.join(distinguishing_words(mention, top['Name'] or ''))!r}"
+            f"{' '.join(distinguishing_words(mention, top['Name'] or '', top['Brand'] or ''))!r}"
             + (f" — see alternatives ({len(better)} better supported)"
                if better else "")
         )
@@ -256,14 +397,26 @@ def candidates(
     distinct names appear exactly once and none of them can ever clear a
     3-commenter bar, so a lookup for them buys nothing.
     """
-    out = []
+    houses = house_names(conn)
+
+    # Case variants are the same lookup. "Creed" and "creed" were billed
+    # twice on the live run; merging them also lifts the pair above
+    # `min_count` when neither spelling clears it alone.
+    merged: dict[str, tuple[str, int]] = {}
     for mention in unresolved_mentions(conn):
-        if mention.count < min_count or is_pronoun(mention.text):
+        if is_pronoun(mention.text) or is_unnameable(mention.text):
             continue
-        out.append((mention.text, mention.count))
-        if len(out) >= limit:
-            break
-    return out
+        key = normalize_name(mention.text)
+        if not key or key in houses:
+            continue
+        surface, count = merged.get(key, (mention.text, 0))
+        # Keep the spelling people used most, not the first one seen.
+        if mention.count > count:
+            surface = mention.text
+        merged[key] = (surface, count + mention.count)
+
+    ordered = sorted(merged.values(), key=lambda pair: -pair[1])
+    return [(text, n) for text, n in ordered if n >= min_count][:limit]
 
 
 def _search(client, key: str, mention: str, *, limit: int = 4) -> list[dict]:
@@ -294,7 +447,9 @@ def _propose_one(conn, client, key: str, mention: str, count: int) -> Proposal:
     results = _search(client, key, mention)
     support = {
         r["Name"]: corpus_support(
-            conn, distinguishing_words(mention, r["Name"]), mention=mention
+            conn,
+            distinguishing_words(mention, r["Name"], r.get("Brand") or ""),
+            mention=mention,
         )
         for r in results
         if r.get("Name")
@@ -308,10 +463,29 @@ def _propose_one(conn, client, key: str, mention: str, count: int) -> Proposal:
     )
 
 
+#: USD per catalogue request, operator-confirmed 2026-08-11.
+#:
+#: Metered because the free tier's 20/month was itself the brake; on
+#: pay-per-use nothing stopped the loop making 25 billable calls a run
+#: with no record. `daily.py` claimed "nothing here spends without the
+#: cap" while this step was the one paid path the cap never saw.
+LOOKUP_COST_USD = 0.05
+
+
 def propose(
-    conn: sqlite3.Connection, out_path: Path, *, limit: int, min_count: int
+    conn: sqlite3.Connection,
+    out_path: Path,
+    *,
+    limit: int,
+    min_count: int,
+    on_spend: Callable[[float, int], None] | None = None,
 ) -> list[Proposal]:
-    """Query the catalogue for unresolved mentions and write a review file."""
+    """Query the catalogue for unresolved mentions and write a review file.
+
+    `on_spend` is called with `(usd, 1)` **before** each request, so a cap
+    stops the run rather than recording an overspend after the fact. The
+    proposals gathered so far are still written.
+    """
     key = os.environ.get("FRAGELLA_API_KEY")
     if not key:
         raise SystemExit(
@@ -331,15 +505,25 @@ def propose(
             "frequent is curated, or --min-count is set too high."
         )
 
-    log.info("Querying %d mentions (1 request each).", len(wanted))
+    log.info(
+        "Querying %d mentions (1 request each, $%.2f = $%.2f).",
+        len(wanted), LOOKUP_COST_USD, len(wanted) * LOOKUP_COST_USD,
+    )
     proposals = []
-    with httpx.Client(timeout=30.0) as client:
-        for mention, count in wanted:
-            proposals.append(
-                _propose_one(conn, client, key, mention, count)
-            )
-
-    write_review(out_path, proposals)
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            for mention, count in wanted:
+                if on_spend is not None:
+                    # Before the request: a cap that records after the call
+                    # has already bought the thing it meant to prevent.
+                    on_spend(LOOKUP_COST_USD, 1)
+                proposals.append(
+                    _propose_one(conn, client, key, mention, count)
+                )
+    finally:
+        # Whatever was gathered before a cap or a transport error is worth
+        # keeping — those requests were paid for.
+        write_review(out_path, proposals)
     return proposals
 
 
@@ -374,6 +558,41 @@ class ApplyStats:
         )
 
 
+def claimed_names(conn: sqlite3.Connection) -> set[str]:
+    """Every name an existing fragrance already answers to, de-branded.
+
+    Checking canonical names alone was not enough, and the gap wrote a
+    duplicate on 2026-08-11. The corpus held `Armaf Club de Nuit Intense
+    Man`, whose aliases already included "Club de Nuit Intense". The
+    catalogue then offered `Armaf Club De Nuit Intense` for the mention
+    "club de Nuit intense" — a different string, so the old check passed
+    it, and the same bottle became two nodes with one name pointing at
+    both. Every edge on it splits, and the resolver cannot say which node
+    that name means.
+
+    So a name is taken if *anything* already answers to it, alias or
+    canonical, and the comparison is de-branded because "Armaf Club de
+    Nuit" and "Club de Nuit" are the same claim on the same words.
+    """
+    names: set[str] = set()
+    for row in conn.execute(
+        "SELECT canonical_name, brand, aliases FROM fragrances"
+    ):
+        brand = row["brand"] or ""
+        candidates = [row["canonical_name"]]
+        try:
+            candidates += json.loads(row["aliases"] or "[]")
+        except (TypeError, ValueError):
+            pass
+        for name in candidates:
+            if not name:
+                continue
+            names.add(normalize_name(name))
+            names.add(normalize_name(debranded(name, brand)))
+    names.discard("")
+    return names
+
+
 def apply_review(conn: sqlite3.Connection, proposals: list[Proposal]) -> ApplyStats:
     """Add the approved proposals as fragrances.
 
@@ -382,10 +601,7 @@ def apply_review(conn: sqlite3.Connection, proposals: list[Proposal]) -> ApplySt
     failure: the catalogue proposes, a person decides.
     """
     stats = ApplyStats()
-    existing = {
-        normalize_name(row["canonical_name"])
-        for row in conn.execute("SELECT canonical_name FROM fragrances")
-    }
+    existing = claimed_names(conn)
     for p in proposals:
         if p.approved is None:
             stats.skipped_unapproved += 1
@@ -397,7 +613,13 @@ def apply_review(conn: sqlite3.Connection, proposals: list[Proposal]) -> ApplySt
             log.warning("Approved but has no name: %r", p.mention)
             stats.skipped_unapproved += 1
             continue
-        if normalize_name(p.canonical_name) in existing:
+        # De-branded too: a catalogue name carrying the house is the same
+        # claim as a bare one the corpus already holds.
+        forms = {
+            normalize_name(p.canonical_name),
+            normalize_name(debranded(p.canonical_name, p.brand or "")),
+        }
+        if forms & existing:
             # Still teach the existing entry the mention it missed.
             stats.skipped_existing += 1
             continue
@@ -406,7 +628,8 @@ def apply_review(conn: sqlite3.Connection, proposals: list[Proposal]) -> ApplySt
         add_fragrance(
             conn, p.canonical_name, brand=p.brand, aliases=[p.mention]
         )
-        existing.add(normalize_name(p.canonical_name))
+        existing |= forms
+        existing.add(normalize_name(p.mention))
         stats.added += 1
     return stats
 

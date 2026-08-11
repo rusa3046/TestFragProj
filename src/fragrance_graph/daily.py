@@ -44,6 +44,12 @@ approved. Every other value means a human is being asked something:
     corpus_mentions == 0    a flanker nobody wrote  -> hold: pick an alternative
     corpus_mentions >  0    a flanker people discuss -> hold: probably its own entry
 
+`corpus_mentions` only asks what the *catalogue name* adds. The mirror had
+to be added after the first live run merged "Club De Nuit EDP" into "Armaf
+Club De Nuit": a mention more specific than the name it matched also has
+nothing distinguishing, and merging it is the same error in reverse. So
+`names_agree` requires neither side to add a word the other lacks.
+
 A merge is permanent and invisible to the test suite; a hold costs one
 lookup later and stays visible in `resolve.entities report`. That asymmetry
 is why the rule refuses rather than guesses, and it is the same one
@@ -54,7 +60,7 @@ is why the rule refuses rather than guesses, and it is the same one
 — which is roughly a 6% error rate on carefully checked entries. Automatic
 curation will do worse than that, not better. What stops a bad merge
 reaching a reader is not this rule; it is the publishing gate in
-`pages.py`, which requires 3 distinct commenters across 2 videos before a
+`pages.py`, which requires 3 distinct commenters across 2 creators before a
 pair becomes a page. This rule only has to be good enough that the gate is
 not doing all the work alone.
 
@@ -63,6 +69,17 @@ not doing all the work alone.
 Every paid step goes through `budget.Budget`, a hard $1/day stop backed by
 a committed ledger. See `budget.py` for why the ledger is a file rather
 than a table.
+
+This was aspirational until 2026-08-11: extraction was metered, catalogue
+lookups were not. That was survivable only while the catalogue's free tier
+capped itself at 20 requests a month. On pay-per-use the loop would make
+`--lookup-limit` billable calls per run, unattended, with nothing written
+to the ledger — the exact failure `budget.py` exists to prevent, in the
+one step the cap never saw. Lookups now bill through the same ledger at
+`enrich.LOOKUP_COST_USD`, charged *before* each request.
+
+Note the cap is per **day** and lookups are priced per request, so a large
+`--lookup-limit` needs `--cap` raised to match, or splitting across days.
 """
 
 from __future__ import annotations
@@ -77,7 +94,7 @@ from pathlib import Path
 
 from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
-from fragrance_graph.resolve.enrich import Proposal
+from fragrance_graph.resolve.enrich import Proposal, names_agree
 
 log = logging.getLogger("fragrance_graph.daily")
 
@@ -107,6 +124,13 @@ def auto_approvable(proposal: Proposal, *, min_count: int = AUTO_MIN_COUNT) -> b
         return False  # the proposed name is not the mention people wrote
     if proposal.corpus_mentions != -1:
         return False  # a flanker question exists, so a person answers it
+    if not names_agree(
+        proposal.mention, proposal.canonical_name, proposal.brand or ""
+    ):
+        # The mention is more specific than the name it matched — the
+        # flanker question in reverse. `corpus_mentions == -1` cannot see
+        # this, because it only asks what the *candidate* adds.
+        return False
     return proposal.count >= min_count
 
 
@@ -121,6 +145,10 @@ class RunReport:
     claims_written: int = 0
     spend_usd: float = 0.0
     budget_remaining_usd: float = DAILY_CAP_USD
+    #: The cap this run actually ran under. `render` used to print the
+    #: module default, so a run started with --cap 1.50 reported being
+    #: stopped by a $1.00 cap that was not in force.
+    cap_usd: float = DAILY_CAP_USD
     stopped_on_budget: bool = False
     looked_up: int = 0
     auto_approved: list[str] = field(default_factory=list)
@@ -140,7 +168,7 @@ class RunReport:
             lines += [f"  ! {e}" for e in self.errors]
         if self.stopped_on_budget:
             lines.append(
-                f"  ! Stopped on the ${DAILY_CAP_USD:.2f} daily cap. "
+                f"  ! Stopped on the ${self.cap_usd:.2f} daily cap. "
                 "Un-extracted comments resume tomorrow."
             )
 
@@ -207,7 +235,7 @@ def run(
     """One pass of the loop. Every paid step is guarded by `budget`."""
     from fragrance_graph.pages import build, qualifying_pairs
 
-    report = RunReport(dry_run=dry_run)
+    report = RunReport(dry_run=dry_run, cap_usd=budget.cap_usd)
     report.pages_before = len(qualifying_pairs(conn))
     report.budget_remaining_usd = budget.remaining_usd
 
@@ -216,16 +244,25 @@ def run(
         report.errors.append(
             f"Today's ${budget.cap_usd:.2f} was already spent before this run."
         )
+        # Nothing ran, so nothing changed. Without this the default 0
+        # renders as "Pages 0 (-6 today)" — a run that did nothing at all
+        # reporting that it destroyed every published page. On the loop
+        # whose whole contract is an honest summary, a false alarm is the
+        # most expensive kind of wrong.
+        report.pages_after = report.pages_before
         return report
 
     if not dry_run:
         _collect(conn, queries, max_videos, ingest_limit, report)
         _extract(conn, budget, ingest_limit, report)
 
+    _curate(conn, budget, lookup_limit, report, dry_run=dry_run)
+
+    # Read after curation, not before: catalogue lookups are billed too, and
+    # reporting the total before the last paid step understated it by
+    # exactly the amount the operator most wanted to see.
     report.spend_usd = budget.spent_usd
     report.budget_remaining_usd = budget.remaining_usd
-
-    _curate(conn, lookup_limit, report, dry_run=dry_run)
 
     if not dry_run:
         from fragrance_graph.resolve.entities import backfill
@@ -279,6 +316,22 @@ def _collect(conn, queries, max_videos, ingest_limit, report: RunReport) -> None
     seen_videos = list(dict.fromkeys(seen_videos))
     report.videos_searched = len(seen_videos)
 
+    # Budgeted in **new** comments, not comments seen.
+    #
+    # Decrementing by rows fetched made an already-ingested video cost the
+    # same as a fresh one. Measured 2026-08-11: a run over six new queries
+    # found 18 videos, spent the whole 400 re-reading the first three —
+    # "200 seen, 0 new, 200 already stored" — and stopped before reaching
+    # any of the new creators. It collected 29 comments and published
+    # nothing.
+    #
+    # That is the opposite of what the limit is for. It exists to cap how
+    # much extraction one run can queue, and a comment already stored
+    # queues none. Re-reading is nearly free (1 YouTube unit per 100
+    # comments against a 10,000/day allowance) while *not* reaching a new
+    # creator is the expensive outcome: the publishing gate needs two
+    # distinct sources, so new creators are the only thing that turns
+    # existing pairs into pages.
     remaining = ingest_limit
     for video_id in seen_videos:
         if remaining <= 0:
@@ -298,7 +351,7 @@ def _collect(conn, queries, max_videos, ingest_limit, report: RunReport) -> None
         # comments under a source that cannot be re-fetched.
         stats = ingest(conn, rows, source=SOURCE)
         report.comments_ingested += stats.new
-        remaining -= len(rows)
+        remaining -= stats.new
 
     # One `videos.list` call covers fifty videos for a single quota unit,
     # and titles are what a later resolver needs to tell one house's
@@ -335,9 +388,15 @@ def _extract(conn, budget: Budget, limit: int, report: RunReport) -> None:
     report.claims_written = _claim_count(conn) - before
 
 
-def _curate(conn, lookup_limit: int, report: RunReport, *, dry_run: bool) -> None:
+def _curate(conn, budget: Budget, lookup_limit: int, report: RunReport, *,
+            dry_run: bool) -> None:
     """Look up newly frequent names, write the ones with no decision in them."""
-    from fragrance_graph.resolve.enrich import ApplyStats, apply_review, propose
+    from fragrance_graph.resolve.enrich import (
+        ApplyStats,
+        apply_review,
+        propose,
+        read_review,
+    )
 
     wanted = newly_frequent(conn, limit=lookup_limit, min_count=AUTO_MIN_COUNT)
     report.looked_up = len(wanted)
@@ -350,10 +409,32 @@ def _curate(conn, lookup_limit: int, report: RunReport, *, dry_run: bool) -> Non
     review = Path("data/curation/auto-review.json")
     try:
         proposals = propose(
-            conn, review, limit=lookup_limit, min_count=AUTO_MIN_COUNT
+            conn, review, limit=lookup_limit, min_count=AUTO_MIN_COUNT,
+            on_spend=budget.guard("catalogue"),
         )
+    except BudgetExhausted as exc:
+        # Not an error: the cap did its job. Rows bought before the stop
+        # were still written, so they are curated below.
+        report.stopped_on_budget = True
+        log.warning("%s", exc)
+        proposals = read_review(review) if review.exists() else []
     except SystemExit as exc:
         report.errors.append(f"catalogue lookup failed: {exc}")
+        return
+    except Exception as exc:
+        # Transport, DNS, TLS, an egress policy denying the host. `propose`
+        # raises SystemExit only for the failures it anticipated (quota, a
+        # rejected key); everything else arrives as an ordinary exception
+        # and used to kill the whole run from here.
+        #
+        # That was the wrong shape for this loop. Curation is the last
+        # paid step, and backfill, export and pages that follow it need no
+        # catalogue at all — so an unreachable catalogue was discarding
+        # work already done and, worse, taking the report with it. An
+        # unattended loop that dies silently is the failure this module's
+        # whole design is trying to avoid, so this degrades like the other
+        # two steps: record it, finish the run, say so at the top.
+        report.errors.append(f"catalogue unreachable: {exc!r}")
         return
 
     for proposal in proposals:
@@ -406,6 +487,17 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
+    # Every other entrypoint does this; daily.py did not, so a local run
+    # silently ignored .env and reported both keys missing while the file
+    # sat right there. The loop is the entrypoint most likely to be run
+    # by a scheduler that has no shell profile to inherit from.
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
 
     if args.command == "spend":
         from fragrance_graph.budget import summary

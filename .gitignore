@@ -20,3 +20,13 @@ labels*.json
 # function of data/corpus/, costing no quota, money or judgement to
 # reproduce. Same reasoning that keeps products out of the corpus.
 site/
+
+# Labelling scratch files — templates and drafts are working files, not
+# corpus. The labels themselves land in data/corpus/eval_labels.jsonl.
+next*.json
+drafted*.json
+silent*.json
+labels*.json
+todraft*.json
+review*.json
+blind*.json

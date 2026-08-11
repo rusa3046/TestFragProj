@@ -88,3 +88,44 @@ def test_migrations_are_recorded(tmp_path):
     assert "0001_init.sql" in recorded
     assert "0004_source_channel.sql" in recorded
     conn.close()
+
+
+def test_canonical_name_is_unique(conn):
+    """One row per bottle, enforced where no code path can bypass it.
+
+    Auto-curation wrote the same bottle twice on 2026-08-11 and nothing
+    stopped it. The application guards catch the cases they know about;
+    this catches the rest.
+    """
+    import sqlite3
+
+    import pytest
+
+    from fragrance_graph.resolve.entities import add_fragrance
+
+    add_fragrance(conn, "Armaf Club de Nuit Intense Man", brand="Armaf")
+    with pytest.raises(sqlite3.IntegrityError):
+        add_fragrance(conn, "Armaf Club de Nuit Intense Man", brand="Armaf")
+
+
+def test_the_uniqueness_ignores_case(conn):
+    """"Armaf Club De Nuit" and "Armaf Club de Nuit" are one bottle."""
+    import sqlite3
+
+    import pytest
+
+    from fragrance_graph.resolve.entities import add_fragrance
+
+    add_fragrance(conn, "Armaf Club De Nuit", brand="Armaf")
+    with pytest.raises(sqlite3.IntegrityError):
+        add_fragrance(conn, "armaf club de nuit", brand="Armaf")
+
+
+def test_distinct_flankers_are_still_allowed(conn):
+    """The constraint must not swallow real siblings."""
+    from fragrance_graph.resolve.entities import add_fragrance
+
+    add_fragrance(conn, "Parfums de Marly Layton", brand="Parfums de Marly")
+    add_fragrance(conn, "Parfums de Marly Layton Exclusif",
+                  brand="Parfums de Marly")
+    assert conn.execute("SELECT count(*) FROM fragrances").fetchone()[0] == 2

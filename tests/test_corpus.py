@@ -293,3 +293,213 @@ def test_two_labelers_on_one_comment_both_survive(conn, tmp_path):
     labelers = [r[0] for r in fresh.execute("SELECT labeler FROM eval_labels ORDER BY 1")]
     assert labelers == ["aanya", "colleague"]
     fresh.close()
+
+
+class TestCorpusIsTheAuthority:
+    """Import upserts, so a row removed from the corpus can resurrect."""
+
+    def _corpus(self, tmp_path, names):
+        import json
+        d = tmp_path / "corpus"
+        d.mkdir(exist_ok=True)
+        (d / "fragrances.jsonl").write_text(
+            "".join(
+                json.dumps({"canonical_name": n, "brand": "B",
+                            "house_year": None, "aliases": []}) + "\n"
+                for n in names
+            ),
+            encoding="utf-8",
+        )
+        return d
+
+    def test_a_row_the_corpus_dropped_is_reported(self, conn, tmp_path):
+        """The resurrection path, named so it cannot happen silently."""
+        from fragrance_graph.corpus import import_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Armaf Club De Nuit", brand="Armaf")
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        conn.commit()
+
+        stats = import_corpus(conn, self._corpus(tmp_path, ["Lattafa Khamrah"]))
+        assert stats.extra_fragrances == ["Armaf Club De Nuit"]
+        # Reported, not deleted: it might be curation not yet exported.
+        assert conn.execute(
+            "SELECT count(*) FROM fragrances"
+        ).fetchone()[0] == 2
+
+    def test_prune_deletes_them(self, conn, tmp_path):
+        from fragrance_graph.corpus import import_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Armaf Club De Nuit", brand="Armaf")
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        conn.commit()
+
+        import_corpus(conn, self._corpus(tmp_path, ["Lattafa Khamrah"]),
+                      prune=True)
+        names = {r["canonical_name"]
+                 for r in conn.execute("SELECT canonical_name FROM fragrances")}
+        assert names == {"Lattafa Khamrah"}
+
+    def test_a_matching_database_reports_nothing(self, conn, tmp_path):
+        from fragrance_graph.corpus import import_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        conn.commit()
+        stats = import_corpus(conn, self._corpus(tmp_path, ["Lattafa Khamrah"]))
+        assert stats.extra_fragrances == []
+
+    def test_prune_survives_claims_pointing_at_the_row(self, conn, tmp_path):
+        """The crash: a foreign key refuses to drop a curated fragrance.
+
+        Pruning must un-resolve the claims, never delete them — a claim
+        cost real money and its raw text is still true.
+        """
+        from fragrance_graph.corpus import import_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+        from tests.test_query import add_comment
+
+        doomed = add_fragrance(conn, "Armaf Club De Nuit", brand="Armaf")
+        keep = add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        cid = add_comment(conn, 1, body="club de nuit smells like khamrah",
+                          author="u1")
+        conn.execute(
+            "INSERT INTO claims (comment_id, claim_type, subject_kind,"
+            " raw_subject_text, subject_frag_id, object_kind,"
+            " raw_object_text, object_frag_id, confidence, polarity,"
+            " evidence_span, evidence_verified, extraction_model, created_at)"
+            " VALUES (?, 'SIMILAR_TO', 'FRAGRANCE', 'club de nuit', ?,"
+            " 'FRAGRANCE', 'khamrah', ?, 0.9, 'ASSERTED', 'x', 1,"
+            " 'test', '2026-01-01')",
+            (cid, doomed, keep),
+        )
+        conn.commit()
+
+        import_corpus(conn, self._corpus(tmp_path, ["Lattafa Khamrah"]),
+                      prune=True)
+
+        row = conn.execute(
+            "SELECT subject_frag_id, object_frag_id, raw_subject_text"
+            " FROM claims"
+        ).fetchone()
+        assert row["subject_frag_id"] is None, "must let go of the pruned row"
+        assert row["object_frag_id"] == keep, "the other end is untouched"
+        assert row["raw_subject_text"] == "club de nuit", "text is preserved"
+
+
+class TestRejectsRoundTrip:
+    """Rejections survive a rebuild, which is the whole reason to commit them."""
+
+    def _reject(self, conn, comment_id, reason="NOTE_DESCRIPTOR ... got NONE"):
+        conn.execute(
+            "INSERT INTO rejected_claims (comment_id, reason, raw_json,"
+            " extraction_model, created_at)"
+            " VALUES (?, ?, '{\"claim_type\": \"NOTE_DESCRIPTOR\"}',"
+            " 'test', '2026-01-01')",
+            (comment_id, reason),
+        )
+
+    def test_a_rejection_survives_export_and_import(self, conn, tmp_path):
+        """The loss that motivated this: a rebuild wiped ~66 rejections."""
+        from fragrance_graph.corpus import export_corpus, import_corpus
+        from fragrance_graph.db import get_connection, migrate
+        from tests.test_query import add_comment
+
+        cid = add_comment(conn, 1, body="layton is soft asf", author="u1")
+        self._reject(conn, cid)
+        conn.commit()
+
+        stats = export_corpus(conn, tmp_path)
+        assert stats.rejects == 1
+
+        fresh = get_connection(tmp_path / "rebuilt.db")
+        migrate(fresh)
+        imported = import_corpus(fresh, tmp_path)
+        assert imported.rejects == 1
+        row = fresh.execute(
+            "SELECT reason, raw_json FROM rejected_claims"
+        ).fetchone()
+        assert "NOTE_DESCRIPTOR" in row["reason"]
+        assert "NOTE_DESCRIPTOR" in row["raw_json"]
+        fresh.close()
+
+    def test_importing_twice_does_not_duplicate(self, conn, tmp_path):
+        """A rejection has no natural key, so merging would multiply it."""
+        from fragrance_graph.corpus import export_corpus, import_corpus
+        from tests.test_query import add_comment
+
+        cid = add_comment(conn, 1, body="layton is soft asf", author="u1")
+        self._reject(conn, cid)
+        conn.commit()
+        export_corpus(conn, tmp_path)
+
+        import_corpus(conn, tmp_path)
+        import_corpus(conn, tmp_path)
+        assert conn.execute(
+            "SELECT count(*) FROM rejected_claims"
+        ).fetchone()[0] == 1
+
+    def test_the_analysis_works_after_a_rebuild(self, conn, tmp_path):
+        """The point of committing them: `recoverable` still has data."""
+        from fragrance_graph.corpus import export_corpus, import_corpus
+        from fragrance_graph.db import get_connection, migrate
+        from fragrance_graph.extract.rejects import recoverable
+        from tests.test_query import add_comment
+
+        cid = add_comment(conn, 1, body="layton is soft asf", author="u1")
+        self._reject(conn, cid)
+        conn.commit()
+        export_corpus(conn, tmp_path)
+
+        fresh = get_connection(tmp_path / "rebuilt.db")
+        migrate(fresh)
+        import_corpus(fresh, tmp_path)
+        assert recoverable(fresh)["total"] == 1
+        fresh.close()
+
+
+def test_a_claim_naming_a_missing_fragrance_is_reported(conn, tmp_path):
+    """Hand-editing fragrances.jsonl leaves claims pointing at nothing.
+
+    They import as NULL, so the claim silently stops being an edge. Five
+    were committed that way on 2026-08-11.
+    """
+    import json
+
+    from fragrance_graph.corpus import import_corpus
+    from tests.conftest import make_comment
+
+    d = tmp_path / "corpus"
+    d.mkdir()
+    (d / "fragrances.jsonl").write_text(
+        json.dumps({"canonical_name": "Lattafa Khamrah", "brand": "Lattafa",
+                    "house_year": None, "aliases": []}) + "\n",
+        encoding="utf-8",
+    )
+    comment = make_comment(1)
+    (d / "comments.jsonl").write_text(
+        json.dumps({"source": "youtube", **comment, "extracted_at": None}) + "\n",
+        encoding="utf-8",
+    )
+    (d / "claims.jsonl").write_text(
+        json.dumps({
+            "comment_source": "youtube",
+            "comment_source_id": comment["source_id"],
+            "claim_type": "SIMILAR_TO", "polarity": "ASSERTED",
+            "subject_kind": "FRAGRANCE", "raw_subject_text": "khamrah",
+            "object_kind": "FRAGRANCE", "raw_object_text": "club de nuit",
+            "sentiment": "NEUTRAL", "confidence": 0.9,
+            "evidence_span": "x", "evidence_verified": 1,
+            "extraction_model": "test", "created_at": "2026-01-01",
+            "subject_fragrance": "Lattafa Khamrah",
+            "object_fragrance": "Armaf Club De Nuit",
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    stats = import_corpus(conn, d)
+    assert stats.dangling_fragrances == {"Armaf Club De Nuit": 1}
+    # The claim is still imported — it is real, it just is not an edge.
+    assert stats.claims == 1

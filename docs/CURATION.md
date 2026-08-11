@@ -94,6 +94,26 @@ Club de Nuit Imperial, others — and a reviewer following this page would
 have moved plain Layton, the corpus's most-discussed fragrance, onto a
 flanker five people mentioned.
 
+### The brand is not a flanker
+
+`corpus_mentions` compares what a catalogue name adds **beyond the bottle
+you named** — and the house does not count. People write bare names;
+catalogues return them qualified:
+
+```
+"Layton"  ->  "Parfums de Marly Layton"
+```
+
+Read literally that adds three words, and an earlier version of this rule
+treated them as flanker qualifiers. Measured against the 25 hand-verified
+entries in `data/curation/verified.json`, **zero** cleared the auto-rule —
+not because it was strict, but because it was unreachable.
+
+With the house excluded, 19 of those 25 clear it and the 6 held are exactly
+the family this page is about: `Club de Nuit` → Intense Man, `Qahwa` →
+Khamrah Qahwa, `Imperiale`, `Amethyst`, `Orientica Royal Bleu`, and the
+deliberately-ambiguous `Perseus`.
+
 `corpus_mentions` values:
 
 | value | meaning |
@@ -160,3 +180,118 @@ do not make you confident, reject and move on.
 `approved` starts `null`, and `apply` writes nothing for a null row. An
 unreviewed file adds zero fragrances. If you run `apply` and nothing
 happens, that is the guard working, not a bug.
+
+## Measured 2026-08-11: why the auto-rule could not fire
+
+*This is the measurement that prompted the brand-exclusion fix above. It
+is kept as the record of how the defect was found; the behaviour it
+describes is the behaviour **before** that fix.*
+
+`daily.AUTO_RULE` auto-approves a proposal only when
+`corpus_mentions == -1` — "the proposed name adds no word to the mention,
+so the flanker question does not arise". Replayed against the 25
+hand-verified entries in `data/curation/verified.json`, entries a human
+already approved:
+
+    auto-approved   0 / 25
+    held           25 / 25
+
+Not narrow — **unreachable**. The cause is not the `-1` threshold. It is
+that `distinguishing_words` compares the mention against the catalogue's
+*brand-qualified* name, so the brand counts as a distinguishing word:
+
+    mention "Layton"  vs  "Parfums de Marly Layton"
+      distinguishing_words -> ["parfums", "de", "marly"]
+      corpus_mentions      -> 0, not -1
+      similarity           -> 0.414, so `confident` is false too
+
+Both gates fail, for the same reason, on a brand prefix that is not a
+flanker at all. Commenters write the bare bottle name; catalogues return
+the house with it. So the rule asks a flanker question about "Creed" and
+"Dior" and then refuses to answer it.
+
+`Brand` is already a separate field, already returned, already stored.
+Excluding the brand's own words from `distinguishing_words` before
+computing support changes the same 24 entries to:
+
+    corpus_mentions == -1   19 / 24
+    confident (>= 0.80)     19 / 24
+    both -> auto-approved    19 / 24
+
+and the 5 it still holds are exactly the flanker family this document is
+about:
+
+| mention | catalogue name | held because |
+|---|---|---|
+| `Club de Nuit` | Club de Nuit **Intense Man** | `intense man`, 8 corpus mentions |
+| `Qahwa` | **Khamrah** Qahwa | `khamrah`, 9 corpus mentions |
+| `Imperiale` | **Club de Nuit** Imperiale | `club de`, 8 corpus mentions |
+| `Amethyst` | **Bade'e Al Oud** Amethyst | `bade e al oud`, 1 mention |
+| `Orientica Royal Bleu` | **Luxury Collection** Royal Bleu | `luxury collection`, 0 mentions |
+
+That is the rule behaving as its docstring describes: it takes the rows
+with no judgement in them and holds the ones with a real question. The
+25th entry, `Perseus`, is the known-ambiguous one — two houses ship a
+Perseus — and is excluded from the count.
+
+**This change has since been made** — see the brand-exclusion section
+above, which implements the brand exclusion and carries its own tests.
+It has still never run against the live catalogue: `api.fragella.com` is
+blocked by the runner's egress policy (403 on CONNECT), so both the
+measurement and the fix rest on an offline replay against known-good
+entries. The first live run is still the real test.
+
+Worth noting for the target: 19 auto-approvals would take curation from
+50 to ~69, inside the 60-80 band, without a human deciding anything the
+corpus had not already settled. That is a projection from the replay, not
+an observed result.
+
+## Lookups are spent before they are filtered
+
+`candidates` drops pronouns and anything mentioned once, but not text that
+cannot name a bottle for other reasons. Of the 25 mentions the
+2026-08-11 run queued:
+
+- 4 are unnameable — `this stuff`, `extrait`, `Bought it`, `Club`
+- 3 are bare houses, not bottles — `Tom Ford`, `Armaf`, `Alhambra`; a
+  search for a house returns whichever bottle it likes
+- `Creed` and `creed` are queued as two separate lookups
+
+The catalogue's free tier is **20 requests per month** and the default
+`--lookup-limit` is 25, so one run overspends the month before any of
+this is weighed. Filter the candidate list, or lower the limit, before
+the next live run.
+
+## The reverse flanker, found on the first live run (2026-08-11)
+
+Excluding the brand made the auto-rule reachable. It also made a second
+defect reachable, and that one merged a bottle.
+
+`distinguishing_words` asks what the *catalogue name* adds. It never asked
+what the *mention* adds. So a mention more specific than the name it
+matched has no distinguishing words, scores `-1`, and auto-approves:
+
+    "Club De Nuit EDP"  vs  "Armaf Club De Nuit"   -> [] -> merged
+    "Layton Exclusif"   vs  "Parfums de Marly Layton"
+    "Khamrah Qahwa"     vs  "Lattafa Khamrah"
+    "Aventus Absolu"    vs  "Creed Aventus"
+
+The first of those actually happened. It created `Armaf Club De Nuit`
+alongside the hand-curated `Armaf Club de Nuit Intense Man`, so
+`Club De Nuit EDP` and `Club de Nuit` pointed at different nodes for the
+same bottle and its edges split across both. The row has been removed and
+the mention returned to unresolved.
+
+Of the two rows that first run auto-approved, one was this. **A 50% error
+rate**, against the module docstring's estimate that automatic curation
+would do somewhat worse than the 6% measured on hand-checked entries.
+
+A qualifier is a qualifier on whichever side it appears, so auto-approval
+now requires agreement in both directions — `names_agree`. Neither the
+mention nor the name may add a word the other lacks. `Club de nuit Iconic`
+→ `Armaf Club De Nuit Iconic` still auto-approves, because the qualifier
+is present on both sides and there is genuinely nothing to decide.
+
+The general lesson is the one the publishing gate already encodes: the
+auto-rule is not the thing keeping bad merges away from readers, and it
+should not be trusted as though it were.

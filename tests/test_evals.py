@@ -447,3 +447,85 @@ def test_non_edge_types_are_untouched_by_collapsing():
     claims = {1: [{"claim_type": "LONGEVITY", "raw_subject_text": "X",
                    "raw_object_text": None, "sentiment": "NEGATIVE"}]}
     assert collapse_similarity(claims)[1][0]["claim_type"] == "LONGEVITY"
+
+
+class TestImportRefusesToDestroyGroundTruth:
+    """The two imports that silently turned an eval set into model output.
+
+    Both happened on 2026-08-11: a drafted file went in under a human
+    labeler, and an unfilled file asserted that 15 comments say nothing.
+    `import` only checked that the comments existed.
+    """
+
+    def _entry(self, **over):
+        e = {"source": "youtube", "source_id": "abc", "claims": []}
+        e.update(over)
+        return e
+
+    def test_a_drafted_file_cannot_become_human_judgement(self):
+        from fragrance_graph.evals.labels import UnreviewedDraft, check_reviewable
+
+        entries = [self._entry(
+            drafted_by="claude-opus-5",
+            claims=[{"claim_type": "DUPE_OF", "raw_subject_text": "a",
+                     "raw_object_text": "b"}],
+        )]
+        with pytest.raises(UnreviewedDraft) as exc:
+            check_reviewable(entries, labeler="aanya-verified")
+        assert "agreement between models" in str(exc.value)
+        assert "opus5-draft" in str(exc.value)
+
+    def test_drafts_import_fine_under_the_drafter(self):
+        from fragrance_graph.evals.labels import check_reviewable
+
+        entries = [self._entry(
+            drafted_by="claude-opus-5",
+            claims=[{"claim_type": "DUPE_OF", "raw_subject_text": "a",
+                     "raw_object_text": "b"}],
+        )]
+        check_reviewable(entries, labeler="opus5-draft")
+
+    def test_dropping_the_marker_records_that_a_person_stands_behind_it(self):
+        """Reviewing means removing the provenance, deliberately."""
+        from fragrance_graph.evals.labels import check_reviewable
+
+        entries = [self._entry(claims=[
+            {"claim_type": "DUPE_OF", "raw_subject_text": "a",
+             "raw_object_text": "b"}
+        ])]
+        check_reviewable(entries, labeler="aanya-verified")
+
+    def test_an_unfilled_file_is_refused(self):
+        from fragrance_graph.evals.labels import UnreviewedDraft, check_reviewable
+
+        with pytest.raises(UnreviewedDraft) as exc:
+            check_reviewable([self._entry(), self._entry(source_id="def")],
+                             labeler="aanya-verified")
+        assert "--allow-empty" in str(exc.value)
+
+    def test_genuinely_empty_labels_are_allowed_when_said_so(self):
+        from fragrance_graph.evals.labels import check_reviewable
+
+        check_reviewable([self._entry()], labeler="aanya-verified",
+                         allow_empty=True)
+
+    def test_allow_empty_does_not_also_wave_through_drafts(self):
+        """The two failures are separate, and the flag only excuses one."""
+        from fragrance_graph.evals.labels import UnreviewedDraft, check_reviewable
+
+        with pytest.raises(UnreviewedDraft):
+            check_reviewable(
+                [self._entry(drafted_by="claude-opus-5")],
+                labeler="aanya-verified",
+                allow_empty=True,
+            )
+
+    def test_a_partly_filled_file_passes(self):
+        from fragrance_graph.evals.labels import check_reviewable
+
+        check_reviewable(
+            [self._entry(), self._entry(source_id="def", claims=[
+                {"claim_type": "DUPE_OF", "raw_subject_text": "a",
+                 "raw_object_text": "b"}])],
+            labeler="aanya-verified",
+        )

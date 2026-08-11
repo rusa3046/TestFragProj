@@ -39,7 +39,12 @@ from typing import Any
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 from fragrance_graph.evals.labels import export_template, load_labels
 from fragrance_graph.evals.score import edge_score, match_key, score
-from fragrance_graph.models import ALLOWED_OBJECT_KINDS, EDGE_CLAIM_TYPES, ClaimType
+from fragrance_graph.models import (
+    ALLOWED_OBJECT_KINDS,
+    EDGE_CLAIM_TYPES,
+    ClaimType,
+    Polarity,
+)
 
 log = logging.getLogger("fragrance_graph.evals.autolabel")
 
@@ -153,6 +158,16 @@ that everything else is measured against.
 - One subject per claim. A sentence naming three fragrances is three
   claims, never one claim with three names crammed into the subject.
 - {policy_text}
+- polarity is ASSERTED when the commenter says the relationship holds and
+  DENIED when they say it does not. "Nothing like Angels Share", "there is
+  no clone of Oud Wood that captures it", "this is NOT a dupe" are all
+  DENIED. Label the relationship the commenter is talking about, then say
+  whether they affirm or reject it — do not drop the claim.
+- polarity is not sentiment. A denial is usually NEGATIVE, but "worst dupe
+  of Aventus I have tried" is an ASSERTED dupe with NEGATIVE sentiment: the
+  commenter agrees it is a dupe and dislikes it. Collapsing the two is what
+  made 36 denials get stored as edges, so a page quoted people as evidence
+  for the claim they were rejecting.
 - sentiment is POSITIVE, NEGATIVE, or NEUTRAL, and describes how the
   commenter frames it. A complaint about weak projection is PROJECTION
   with NEGATIVE sentiment, not a separate claim type.
@@ -188,12 +203,17 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                                     "type": "string",
                                     "enum": ["POSITIVE", "NEGATIVE", "NEUTRAL"],
                                 },
+                                "polarity": {
+                                    "type": "string",
+                                    "enum": [p.value for p in Polarity],
+                                },
                             },
                             "required": [
                                 "claim_type",
                                 "raw_subject_text",
                                 "raw_object_text",
                                 "sentiment",
+                                "polarity",
                             ],
                             "additionalProperties": False,
                         },
@@ -453,6 +473,14 @@ def main(argv: list[str] | None = None) -> int:
 
     d = sub.add_parser("draft", help="Draft labels for review")
     d.add_argument("out", type=Path, help="Where to write the drafted template")
+    d.add_argument(
+        "--from", dest="from_template", type=Path, default=None, metavar="FILE",
+        help=(
+            "Draft the comments in an existing template rather than a fresh "
+            "sample — e.g. one written by `evals.sample plan`, so drafting "
+            "and targeted selection compose. Ignores --sample."
+        ),
+    )
     d.add_argument("--sample", type=int, default=50, help="Comments to draft")
     d.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     d.add_argument("--model", default=MODEL)
@@ -543,7 +571,28 @@ def main(argv: list[str] | None = None) -> int:
                     )
             return 0
 
-        entries = export_template(conn, sample=args.sample)
+        if args.from_template:
+            # Drafting a chosen set, not a fresh sample. Without this the
+            # targeted plan and the drafting shortcut cannot compose: `draft`
+            # took an output path only, so pointing it at a plan silently
+            # overwrote the plan with 50 uniformly-sampled comments. That
+            # happened on 2026-08-11 and cost the selection it was meant to
+            # act on.
+            entries = json.loads(args.from_template.read_text())
+            if not isinstance(entries, list) or not entries:
+                raise SystemExit(f"{args.from_template} holds no entries.")
+            already = [e for e in entries if e.get("claims")]
+            if already:
+                raise SystemExit(
+                    f"{len(already)} of {len(entries)} entries in "
+                    f"{args.from_template} already carry claims. Drafting "
+                    "would overwrite them — point --from at an unlabelled "
+                    "template, or drop those rows first."
+                )
+            log.info("Drafting %d comments from %s.",
+                     len(entries), args.from_template)
+        else:
+            entries = export_template(conn, sample=args.sample)
         if not entries:
             raise SystemExit("No comments to label. Ingest a corpus first.")
     finally:
