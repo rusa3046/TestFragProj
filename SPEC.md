@@ -37,13 +37,49 @@ few distinct commenters is not a weak result — it is not a result.
 - Anthropic SDK for extraction
 - No web framework yet
 
+## Where this actually is (2026-08-11)
+
+Every phase below is built and has run on real data. The sections after
+them are decision records, written as each decision was made and kept even
+where the decision was later reversed — the reasoning is the point.
+
+| | |
+|---|---|
+| Comments | 4,866 across 39 videos / 29 channels |
+| Claims | 2,118 |
+| Fragrances curated | 56 (41 answer a query) |
+| Distinct pairs | 37 |
+| **Published pages** | **8** — 3+ commenters across 2+ creators |
+| Eval labels | 50 comments drafted, 15 verified by hand |
+| Spent to date | $3.11 |
+
+The funnel, measured rather than modelled:
+
+```
+2,118  all claims
+  902  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
+  809  FRAGRANCE -> FRAGRANCE
+  717  ASSERTED              (-92 denials)
+  711  evidence verified     (-6)
+  109  both ends resolved    <- 56 fragrances curated
+   37  distinct pairs
+    8  published             <- the gate, and it is meant to be lossy
+```
+
+**Curation remains the binding constraint on the graph; the query surface
+is now the binding constraint on the product.** 57% of the corpus —
+`NOTE_DESCRIPTOR`, `LONGEVITY`, `PROJECTION`, `AESTHETIC`, `OCCASION` and
+the rest — is extracted, paid for, stored, and reachable by no query.
+`sentiment_rollup` is implemented and tested and wired to no CLI. See
+*Direction* at the end of this document.
+
 ## Phases
 
 Work happens in phases. Only the current phase should be implemented at any
 given time — later phases are listed here for context, not to be built
 early.
 
-### Phase 1 — foundation (current)
+### Phase 1 — foundation (complete)
 
 1. **Repo scaffold**: `pyproject.toml`, `src/fragrance_graph/`, `tests/`,
    `.env.example`, `README.md`. Ruff + pytest configured.
@@ -1135,6 +1171,58 @@ evidence class: one creator with a megaphone, never counted toward the
 3-commenter bar. Letting the person who framed the question also vote on
 the answer is this section's failure in its purest form.
 
+### The spend cap leaked: $3.11 on a $1.00 day (2026-08-11) — OPEN
+
+The ledger for 2026-08-11 totals **$3.11** against a `DAILY_CAP_USD` of
+$1.00: $0.71 of extraction across two runs, and $2.40 of catalogue lookups
+in a two-minute window. Recorded here as an open defect rather than fixed
+in passing, because the fix depends on which hole is judged to matter.
+
+What is *not* wrong:
+
+- The guard logic is correct. Driven directly it stops at exactly $1.00
+  after 19 lookups at $0.05.
+- The budget object is shared across a run — `_extract` and `_curate`
+  receive the same instance, so one run cannot spend the cap twice.
+- Catalogue spend is charged *before* the request, which is the right
+  order: a cap that records after the call has already bought the thing it
+  meant to prevent.
+
+Two structural holes, both provable:
+
+**1. The cap binds one entry point, not the system.** `daily run` passes
+`budget.guard(...)`. `extract.llm` and `resolve.enrich propose` — both
+documented in README as ordinary commands — pass nothing. A person running
+them by hand spends without limit *and without a ledger row*, so the
+overspend is invisible rather than merely unblocked.
+
+**2. The ledger is a relative path, read per process.**
+`FRAGRANCE_SPEND_LEDGER` defaults to `data/spend.jsonl`, resolved against
+the working directory. A run started elsewhere, or in a fresh container
+before that file has been pulled, calls `spent_on()` on a missing file,
+gets `0.0`, and receives a clean $1.00. `data/spend.jsonl` was only added
+to git partway through the day these runs happened, so at least some of
+them began with no ledger at all.
+
+The second is the one that makes the cap a *per-container* limit rather
+than a per-day one — precisely the failure `budget.py` claims in its own
+docstring to prevent. Committing the ledger was necessary and not
+sufficient: it also has to be committed *before* the next container starts,
+which is a property of the loop, not of the cap.
+
+Candidate fixes, none applied:
+
+- Route every paid call through `Budget`, so the cap is a property of
+  spending rather than of one caller. Cheapest, and closes hole 1
+  entirely.
+- Resolve the ledger against the repository root rather than the cwd.
+- Treat a missing ledger as *unknown* rather than zero and refuse to spend
+  until it is present, mirroring how `queries == 0` is treated as unknown
+  by the publishing gate. Safest, and would have blocked both runs.
+
+Until then, read `DAILY_CAP_USD` as "the daily loop will not exceed $1 in
+one invocation", which is a much weaker statement than the name implies.
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.
@@ -1164,7 +1252,7 @@ matters more than the outcome):
 - `LONGEVITY_COMPLAINT` subtypes — split into LONGEVITY / PROJECTION /
   DEVELOPMENT / REFORMULATION, with polarity moved to `sentiment`.
 
-### Phase 2: entity resolution (in progress)
+### Phase 2: entity resolution (built; curation is ongoing by design)
 
 Mapping raw subject/object text to canonical `fragrances` rows, so that
 the graph has things for nodes instead of strings. `resolve/names.py`
@@ -1193,22 +1281,27 @@ frequency, so effort goes where the corpus actually is. Workflow:
 
     report  →  add / alias  →  backfill  →  edges
 
-### Phase 3 and beyond (not built yet)
+### Phase 3 and beyond
 
-- **The query layer.** `similar_to(conn, fragrance_id)` — the missing
-  product surface. `resolved_edges()` takes no fragrance argument, so
-  there is currently no way to ask the question the project exists to
-  answer. DUPE_OF and SIMILAR_TO are symmetric (an A→B edge must surface
-  when querying B); BETTER_THAN is a preference claim and stays separate.
-  Ranked by distinct commenter count, so one prolific commenter cannot
-  manufacture an edge.
-- **Sentiment rollup** from claim level to fragrance level.
-- **Commerce.** Built — see below. `products` / `retailers` are separate
-  from `fragrances`, populated from affiliate network product feeds, and
-  feed names are matched with `resolve/names.py`.
-- **Comparison pages.** One static page per pair, generated from the query
-  layer, gated at 3+ distinct commenters. Thin pages are worse than none.
-- Any web UI, TikTok or other social sources.
+- **The query layer.** Built. `similar_to(conn, fragrance_id)` answers the
+  question the project exists for. DUPE_OF and SIMILAR_TO are symmetric
+  (an A→B edge surfaces when querying B); BETTER_THAN is a preference
+  claim and stays directional. Ranked by distinct commenter count, so one
+  prolific commenter cannot manufacture an edge.
+- **Sentiment rollup.** Built (`sentiment_rollup`), tested, and **reachable
+  from no CLI or page.** Split per claim type on purpose: a fragrance
+  people love the smell of and complain about the longevity of averages to
+  NEUTRAL, which describes nothing anybody said.
+- **Commerce.** Built. `products` / `retailers` are separate from
+  `fragrances`, populated from affiliate network product feeds, and feed
+  names are matched with `resolve/names.py`. No real feed has been
+  imported and no affiliate account opened.
+- **Comparison pages.** Built (`pages.py`). One static page per pair,
+  gated at 3+ distinct commenters across 2+ creators.
+- **The daily loop.** Built (`daily.py`), demand-driven, under a spend cap
+  whose enforcement has a known hole — see below.
+- Not built: any web UI, TikTok or other social sources, semantic
+  retrieval, comparative claim types.
 
 **Trust requirements, enforced in code:** ranking never considers
 affiliate status or commission — there is a test asserting result order is
@@ -1229,3 +1322,111 @@ it, using brand imagery borrows its authority.
   migration 0004) holds whatever subdivision the source uses.
 - Extraction must be cheap: this runs over 100k+ comments eventually.
 - Cost per 1k comments must be logged so it's visible.
+
+## Direction
+
+Ordered by what unblocks the most, not by what is most interesting. Each
+entry says what it buys and what it costs, because the ordering is the
+argument.
+
+### 1. Close the spend cap (open defect, above)
+
+Nothing else should run unattended until "the cap" means the cap. Cheapest
+version: route every paid call through `Budget`, and treat a missing
+ledger as unknown rather than zero. No API key needed to build or test.
+
+### 2. Finish the eval set
+
+50 comments drafted, **15 verified by hand**. Every conclusion about
+extraction quality currently rests on 13 train comments, where one claim
+moves F1 by ~0.13 — the instrument cannot resolve a change smaller than
+itself, and the project has already recorded two cases where a threshold
+fired on noise.
+
+Target 200-500 verified, stratified across the failure shapes the corpus
+actually contains: implicit similarity, denials, multiple fragrances in one
+comment, pronoun subjects, flankers, comparison chains, very short
+comments. This gates everything in §5 and §6.
+
+**Do not tune the extraction prompt before this.** Recorded three times
+now, each with measurements.
+
+### 3. Broaden the discovery seeds
+
+Six of the eight original seed queries contain the word "dupe", and the
+2026-08-11 runs narrowed further to named bottles. That is why query
+diversity is low, and it is the reason `MIN_QUERIES` is not yet enforced:
+raising the bar would punish the edges for a bias in our own sampling.
+
+The remaining discovery problem is *not* "automate the loop" — that is
+built. It is **choosing seeds broad enough that the loop stops inheriting
+our own search bias**. A corpus assembled by asking for dupes can answer
+"when people compare, what do they compare to"; it cannot answer "how often
+do people compare at all", and it systematically misses the fragrances
+nobody has made a dupe video about.
+
+Then, and only then, raise `MIN_QUERIES` to 2 and accept the page loss.
+
+### 4. A query surface for the 57% of the corpus nothing can reach
+
+`NOTE_DESCRIPTOR` (the single largest claim type), `LONGEVITY`,
+`PROJECTION`, `AESTHETIC`, `OCCASION`, `DEVELOPMENT`, `REFORMULATION`,
+`UNMET_PRODUCT_REQUEST` — all extracted, paid for, stored, queryable by
+nothing. `sentiment_rollup` is built and reachable from no CLI. 79 denials
+are retained deliberately and surfaced nowhere, though *"nine people say
+Khamrah is nothing like Angels' Share"* is a fact a buyer wants.
+
+This is the largest gap between what has been bought and what can be
+asked. It needs no new data and no API key.
+
+**Two cautions.** A page built from `AESTHETIC` is not the same product as
+a page built from `DUPE_OF`: "31 people called this a dupe" carries itself,
+while "the community says this smells feminine" is republishing a
+judgement as consensus — real rows include *"smells like a prostitute"* and
+*"smell like a woman in her 30s"*. And any claim mined from a video title
+or description is one creator with a megaphone, never a vote toward the
+3-commenter bar.
+
+### 5. Semantic retrieval over community language, never over truth
+
+35 `SIMILAR_TO` claims point at everyday things rather than bottles —
+*"walking through a forest"*, *"burning incense"*, *"a grandma cologne"*,
+*"the best mulled spiced apple cider ever"* — plus 341 `NOTE_DESCRIPTOR`
+claims. That is the on-ramp for someone who has never smelled a fragrance
+and has no "I love X" to start from, and it is the substrate for
+*"something like a candlelit hotel bar"*.
+
+The rule that keeps this compatible with the top of this document:
+**embeddings retrieve; people's evidence decides.** A vector may propose a
+candidate. Only counted commenters with quotes may rank or justify one.
+Nothing computed from proximity may ever be stated as similarity.
+
+### 6. Context-aware entity resolution, then richer comparisons
+
+With titles now stored, resolution can use them: `"Perseus"` under a video
+titled *"Maison Alhambra Perseus Review"* is not the Parfums de Marly
+bottle. That turns curation from *human decisions with automation
+assistance* into *automatic resolution with human exception handling*,
+which is what the auto-curation rule already gestures at but cannot reach
+on name similarity alone.
+
+Comparative claim types (`SWEETER_THAN`, `FRESHER_THAN`, …) would make
+*"like Delina but fresher"* expressible. **Last on purpose.** Every
+taxonomy expansion this project has attempted created a new magnet type —
+`LONGEVITY_COMPLAINT` in v1, `NOTE_DESCRIPTOR` in v2 — and both were found
+by measurement, not by reading the prompt. It needs §2 finished first.
+
+### Not on the roadmap, and why
+
+- **Postgres, Neo4j.** 4,866 comments and 2,118 claims. SQLite is nowhere
+  near the constraint, and the graph is logically a graph without needing
+  to live in one.
+- **A release feed / "what is new" crawler.** Rejected with reasoning
+  above: a bottle launched yesterday has no discussion, so a feed delivers
+  fragrances that cannot yet produce an edge. The corpus is the detector.
+- **Video transcripts.** `captions.download` is gated on owning the video,
+  not on being authenticated; every alternative route is the scraping
+  Constraints forbids. `videos.list` gives title and description without
+  OAuth and is already wired in.
+- **Computed similarity from notes or accords.** The thing this document
+  exists to refuse.

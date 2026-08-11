@@ -70,46 +70,46 @@ option.
 ## Status
 
 **All four steps are built and have run on real data**, and Phase D renders
-pages from them. The corpus, the claims, the eval labels and 50 curated
-fragrances are committed, so a clean clone reproduces every number on this
-page.
+pages from them. The corpus, the claims, the eval labels, the 56 curated
+fragrances and the retrieval provenance are committed, so a clean clone
+reproduces every number on this page.
 
-**Curation is still the live bottleneck**, and it is no longer the only
-thing standing between the corpus and a page. 50 entries yield 32 pairs, of
-which **6 clear the publishing gate** of 3+ commenters across 2+ creators
-(distinct uploading channels, not distinct videos).
-The measured curve below says 60-80 entries yields ~45 pairs.
+**Curation is still the binding constraint on the graph** — 56 entries
+yield 37 pairs, of which **8 clear the publishing gate** of 3+ commenters
+across 2+ creators (distinct uploading channels, not distinct videos).
 
-First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
+**But the query surface is now the binding constraint on the product.**
+57% of the corpus is extracted, paid for, stored, and reachable by no
+query — see [What's next](#whats-next).
+
+Corpus as of 2026-08-11 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
 
 | | |
 |---|---|
-| Comments | 3,155 across 24 YouTube videos |
-| Claims | 1,409 (0.447 per comment) |
-| Extraction cost | $1.15 total, $0.3656 per 1k comments |
-| Failed batches | 0 of 158 |
-| Fragrances curated | 50 — the bottleneck, see the curve below |
-| Labelled comments | 50 drafted, 15 verified by hand (13 in train) |
+| Comments | 4,866 across 39 videos / 29 channels |
+| Claims | 2,118 |
+| Extraction cost | $0.3656-$0.4410 per 1k comments, and it moves with the query |
+| Fragrances curated | 56 — 41 of them answer a query |
+| Labelled comments | 50 drafted, **15 verified by hand** (13 in train) |
 | Extractor score | `SIMILARITY EDGES` F1 **0.89**; OVERALL F1 0.50 |
 | Denials caught | 35 of 38 flagged (92%), plus 32 the pattern missed |
+| Spent to date | $3.11 — [over a $1/day cap that leaked](./SPEC.md) |
 
 ### The edge funnel — where the graph actually is
 
-Measured from the committed corpus, 2026-08-11:
-
 ```
-1,409  all claims
-  639  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
-  591  FRAGRANCE -> FRAGRANCE
-  529  ASSERTED              (-62 denials)
-  524  evidence verified     (-5)
-   86  both ends resolved    <- 50 fragrances curated
-   32  distinct pairs
-    6  pages published       <- 3+ commenters AND 2+ creators
+2,118  all claims
+  902  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
+  809  FRAGRANCE -> FRAGRANCE
+  717  ASSERTED              (-92 denials)
+  711  evidence verified     (-6)
+  109  both ends resolved    <- 56 fragrances curated
+   37  distinct pairs
+    8  pages published       <- 3+ commenters AND 2+ creators
 ```
 
 **An edge needs *both* its subject and its object to be a curated bottle**,
-which is why 524 verified claims produce 86. Every filter above works; the
+which is why 711 verified claims produce 109. Every filter above works; the
 graph is small because the dictionary is. At 17 curated entries this line
 read 18, and nothing but curation changed to move it.
 
@@ -723,6 +723,54 @@ Each names the test that would fail:
 - **Nothing that ranks can be sorted by what it pays.** There is no
   commission column anywhere in the schema, which makes the rule a missing
   capability rather than a promise.
+
+## What's next
+
+Ordered by what unblocks the most. [SPEC.md](./SPEC.md) carries the full
+argument for each; this is the short form.
+
+1. **Close the spend cap.** `$3.11` went out on a `$1.00` day. The guard
+   itself is correct, but it binds `daily run` only — `extract.llm` and
+   `enrich propose` spend unbounded and unrecorded — and the ledger is a
+   relative path, so a run started elsewhere gets a fresh allowance.
+   Nothing should run unattended until "the cap" means the cap.
+
+2. **Finish the eval set.** 15 comments verified by hand. One claim moves
+   F1 by ~0.13, so the instrument cannot resolve a change smaller than
+   itself, and two thresholds have already fired on noise. Target 200-500,
+   stratified across denials, pronouns, flankers and multi-fragrance
+   comments. **Do not tune the extraction prompt before this.**
+
+3. **Broaden the discovery seeds.** Six of eight seed queries contain
+   "dupe". That is why query diversity is low and why `--min-queries` is
+   not enforced — raising the bar would punish edges for a bias in our own
+   sampling. The loop is automated; choosing seeds that don't inherit our
+   search bias is the part that isn't.
+
+4. **Give the other 57% of the corpus a query.** `NOTE_DESCRIPTOR` is the
+   largest claim type in the corpus and nothing can ask for it. Same for
+   `LONGEVITY`, `PROJECTION`, `AESTHETIC`, `OCCASION`, and for 79 stored
+   denials. `sentiment_rollup` is built and wired to no CLI. No new data,
+   no API key. Note that a page built from `AESTHETIC` is a different
+   editorial proposition from one built from `DUPE_OF` — real rows include
+   *"smells like a prostitute"*.
+
+5. **Semantic retrieval over community language.** 35 claims compare
+   fragrances to everyday things — *"walking through a forest"*, *"a
+   grandma cologne"* — which is the on-ramp for someone who has never
+   smelled a fragrance and has no "I love X" to start from. The rule that
+   keeps this honest: **embeddings retrieve; people's evidence decides.**
+   Nothing computed from proximity is ever stated as similarity.
+
+6. **Context-aware entity resolution.** Video titles are now stored, so
+   "Perseus" under *"Maison Alhambra Perseus Review"* can resolve
+   correctly — turning curation from human decisions with automation help
+   into automatic resolution with human exception handling.
+
+Deliberately not planned: Postgres or Neo4j (SQLite is nowhere near the
+constraint), a new-release crawler (a bottle launched yesterday has no
+discussion), video transcripts (owner-gated, and every workaround is the
+scraping this project refuses), and computed similarity from notes.
 
 ## Development
 
