@@ -544,6 +544,35 @@ only from failures measures failure; precision on ordinary comments — the
 number that says whether the extractor is usable at all — can only come from
 rows that were not chosen for being hard.
 
+### Drafting, and the line a draft must not cross
+
+A stronger model can draft the labels so the hour is spent reviewing rather
+than authoring — but **only for the strata where agreement means something**:
+
+```bash
+python3 -c "
+import json; d=json.load(open('next50.json'))
+json.dump([e for e in d if e['_stratum']=='silent'], open('silent.json','w'), indent=2)
+json.dump([e for e in d if e['_stratum']!='silent'], open('todraft.json','w'), indent=2)"
+
+uv run python -m fragrance_graph.evals.autolabel draft drafted.json --from todraft.json
+```
+
+`--from` drafts the rows you chose. Without it, `draft` samples fresh and
+**overwrites its output path**, which discards a targeted plan.
+
+**Do not draft the `silent` rows.** They exist to find claims the extractor
+missed; asking a second model whether the first model missed something, then
+accepting "no", records an empty label and learns nothing. Label those cold.
+
+Drafts carry `drafted_by`, and `labels import` refuses to store them under a
+non-draft labeler. Reviewing means deleting that marker — a deliberate act
+that records a person standing behind the row. An all-empty file is refused
+too, needing `--allow-empty`. Both guards exist because both failures
+happened: 50 unreviewed drafts and 15 unread comments were imported as
+ground truth on 2026-08-11, overwriting two hand-labelled rows, one with its
+subject and object reversed.
+
 Templates are keyed on `(source, source_id)`. Importing one into a database it
 was not exported from fails loudly rather than attaching your labels to
 whatever rows happen to hold those ids.

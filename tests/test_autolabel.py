@@ -412,3 +412,62 @@ def test_render_claim_shows_objectless_types_without_an_arrow():
     )
     assert "->" not in rendered
     assert "LONGEVITY: Khamrah" in rendered and "NEGATIVE" in rendered
+
+
+class TestDraftFromATemplate:
+    """Targeted selection and drafting have to compose.
+
+    `draft` took an output path only, so pointing it at a plan overwrote
+    the plan with a fresh uniform sample — the targeted selection was
+    discarded and paid for. `--from` is the missing input.
+    """
+
+    def test_it_drafts_the_rows_it_was_given(self, tmp_path, monkeypatch):
+        import json
+
+        from fragrance_graph.evals.autolabel import draft
+
+        template = [
+            {"source": "youtube", "source_id": "a", "body": "khamrah is a dupe of aventus",
+             "_stratum": "edge", "claims": []},
+            {"source": "youtube", "source_id": "b", "body": "the bottle is nice",
+             "claims": []},
+        ]
+
+        def fake_call(client, batch, *, prompt, model):
+            payload = {
+                "results": [
+                    {"comment_index": 0, "claims": [{
+                        "claim_type": "DUPE_OF", "raw_subject_text": "khamrah",
+                        "raw_object_text": "aventus", "sentiment": "POSITIVE",
+                        "object_kind": "FRAGRANCE", "subject_kind": "FRAGRANCE",
+                    }]},
+                    {"comment_index": 1, "claims": []},
+                ]
+            }
+            return json.dumps(payload), 10, 10
+
+        monkeypatch.setattr("fragrance_graph.evals.autolabel.call_model", fake_call)
+        drafted, stats = draft(None, template)
+
+        assert [e["source_id"] for e in drafted] == ["a", "b"]
+        assert drafted[0]["claims"], "the chosen row should be drafted"
+        assert stats.comments == 2
+        # Provenance is attached, which is what the import guard keys on.
+        assert all(e["drafted_by"] for e in drafted)
+
+    def test_the_stratum_annotation_survives_drafting(self, monkeypatch):
+        import json
+
+        from fragrance_graph.evals.autolabel import draft
+
+        monkeypatch.setattr(
+            "fragrance_graph.evals.autolabel.call_model",
+            lambda *a, **k: (json.dumps({"results": [{"comment_index": 0, "claims": []}]}), 1, 1),
+        )
+        drafted, _ = draft(None, [
+            {"source": "youtube", "source_id": "a", "body": "x",
+             "_stratum": "silent", "_why": "extractor found nothing", "claims": []},
+        ])
+        assert drafted[0]["_stratum"] == "silent"
+        assert drafted[0]["_why"] == "extractor found nothing"

@@ -453,6 +453,14 @@ def main(argv: list[str] | None = None) -> int:
 
     d = sub.add_parser("draft", help="Draft labels for review")
     d.add_argument("out", type=Path, help="Where to write the drafted template")
+    d.add_argument(
+        "--from", dest="from_template", type=Path, default=None, metavar="FILE",
+        help=(
+            "Draft the comments in an existing template rather than a fresh "
+            "sample — e.g. one written by `evals.sample plan`, so drafting "
+            "and targeted selection compose. Ignores --sample."
+        ),
+    )
     d.add_argument("--sample", type=int, default=50, help="Comments to draft")
     d.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     d.add_argument("--model", default=MODEL)
@@ -543,7 +551,28 @@ def main(argv: list[str] | None = None) -> int:
                     )
             return 0
 
-        entries = export_template(conn, sample=args.sample)
+        if args.from_template:
+            # Drafting a chosen set, not a fresh sample. Without this the
+            # targeted plan and the drafting shortcut cannot compose: `draft`
+            # took an output path only, so pointing it at a plan silently
+            # overwrote the plan with 50 uniformly-sampled comments. That
+            # happened on 2026-08-11 and cost the selection it was meant to
+            # act on.
+            entries = json.loads(args.from_template.read_text())
+            if not isinstance(entries, list) or not entries:
+                raise SystemExit(f"{args.from_template} holds no entries.")
+            already = [e for e in entries if e.get("claims")]
+            if already:
+                raise SystemExit(
+                    f"{len(already)} of {len(entries)} entries in "
+                    f"{args.from_template} already carry claims. Drafting "
+                    "would overwrite them — point --from at an unlabelled "
+                    "template, or drop those rows first."
+                )
+            log.info("Drafting %d comments from %s.",
+                     len(entries), args.from_template)
+        else:
+            entries = export_template(conn, sample=args.sample)
         if not entries:
             raise SystemExit("No comments to label. Ingest a corpus first.")
     finally:
