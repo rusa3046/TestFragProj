@@ -66,16 +66,36 @@ SEED: list[tuple[str, str, list[str]]] = [
     ("Parfums de Marly Pegasus", "Parfums de Marly", ["Pegasus"]),
     ("Parfums de Marly Herod", "Parfums de Marly", ["Herod"]),
     ("Mancera Cedrat Boise", "Mancera", ["Cedrat Boise"]),
-    ("Parfums de Marly Perseus", "Parfums de Marly", ["Perseus"]),
+    # Two houses ship a Perseus, and the bare alias attached every mention
+    # to the wrong one. In this corpus people overwhelmingly mean Maison
+    # Alhambra's — "Perseus by Maison Alhambra is a great clone of
+    # Pegasus", "I have Maison Alhambra's Perseus which is a clone of PDM
+    # Pegasus" — so the bare alias produced an edge asserting PdM Perseus
+    # was a dupe of PdM Pegasus: a false claim about one house's own two
+    # bottles, attributed to people who said the opposite.
+    #
+    # Both entries exist; neither claims the bare word. Mentions that say
+    # only "Perseus" stay unresolved and visible, which is the right
+    # outcome for a genuinely ambiguous name.
+    ("Parfums de Marly Perseus", "Parfums de Marly", ["PdM Perseus"]),
+    (
+        "Maison Alhambra Perseus",
+        "Maison Alhambra",
+        ["Alhambra Perseus", "Maison Alhambra's Perseus",
+         "Perseus by Maison Alhambra", "Maison Alhambra - Perseus"],
+    ),
 ]
 
 #: Frequent mentions left out on purpose, with the reason, so the gap is a
 #: recorded decision rather than an oversight.
 DEFERRED = {
-    "Detour Noir": "brand uncertain — probably Armaf, not verified",
+    "Detour Noir": "brand unverified — my guess of Armaf is contradicted by "
+                   "research; see data/curation/verified.json",
     "Woody Oud": "several houses use this name; unclear which is meant",
-    "Oajan": "brand uncertain — probably Lattafa, not verified",
-    "Zenith Blue": "unrecognised",
+    "Oajan": "brand unverified — my guess of Lattafa is contradicted by "
+             "research; see data/curation/verified.json",
+    "Zenith Blue": "unrecognised by me; research proposes a house",
+    "Perseus": "AMBIGUOUS ACROSS HOUSES — deliberately has no bare alias",
 }
 
 

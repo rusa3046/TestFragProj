@@ -3,6 +3,7 @@
 {"aliases": ["Dior Sauvage", "Sauvage"], "brand": "Dior", "canonical_name": "Dior Sauvage", "house_year": null}
 {"aliases": ["AS", "Angel Share", "Angel Shares", "Angel's Share", "Angels Share", "Angels' Share"], "brand": "By Kilian", "canonical_name": "Kilian Angels' Share", "house_year": null}
 {"aliases": ["Kamrah", "Khamra", "Khamrah"], "brand": "Lattafa", "canonical_name": "Lattafa Khamrah", "house_year": null}
+{"aliases": ["Alhambra Perseus", "Maison Alhambra - Perseus", "Maison Alhambra's Perseus", "Perseus by Maison Alhambra"], "brand": "Maison Alhambra", "canonical_name": "Maison Alhambra Perseus", "house_year": null}
 {"aliases": ["540", "BR540", "Baccarat 540", "Baccarat Rouge", "Baccarat Rouge 540"], "brand": "Maison Francis Kurkdjian", "canonical_name": "Maison Francis Kurkdjian Baccarat Rouge 540", "house_year": null}
 {"aliases": ["Cedrat Boise"], "brand": "Mancera", "canonical_name": "Mancera Cedrat Boise", "house_year": null}
 {"aliases": ["Explorer", "Mont Blanc Explorer"], "brand": "Montblanc", "canonical_name": "Montblanc Explorer", "house_year": null}
@@ -12,5 +13,5 @@
 {"aliases": ["Layton"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Layton", "house_year": null}
 {"aliases": ["Pegasus"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Pegasus", "house_year": null}
 {"aliases": ["Percival"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Percival", "house_year": null}
-{"aliases": ["Perseus"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Perseus", "house_year": null}
+{"aliases": ["PdM Perseus"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Perseus", "house_year": null}
 {"aliases": ["Oud Wood"], "brand": "Tom Ford", "canonical_name": "Tom Ford Oud Wood", "house_year": null}

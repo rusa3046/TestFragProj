@@ -139,20 +139,32 @@ def distinguishing_words(mention: str, candidate: str) -> list[str]:
     return [w for w in normalize_name(candidate).split() if w not in mention_words]
 
 
-def corpus_support(conn: sqlite3.Connection, words: list[str]) -> int:
-    """How many corpus mentions contain every distinguishing word.
+def corpus_support(
+    conn: sqlite3.Connection, words: list[str], *, mention: str = ""
+) -> int:
+    """Mentions containing the distinguishing words **and the mention**.
 
-    This is the signal that settles a flanker without fragrance knowledge.
-    If the catalogue offers "Club de Nuit Sillage" and nobody in the corpus
-    has ever written "sillage", people are not talking about that bottle —
-    and no amount of staring at the proposed name would tell you.
+    This is the signal that settles a flanker without fragrance knowledge:
+    if the catalogue offers "Club de Nuit Sillage" and nobody ever wrote
+    "club de nuit sillage", people are not talking about that bottle.
 
-    Deliberately corpus-grounded rather than expertise-grounded: a reviewer
-    should not need to know which Club de Nuit is the famous Aventus clone.
+    **The mention is required, and leaving it out was a real bug.** Counting
+    a distinguishing word free-floating measures "does this word exist
+    anywhere", not "do people use it about *this* fragrance". Measured on
+    the live corpus, "exclusif" appears in 29 mentions — Delina Exclusif,
+    Club de Nuit Imperial, and others. Only a handful are Layton Exclusif.
+    A reviewer following the flanker rule on 29 would have moved plain
+    Layton, the corpus's single most-discussed fragrance, to a flanker
+    almost nobody mentioned.
+
+    Qualifiers are not always suffixes either — Eau Sauvage, Absolu
+    Aventus, Intense Cedrat Boise — so this asks whether the words
+    co-occur, not whether one follows the other.
     """
     if not words:
         # No distinguishing word means the catalogue name is the mention.
         return -1
+    required = [*words, *(normalize_name(mention).split() if mention else [])]
     rows = conn.execute(
         "SELECT raw_subject_text AS t FROM claims WHERE raw_subject_text IS NOT NULL"
         " UNION ALL "
@@ -161,7 +173,7 @@ def corpus_support(conn: sqlite3.Connection, words: list[str]) -> int:
     n = 0
     for row in rows:
         normalized = normalize_name(row["t"])
-        if all(w in normalized for w in words):
+        if all(w in normalized for w in required):
             n += 1
     return n
 
@@ -281,7 +293,9 @@ def _search(client, key: str, mention: str, *, limit: int = 4) -> list[dict]:
 def _propose_one(conn, client, key: str, mention: str, count: int) -> Proposal:
     results = _search(client, key, mention)
     support = {
-        r["Name"]: corpus_support(conn, distinguishing_words(mention, r["Name"]))
+        r["Name"]: corpus_support(
+            conn, distinguishing_words(mention, r["Name"]), mention=mention
+        )
         for r in results
         if r.get("Name")
     }

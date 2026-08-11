@@ -50,30 +50,49 @@ Every catalogue name is scored by how often the corpus uses the words that
 
 ```json
 {
-  "mention": "Club de Nuit",
-  "count": 7,
-  "canonical_name": "Club de Nuit Sillage",
-  "brand": "Armaf",
+  "mention": "Baccarat Rouge 540",
+  "count": 26,
+  "canonical_name": "Baccarat Rouge 540 Extrait",
   "corpus_mentions": 0,
-  "note": "nobody in the corpus wrote 'sillage' — see alternatives (1 better supported)",
+  "note": "nobody in the corpus wrote 'baccarat rouge 540 extrait'",
   "alternatives": [
-    {"Name": "Club de Nuit Intense Man", "Brand": "Armaf", "corpus_mentions": 9}
+    {"Name": "Baccarat Rouge 540", "corpus_mentions": -1}
   ],
-  "examples": ["I have club de nuit intense man and it lasts all day"],
   "approved": null
 }
 ```
 
-Read it as arithmetic, not expertise:
+Read it as arithmetic, not expertise. `corpus_mentions` counts how many
+mentions contain **the mention's own words plus the distinguishing word**:
 
-- The catalogue proposed **Sillage**. The word that makes it Sillage rather
-  than plain Club de Nuit is `"sillage"`. **That word appears zero times in
-  your corpus** — nobody discussing this has ever typed it.
-- The alternative adds `"intense man"`, and **those words appear 9 times.**
+- The catalogue proposed the **Extrait**. Mentions containing both
+  "baccarat rouge 540" and "extrait": **zero**.
+- The alternative adds nothing, so it is the plain bottle (`-1`).
 
-So people are not talking about Sillage. Copy `Club de Nuit Intense Man`
-into `canonical_name` and approve. You needed no knowledge of fragrance,
-only two counts from your own data.
+Nobody is discussing the Extrait. Take the plain one and approve.
+
+These are real numbers from this corpus. So are these:
+
+| mention | candidate | `corpus_mentions` |
+|---|---|---|
+| `Layton` | Layton **Exclusif** | 5 |
+| `Khamrah` | Khamrah **Qahwa** | 9 |
+| `Sauvage` | **Eau** Sauvage | 0 |
+
+`Khamrah Qahwa` at 9 is a real bottle people genuinely discuss — it should
+get its **own** entry, not replace plain Khamrah. A high count on a flanker
+means "this exists too", not "you picked wrong".
+
+`Eau Sauvage` at 0 is the reassuring one: Dior's 1966 citrus shares a word
+with the 2015 Sauvage everyone is actually talking about, and nobody in
+this corpus means it.
+
+**Counting is scoped to the mention, and getting that wrong was a real
+bug.** An earlier version counted the distinguishing word free-floating
+across all mentions. "exclusif" scored **29** that way — Delina Exclusif,
+Club de Nuit Imperial, others — and a reviewer following this page would
+have moved plain Layton, the corpus's most-discussed fragrance, onto a
+flanker five people mentioned.
 
 `corpus_mentions` values:
 
