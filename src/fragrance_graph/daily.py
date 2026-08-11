@@ -252,9 +252,20 @@ def run(
         report.pages_after = report.pages_before
         return report
 
+    from fragrance_graph.resolve.entities import backfill
+
     if not dry_run:
         _collect(conn, queries, max_videos, ingest_limit, report)
         _extract(conn, budget, ingest_limit, report)
+
+        # Resolve with the dictionary we already have *before* paying the
+        # catalogue for names it may already cover. Fresh comments mention
+        # curated bottles constantly, and `newly_frequent` reads unresolved
+        # mentions — so running this afterwards meant billing $0.05 each to
+        # be told about "Khamrah" and "club de nuit", both already curated.
+        # Backfill is free and idempotent; the lookup is neither.
+        stats = backfill(conn)
+        report.mentions_resolved = stats.subjects_resolved + stats.objects_resolved
 
     _curate(conn, budget, lookup_limit, report, dry_run=dry_run)
 
@@ -265,10 +276,9 @@ def run(
     report.budget_remaining_usd = budget.remaining_usd
 
     if not dry_run:
-        from fragrance_graph.resolve.entities import backfill
-
+        # Again, to apply anything auto-curation just wrote.
         stats = backfill(conn)
-        report.mentions_resolved = stats.subjects_resolved + stats.objects_resolved
+        report.mentions_resolved += stats.subjects_resolved + stats.objects_resolved
 
     report.pages_after = len(qualifying_pairs(conn))
     if not dry_run:
@@ -511,7 +521,7 @@ def main(argv: list[str] | None = None) -> int:
         report = run(
             conn,
             queries=args.queries,
-            budget=Budget.load(cap_usd=args.cap),
+            budget=Budget.load(cap_usd=args.cap, require_ledger=True),
             ingest_limit=args.ingest_limit,
             lookup_limit=args.lookup_limit,
             max_videos=args.max_videos,

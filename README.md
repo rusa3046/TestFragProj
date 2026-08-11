@@ -93,7 +93,7 @@ Corpus as of 2026-08-11 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANC
 | Labelled comments | 50 drafted, **15 verified by hand** (13 in train) |
 | Extractor score | `SIMILARITY EDGES` F1 **0.89**; OVERALL F1 0.50 |
 | Denials caught | 35 of 38 flagged (92%), plus 32 the pattern missed |
-| Spent to date | $3.11 — [over a $1/day cap that leaked](./SPEC.md) |
+| Spent to date | $3.11 — [a $1/day cap that leaked, since fixed](./SPEC.md) |
 
 ### The edge funnel — where the graph actually is
 
@@ -113,9 +113,9 @@ which is why 711 verified claims produce 109. Every filter above works; the
 graph is small because the dictionary is. At 17 curated entries this line
 read 18, and nothing but curation changed to move it.
 
-**The last step is the publishing gate, and it is meant to be lossy.** 32
-pairs become 6 pages because a pair backed by two people, or by three people
-in one comment section, cannot honestly be headed "people say this". See
+**The last step is the publishing gate, and it is meant to be lossy.** 37
+pairs become 8 pages because a pair backed by two people, or by three people
+under one creator, cannot honestly be headed "people say this". See
 `pages.py` for why both bars are measured on the pair rather than on a
 single claim type.
 
@@ -149,10 +149,11 @@ What that does **not** yet establish:
   differences account for about one claim each, so the eval currently
   cannot resolve a change smaller than itself. SPEC.md says which
   conclusions survive that and which do not.
-- **Most of the corpus is still unresolved.** 17 fragrances are curated
-  against 603 distinct fragrance names in comparison claims. The head of
-  that list is short and repetitive, so the first hour of curation is worth
-  far more than the last — but 4 pairs is a demo, not a product.
+- **Most of the corpus is still unresolved.** 56 fragrances are curated
+  against many hundreds of distinct names in comparison claims, and 15 of
+  those 56 answer nothing yet. The head of that list is short and
+  repetitive, so the first hour of curation is worth far more than the
+  last — but 8 pages is a demo, not a product.
 - **One curated entry was wrong and shipped.** `Perseus` is made by two
   houses; the bare alias pointed at the wrong one, producing an edge that
   misquoted three commenters. Found by research, fixed, recorded in SPEC.
@@ -729,11 +730,13 @@ Each names the test that would fail:
 Ordered by what unblocks the most. [SPEC.md](./SPEC.md) carries the full
 argument for each; this is the short form.
 
-1. **Close the spend cap.** `$3.11` went out on a `$1.00` day. The guard
-   itself is correct, but it binds `daily run` only — `extract.llm` and
-   `enrich propose` spend unbounded and unrecorded — and the ledger is a
-   relative path, so a run started elsewhere gets a fresh allowance.
-   Nothing should run unattended until "the cap" means the cap.
+1. ~~**Close the spend cap.**~~ **Done.** `$3.11` went out on a `$1.00`
+   day. Every paid call now goes through `Budget`, the ledger resolves
+   against the repo root rather than the working directory, and a missing
+   ledger blocks spending instead of reading as zero. The loop also paid
+   $0.05 a time for names it already knew, because `backfill` ran after
+   the catalogue lookups instead of before — 48 lookups, 0 approved, $2.40
+   for nothing. Fixed, and pinned by tests.
 
 2. **Finish the eval set.** 15 comments verified by hand. One claim moves
    F1 by ~0.13, so the instrument cannot resolve a change smaller than

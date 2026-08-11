@@ -63,8 +63,23 @@ log = logging.getLogger("fragrance_graph.budget")
 #: 20 lookups cost as much as 2,000 comments of extraction.
 DAILY_CAP_USD = 1.00
 
+def _repo_root() -> Path:
+    """The directory holding pyproject.toml, found from this file.
+
+    The ledger used to be the relative string "data/spend.jsonl", resolved
+    against the working directory. That made the cap a property of where a
+    process happened to be started: a run from another directory read a
+    file that was not there, got 0.0, and received a clean allowance. On
+    2026-08-11 the day's ledger reached $3.11 against a $1.00 cap.
+    """
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pyproject.toml").exists():
+            return parent
+    return Path.cwd()
+
+
 DEFAULT_LEDGER = Path(
-    os.environ.get("FRAGRANCE_SPEND_LEDGER", "data/spend.jsonl")
+    os.environ.get("FRAGRANCE_SPEND_LEDGER") or _repo_root() / "data" / "spend.jsonl"
 )
 
 
@@ -86,6 +101,16 @@ class Budget:
     today: str = field(default_factory=lambda: _utc_today().isoformat())
     #: Spend already recorded for `today` before this process started.
     spent_usd: float = 0.0
+    #: Whether the ledger file was found. A missing ledger is **unknown
+    #: spend, not zero spend** — the same reading the publishing gate gives
+    #: `queries == 0`. Absence of a record is not evidence that nothing was
+    #: spent, and treating it as zero is what turned a per-day cap into a
+    #: per-container one.
+    ledger_present: bool = True
+    #: When true, a missing ledger blocks spending instead of permitting
+    #: it. Off by default so library use and tests are unaffected; every
+    #: entry point that spends real money turns it on.
+    require_ledger: bool = False
 
     @classmethod
     def load(
@@ -94,6 +119,7 @@ class Budget:
         *,
         cap_usd: float = DAILY_CAP_USD,
         today: str | None = None,
+        require_ledger: bool = False,
     ) -> Budget:
         path = Path(ledger) if ledger is not None else DEFAULT_LEDGER
         day = today or _utc_today().isoformat()
@@ -102,7 +128,20 @@ class Budget:
             ledger=path,
             today=day,
             spent_usd=spent_on(path, day),
+            ledger_present=path.exists(),
+            require_ledger=require_ledger,
         )
+
+    def _refuse_if_ledger_missing(self) -> None:
+        if self.require_ledger and not self.ledger_present:
+            raise BudgetExhausted(
+                f"no spend ledger at {self.ledger}, so today's spend is "
+                "unknown rather than zero — refusing to spend.\n\n"
+                "  uv run python -m fragrance_graph.daily spend init\n\n"
+                "Creating it is a deliberate act precisely because a "
+                "missing ledger is what lets a fresh container hand itself "
+                "a fresh allowance."
+            )
 
     @property
     def remaining_usd(self) -> float:
@@ -114,6 +153,7 @@ class Budget:
 
     def check(self, projected_usd: float = 0.0) -> None:
         """Raise unless `projected_usd` more can still be spent today."""
+        self._refuse_if_ledger_missing()
         if self.spent_usd + projected_usd > self.cap_usd:
             raise BudgetExhausted(
                 f"daily cap ${self.cap_usd:.2f} would be exceeded: "
@@ -148,6 +188,7 @@ class Budget:
         """
 
         def on_spend(usd: float, comments: int) -> None:
+            self._refuse_if_ledger_missing()
             self.record(usd, what, comments=comments)
             if self.exhausted:
                 raise BudgetExhausted(

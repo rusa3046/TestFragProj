@@ -375,3 +375,54 @@ class TestIngestBudget:
         )
         assert report.comments_ingested == 50
         assert read == ["A"], "budget spent, must not fetch the next video"
+
+
+class TestFreeResolutionComesBeforePaidLookups:
+    """Never pay a catalogue for a name the dictionary already answers."""
+
+    def test_backfill_runs_before_the_catalogue_is_billed(
+        self, conn, tmp_path, monkeypatch
+    ):
+        """The ordering bug that cost real money.
+
+        `_curate` reads *unresolved* mentions, so running it before
+        `backfill` offers the catalogue every mention in the comments
+        ingested this run — including ones existing aliases already cover.
+        On 2026-08-11 that billed $0.05 each to be told about "Khamrah"
+        (12 mentions) and "club de nuit" (10), both long since curated;
+        both resolved for free the moment backfill ran.
+
+        Asserted as an order of operations rather than a dollar figure,
+        because the waste scales with every future run: fresh comments
+        mention curated bottles constantly.
+        """
+        calls: list[str] = []
+
+        def _spy_backfill(c, **kw):
+            calls.append("backfill")
+            from fragrance_graph.resolve.entities import BackfillStats
+
+            return BackfillStats(0, 0, 0, 0)
+
+        def _spy_curate(*a, **kw):
+            calls.append("curate")
+
+        monkeypatch.setattr("fragrance_graph.daily._collect", _noop)
+        monkeypatch.setattr("fragrance_graph.daily._extract", _noop)
+        monkeypatch.setattr("fragrance_graph.daily._curate", _spy_curate)
+        monkeypatch.setattr(
+            "fragrance_graph.resolve.entities.backfill", _spy_backfill
+        )
+
+        run(
+            conn,
+            queries=["x"],
+            budget=Budget.load(tmp_path / "s.jsonl", today="2026-08-11"),
+            out_dir=tmp_path / "site",
+        )
+
+        assert calls[0] == "backfill", (
+            "the free step must run first; paying to resolve a name the "
+            "dictionary already holds is pure waste"
+        )
+        assert "curate" in calls

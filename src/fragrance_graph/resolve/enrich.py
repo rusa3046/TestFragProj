@@ -47,6 +47,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 from fragrance_graph.resolve.entities import add_fragrance, unresolved_mentions
 from fragrance_graph.resolve.names import normalize_name, similarity
@@ -646,6 +647,12 @@ def main(argv: list[str] | None = None) -> int:
                       help="Mentions to look up. One request each.")
     prop.add_argument("--min-count", type=int, default=2,
                       help="Skip mentions appearing fewer than N times")
+    prop.add_argument(
+        "--cap", type=float, default=None,
+        help=(f"Daily spend cap in USD. Default: ${DAILY_CAP_USD:.2f}, shared "
+              "with every other paid command. Lookups bill at "
+              f"${LOOKUP_COST_USD:.2f} each and dominate the ledger."),
+    )
 
     app = sub.add_parser("apply", help="Add the approved rows as fragrances")
     app.add_argument("review", type=Path)
@@ -660,9 +667,22 @@ def main(argv: list[str] | None = None) -> int:
     migrate(conn)
     try:
         if args.command == "propose":
-            proposals = propose(
-                conn, args.out, limit=args.limit, min_count=args.min_count
+            # Lookups are the most expensive thing this project buys —
+            # $0.05 each, so 20 of them cost what 2,000 comments of
+            # extraction does. This path previously spent without limit and
+            # without a ledger row.
+            budget = Budget.load(
+                cap_usd=args.cap if args.cap is not None else DAILY_CAP_USD,
+                require_ledger=True,
             )
+            try:
+                proposals = propose(
+                    conn, args.out, limit=args.limit, min_count=args.min_count,
+                    on_spend=budget.guard("catalogue"),
+                )
+            except BudgetExhausted as exc:
+                log.warning("%s", exc)
+                proposals = read_review(args.out) if args.out.exists() else []
             unsure = [p for p in proposals if not p.confident]
             found = [p for p in proposals if p.canonical_name]
             print(f"\n{len(found)}/{len(proposals)} mentions matched the catalogue.")

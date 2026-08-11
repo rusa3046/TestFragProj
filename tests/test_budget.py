@@ -246,3 +246,63 @@ def test_extraction_with_no_guard_is_unchanged(conn):
     cost = extract(conn, client, limit=4, batch_size=2)
     assert cost.comments == 4
     assert client.calls == 2
+
+
+# --- the two holes that let $3.11 out on a $1.00 day -----------------------
+
+
+def test_a_missing_ledger_blocks_spending_rather_than_permitting_it(tmp_path):
+    """Absence of a record is not evidence that nothing was spent.
+
+    A missing ledger used to read as $0.00, so a run started from another
+    directory — or a fresh container that had not pulled the file — handed
+    itself a clean allowance. That is what turned a per-day cap into a
+    per-container one, which is the exact failure budget.py claims to
+    prevent.
+
+    Same reading the publishing gate gives `queries == 0`: unknown, not
+    innocent.
+    """
+    missing = tmp_path / "nowhere" / "spend.jsonl"
+    budget = Budget.load(missing, today="2026-08-11", require_ledger=True)
+
+    assert budget.spent_usd == 0.0
+    assert not budget.ledger_present
+    with pytest.raises(BudgetExhausted, match="unknown rather than zero"):
+        budget.check(0.01)
+    with pytest.raises(BudgetExhausted, match="unknown rather than zero"):
+        budget.guard("extract")(0.01, 1)
+
+
+def test_a_present_but_empty_ledger_is_a_real_zero(tmp_path):
+    """Deliberately created and genuinely empty is different from absent.
+
+    Creating the file is the explicit act; after that, zero means zero.
+    """
+    led = tmp_path / "spend.jsonl"
+    led.write_text("")
+    budget = Budget.load(led, today="2026-08-11", require_ledger=True)
+    assert budget.ledger_present
+    budget.check(0.5)  # does not raise
+
+
+def test_requiring_the_ledger_is_opt_in(tmp_path):
+    """Library and test use must not acquire a hidden precondition."""
+    budget = Budget.load(tmp_path / "absent.jsonl", today="2026-08-11")
+    budget.check(0.5)  # no require_ledger, no raise
+
+
+def test_the_default_ledger_does_not_move_with_the_working_directory(monkeypatch):
+    """The path was relative, so the cap's memory depended on where a
+    process happened to start."""
+    import importlib
+
+    import fragrance_graph.budget as budget_mod
+
+    monkeypatch.delenv("FRAGRANCE_SPEND_LEDGER", raising=False)
+    importlib.reload(budget_mod)
+    resolved = budget_mod.DEFAULT_LEDGER
+
+    assert resolved.is_absolute()
+    assert resolved.parent.name == "data"
+    assert (resolved.parent.parent / "pyproject.toml").exists()

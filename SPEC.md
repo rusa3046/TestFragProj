@@ -1171,7 +1171,7 @@ evidence class: one creator with a megaphone, never counted toward the
 3-commenter bar. Letting the person who framed the question also vote on
 the answer is this section's failure in its purest form.
 
-### The spend cap leaked: $3.11 on a $1.00 day (2026-08-11) — OPEN
+### The spend cap leaked: $3.11 on a $1.00 day (2026-08-11) — FIXED
 
 The ledger for 2026-08-11 totals **$3.11** against a `DAILY_CAP_USD` of
 $1.00: $0.71 of extraction across two runs, and $2.40 of catalogue lookups
@@ -1210,18 +1210,49 @@ docstring to prevent. Committing the ledger was necessary and not
 sufficient: it also has to be committed *before* the next container starts,
 which is a property of the loop, not of the cap.
 
-Candidate fixes, none applied:
+**All three candidate fixes were applied**, because they close different
+halves and the cheapest one alone would have left the other open.
 
-- Route every paid call through `Budget`, so the cap is a property of
-  spending rather than of one caller. Cheapest, and closes hole 1
-  entirely.
-- Resolve the ledger against the repository root rather than the cwd.
-- Treat a missing ledger as *unknown* rather than zero and refuse to spend
-  until it is present, mirroring how `queries == 0` is treated as unknown
-  by the publishing gate. Safest, and would have blocked both runs.
+1. **Every paid call goes through `Budget`.** `extract.llm` and
+   `resolve.enrich propose` construct one and pass `guard(...)`. Both take
+   `--cap` to raise it deliberately; neither can now spend without writing
+   a ledger row. The cap is a property of spending rather than of one
+   caller.
+2. **The ledger resolves against the repository root**, found by walking up
+   for `pyproject.toml`, so it no longer moves with the working directory.
+   Verified from `/tmp`: it reads the repo's ledger, sees $3.11, and
+   reports exhausted — where before it would have seen a missing file and
+   granted a fresh dollar.
+3. **A missing ledger blocks spending rather than permitting it.**
+   `require_ledger=True` at every real entry point turns absence into
+   *unknown spend*, which is the same reading the publishing gate gives
+   `queries == 0`. Creating the ledger is a deliberate act, because a
+   file appearing by accident is exactly how a fresh container hands
+   itself a fresh allowance.
 
-Until then, read `DAILY_CAP_USD` as "the daily loop will not exceed $1 in
-one invocation", which is a much weaker statement than the name implies.
+An empty-but-present ledger is still a real zero. The distinction that
+matters is deliberate-and-empty versus absent, not zero versus non-zero.
+
+`DAILY_CAP_USD` can now be read as what its name says.
+
+#### And the loop was paying for names it already knew
+
+Found while checking the queue this defect produced. `_curate` reads
+*unresolved* mentions and bills $0.05 per lookup; `backfill` resolves
+mentions for free using aliases already curated. `backfill` ran **after**
+`_curate`.
+
+So every run offered the catalogue every mention in the comments it had
+just ingested, including ones the dictionary already covered. The
+2026-08-11 review file contains `Khamrah` (12 mentions) and `club de nuit`
+(10) — both curated long before — and both resolved for free the moment
+backfill ran. Of the 48 lookups that run bought, **zero were approved**:
+$2.40 for no curation at all.
+
+Backfill now runs before curation, and again after it to apply whatever
+auto-curation wrote. The waste scaled with every future run, since fresh
+comments mention curated bottles constantly, so this is worth more than
+the one-off $2.40 suggests.
 
 ### Deferred decisions
 
@@ -1329,11 +1360,10 @@ Ordered by what unblocks the most, not by what is most interesting. Each
 entry says what it buys and what it costs, because the ordering is the
 argument.
 
-### 1. Close the spend cap (open defect, above)
+### 1. ~~Close the spend cap~~ — done 2026-08-11
 
-Nothing else should run unattended until "the cap" means the cap. Cheapest
-version: route every paid call through `Budget`, and treat a missing
-ledger as unknown rather than zero. No API key needed to build or test.
+All three fixes applied; see the defect record above. The scheduled Routine
+was disabled while they landed and can be re-armed.
 
 ### 2. Finish the eval set
 

@@ -40,6 +40,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 from fragrance_graph.models import (
     Claim,
@@ -1032,6 +1033,16 @@ def main(argv: list[str] | None = None) -> int:
             "at a scratch database, not the working corpus."
         ),
     )
+    parser.add_argument(
+        "--cap",
+        type=float,
+        default=None,
+        help=(
+            f"Daily spend cap in USD. Default: ${DAILY_CAP_USD:.2f} shared "
+            "with every other paid command via data/spend.jsonl. Raising it "
+            "is explicit and still recorded."
+        ),
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Debug logging")
     args = parser.parse_args(argv)
 
@@ -1104,6 +1115,15 @@ def main(argv: list[str] | None = None) -> int:
 
     client = build_client()
 
+    # The cap is a property of spending, not of the daily loop. This path
+    # used to spend without limit *and without a ledger row*, so an
+    # overspend here was invisible rather than merely unblocked — which is
+    # half of how 2026-08-11 reached $3.11 against a $1.00 cap.
+    budget = Budget.load(
+        cap_usd=args.cap if args.cap is not None else DAILY_CAP_USD,
+        require_ledger=True,
+    )
+
     try:
         extract(
             conn,
@@ -1113,7 +1133,11 @@ def main(argv: list[str] | None = None) -> int:
             batch_size=args.batch_size,
             model=args.model,
             max_tokens=args.max_tokens,
+            on_spend=budget.guard("extract"),
         )
+    except BudgetExhausted as exc:
+        log.warning("%s", exc)
+        return 0
     except KeyboardInterrupt:
         return 130
     finally:
