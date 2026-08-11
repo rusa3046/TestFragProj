@@ -23,7 +23,7 @@ from fragrance_graph.evals.autolabel import (
     parse_batch,
 )
 from fragrance_graph.evals.labels import export_template, import_labels
-from fragrance_graph.ingest.reddit import ingest
+from fragrance_graph.ingest.store import ingest
 from tests.conftest import make_comment
 
 BODY = "Zara Red Temptation is a dupe of BR540"

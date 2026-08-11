@@ -13,7 +13,7 @@ from fragrance_graph.evals.labels import (
     split_for,
 )
 from fragrance_graph.evals.score import extracted_claims, match_key, score
-from fragrance_graph.ingest.reddit import ingest
+from fragrance_graph.ingest.store import ingest
 from tests.conftest import make_comment
 
 

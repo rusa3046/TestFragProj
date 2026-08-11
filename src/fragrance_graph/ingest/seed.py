@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
-from fragrance_graph.ingest.reddit import ingest
+from fragrance_graph.ingest.store import ingest
 
 log = logging.getLogger("fragrance_graph.ingest.seed")
 

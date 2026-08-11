@@ -813,6 +813,35 @@ One fewer dependency than the supply-driven design, no scraping question,
 and Fragella is left doing the only thing it does better than the corpus:
 answering "people started writing 'Qahwa' — what is that, and whose?"
 
+### Which sources are live, and which never will be (2026-08-10)
+
+| source | status |
+|---|---|
+| YouTube Data API v3 | **live** — the entire corpus, 3,155 comments |
+| Anthropic API | **live** — extraction and eval-label drafting |
+| Fragella | **live** — mention text to canonical bottle, names and brands only |
+| Reddit | **dead.** API access refused to this project |
+| Affiliate feeds (Rakuten, ShareASale) | built and tested against fixtures; no account opened |
+| Fragrantica, Parfumo, Basenotes | **never.** No public API; scraping breaches their terms |
+
+**Reddit code was deleted rather than left dormant.** `ingest/reddit.py`
+held the generic `ingest()` that YouTube, the seed loader and every test
+imports, alongside PRAW paths that could not run. That put the codebase's
+most-imported function in a module named after its one broken source, and
+a reader reasonably concluded Reddit was still part of the pipeline.
+
+The writer moved to `ingest/store.py`, the PRAW functions and the `praw`
+dependency were removed, and the single test covering PRAW object shaping
+went with them. Code that cannot run is worse than absent code: it reads
+as an option, and it invites someone to "fix" a path that has no
+credentials to fix it with.
+
+`scripts/probe_fragella.py` was deleted for the same reason. It existed to
+answer one question — does the catalogue cover the Middle Eastern clone
+houses this corpus discusses — and it answered yes. `resolve.enrich` now
+makes the same call for real, so the probe was a second copy of a request
+already under test.
+
 ### Deferred decisions
 
 Recorded so they aren't rediscovered later. None block Phase 1.

@@ -8,7 +8,7 @@ import pytest
 
 from fragrance_graph.extract.llm import write_claims
 from fragrance_graph.extract.verify import reverify
-from fragrance_graph.ingest.reddit import ingest
+from fragrance_graph.ingest.store import ingest
 from fragrance_graph.models import Claim, evidence_is_quoted, normalize_for_match
 from tests.conftest import make_comment
 

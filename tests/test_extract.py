@@ -21,7 +21,7 @@ from fragrance_graph.extract.llm import (
     render_batch,
     write_claims,
 )
-from fragrance_graph.ingest.reddit import ingest
+from fragrance_graph.ingest.store import ingest
 from fragrance_graph.models import ClaimType, ObjectKind, Sentiment, SubjectKind
 from tests.conftest import make_comment
 

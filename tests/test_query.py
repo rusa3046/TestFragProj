@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from fragrance_graph.ingest.reddit import ingest
+from fragrance_graph.ingest.store import ingest
 from fragrance_graph.query import (
     aggregate_sentiment,
     find_fragrance,

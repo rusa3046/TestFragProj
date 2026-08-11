@@ -9,7 +9,7 @@ import json
 
 from fragrance_graph.extract.llm import Rejection, write_rejections
 from fragrance_graph.extract.rejects import main, rejected, render, report
-from fragrance_graph.ingest.reddit import ingest
+from fragrance_graph.ingest.store import ingest
 from tests.conftest import make_comment
 
 DESCRIPTOR_REASON = (

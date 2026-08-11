@@ -17,7 +17,7 @@ from fragrance_graph.corpus import (
 )
 from fragrance_graph.db import get_connection, migrate
 from fragrance_graph.extract.llm import write_claims
-from fragrance_graph.ingest.reddit import ingest
+from fragrance_graph.ingest.store import ingest
 from fragrance_graph.models import Claim
 from fragrance_graph.resolve.entities import add_fragrance, backfill, resolved_edges
 from tests.conftest import make_comment

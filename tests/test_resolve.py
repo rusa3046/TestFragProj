@@ -10,7 +10,7 @@ import json
 import pytest
 
 from fragrance_graph.extract.llm import write_claims
-from fragrance_graph.ingest.reddit import ingest
+from fragrance_graph.ingest.store import ingest
 from fragrance_graph.models import Claim
 from fragrance_graph.resolve.entities import (
     add_alias,

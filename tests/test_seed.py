@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from fragrance_graph.ingest.reddit import ingest
 from fragrance_graph.ingest.seed import SOURCE, make_row, parse_entries
+from fragrance_graph.ingest.store import ingest
 
 
 def entries_of(text: str) -> list[str]:

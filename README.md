@@ -22,29 +22,60 @@ asking.
 ## How it works
 
 ```
-YouTube comments  →  LLM claim extraction  →  entity resolution  →  ranked answers
-   (public API)        (Claude Haiku 4.5)      (name → bottle)       (+ evidence)
+YouTube comments → claim extraction → entity resolution → ranked answers
+  (Data API v3)    (Claude Haiku 4.5)   (name → bottle)     (+ evidence)
+                                              ↑
+                                    Fragella catalogue
+                                   (names and brands only)
 ```
 
-1. **Ingest.** Public platform APIs only. Comments land in SQLite, idempotent
+1. **Ingest.** Official platform APIs only. Comments land in SQLite, idempotent
    on `(source, source_id)`, resumable mid-run.
 2. **Extract.** Claude reads batched comments and returns typed claims —
    `DUPE_OF`, `SIMILAR_TO`, `NOTE_DESCRIPTOR`, `LONGEVITY`, and seven more.
-   Every claim carries an `evidence_span` quoted from the comment, and that
-   span is verified against the comment body before it is stored. A claim whose
-   evidence cannot be found is kept but flagged, so the paraphrase rate stays
-   measurable instead of invisible.
-3. **Resolve.** `BR540`, `540`, `B540` and `BR MFK 540` are one bottle. Curated
+   Every claim carries an `evidence_span` quoted from the comment, verified
+   against the comment body before it is stored, plus a `polarity` recording
+   whether the commenter asserted the relationship **or denied it**.
+3. **Resolve.** `BR540`, `540` and `Baccarat Rouge` are one bottle. Curated
    aliases plus conservative fuzzy matching collapse them into a single node.
-4. **Answer.** Ranked results with quotes and permalinks.
+   The [Fragella](https://api.fragella.com/) catalogue proposes canonical
+   names and brands for unresolved mentions — see
+   [docs/CURATION.md](./docs/CURATION.md). **Names and brands only:** its
+   notes, accords, ratings and computed-similarity endpoints are off limits,
+   because a result sourced from an accord overlap cannot be backed by a
+   quote. SPEC.md records the boundary field by field.
+4. **Answer.** Ranked by distinct commenters, with quotes and permalinks.
+
+### Which sources are live
+
+| source | status |
+|---|---|
+| **YouTube Data API v3** | **live** — the entire corpus |
+| **Anthropic API** | **live** — extraction, and eval-label drafting |
+| **Fragella** | **live** — name → canonical bottle, nothing else |
+| Reddit | **not used.** API access was refused to this project |
+| Affiliate feeds (Rakuten, ShareASale) | built, no account yet — Phase C |
+| Fragrantica / Parfumo / Basenotes | **never.** No API, and scraping breaches their terms |
+
+No `REDDIT_*` credentials are needed and `praw` is not a dependency.
+
+The shared writer lives in `ingest/store.py` — source-agnostic, idempotent on
+`(source, source_id)`, committing as it goes so an interrupt loses nothing.
+It was `ingest/reddit.py` until 2026-08-10, which put the codebase's
+most-imported function in a module named after the one source that does not
+work. The PRAW paths went with the rename, along with the `praw` dependency:
+code that cannot run is worse than absent code, because it reads as an
+option.
 
 ## Status
 
-**Steps 1, 2 and 4 are built and have run on real data. Step 3 is built but
-uncurated**, which is the only thing standing between the corpus and real
-answers: 18 fragrances curated in a scratch database resolved 504 of the
-corpus's mentions and produced the `query` output shown below. None of that
-curation is committed — see `resolve.entities report`.
+**All four steps are built and have run on real data.** The corpus, the
+claims, the eval labels and the first 17 curated fragrances are committed,
+so a clean clone reproduces every number on this page.
+
+**Curation is the live bottleneck.** 17 entries yield 4 pairs; the measured
+curve below says 60-80 yields ~45. Nothing else in the pipeline is holding
+the graph back.
 
 First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
 
@@ -54,7 +85,7 @@ First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PRO
 | Claims | 1,409 (0.447 per comment) |
 | Extraction cost | $1.15 total, $0.3656 per 1k comments |
 | Failed batches | 0 of 158 |
-| Fragrances curated | 0 — nothing is resolved yet |
+| Fragrances curated | 17 — the bottleneck, see the curve below |
 | Labelled comments | 50 drafted, 15 verified by hand (13 in train) |
 | Extractor score | `SIMILARITY EDGES` F1 **0.89**; OVERALL F1 0.50 |
 | Denials caught | 35 of 38 flagged (92%), plus 32 the pattern missed |
@@ -69,12 +100,12 @@ Measured from the committed corpus, 2026-08-10:
   591  FRAGRANCE -> FRAGRANCE
   529  ASSERTED              (-62 denials)
   524  evidence verified     (-5)
-    0  both ends resolved    <- nothing is curated
+   18  both ends resolved    <- 17 fragrances curated
 ```
 
-**Zero queryable edges out of the box.** Every filter works; none of it
-reaches a reader, because an edge needs *both* its subject and its object
-to be a curated bottle.
+**An edge needs *both* its subject and its object to be a curated bottle**,
+which is why 524 verified claims produce 18. Every filter above works; the
+graph is small because the dictionary is.
 
 **How far curation has to go**, measured on the 467 edge-eligible claims
 whose two ends are both nameable — not modelled, counted:
@@ -106,11 +137,15 @@ What that does **not** yet establish:
   differences account for about one claim each, so the eval currently
   cannot resolve a change smaller than itself. SPEC.md says which
   conclusions survive that and which do not.
-- **Nothing is resolved in the committed corpus.** `fragrances.jsonl` is
-  empty, so out of the box the claims are edges between strings. 846
-  distinct unresolved mentions; the head of that list is short and
-  repetitive (Layton 99, Khamrah 44, Aventus 57 across casings), so the
-  first hour of curation is worth far more than the last.
+- **Most of the corpus is still unresolved.** 17 fragrances are curated
+  against 603 distinct fragrance names in comparison claims. The head of
+  that list is short and repetitive, so the first hour of curation is worth
+  far more than the last — but 4 pairs is a demo, not a product.
+- **One curated entry was wrong and shipped.** `Perseus` is made by two
+  houses; the bare alias pointed at the wrong one, producing an edge that
+  misquoted three commenters. Found by research, fixed, recorded in SPEC.
+  That is a ~6% error rate on entries called "confident", and it is the
+  reason `--min-sources` and the 3-commenter bar exist.
 - **`DUPE_OF` is over-firing since the polarity re-extraction.** 37 claims
   moved from `SIMILAR_TO`, and only 14 carry dupe language. Both are edges
   so the graph is unaffected, but "dupe" is a stronger claim than "similar"
@@ -134,12 +169,18 @@ data-layer findings are now out of date; its architectural ones are not.
 
 ```bash
 uv sync --extra dev          # --extra dev is required; plain `uv sync` omits pytest
-cp .env.example .env         # fill in YOUTUBE_API_KEY and ANTHROPIC_API_KEY
+cp .env.example .env         # fill in the keys below
 ```
 
-Both keys are needed to build a corpus. YouTube keys are issued instantly from
-the Google Cloud console; Reddit refused API access to this project, which is
-why YouTube is the primary source.
+| variable | needed for | notes |
+|---|---|---|
+| `YOUTUBE_API_KEY` | ingest | Google Cloud console, issued instantly. 10,000 units/day |
+| `ANTHROPIC_API_KEY` | extraction, label drafting | ~$0.40 per 1,000 comments |
+| `FRAGELLA_API_KEY` | curation (`resolve.enrich`) | free tier is 20 requests/month |
+
+Reddit refused API access to this project, which is why YouTube is the only
+comment source. `ingest/reddit.py` still exists — see the naming wart above —
+but its PRAW paths cannot run and no `REDDIT_*` credentials are required.
 
 ## Usage
 

@@ -9,7 +9,7 @@ import sqlite3
 
 import pytest
 
-from fragrance_graph.ingest.reddit import ingest, normalize_comment
+from fragrance_graph.ingest.store import ingest
 from tests.conftest import make_comment
 
 
@@ -88,29 +88,3 @@ def test_extracted_at_starts_null(conn, comment_rows):
         "SELECT count(*) FROM comments WHERE extracted_at IS NULL"
     ).fetchone()[0]
     assert pending == 10
-
-
-class FakePrawComment:
-    """Minimal stand-in for a PRAW Comment, including junk to be retained."""
-
-    def __init__(self):
-        self.fullname = "t1_kd8fj2q"
-        self.body = "Delina smells just like Baccarat 540"
-        self.permalink = "/r/fragrance/comments/abc/_/kd8fj2q/"
-        self.created_utc = 1700000000.7
-        self.subreddit = "fragrance"
-        self.score = 42
-        self.total_awards_received = 3
-        self._reddit = object()  # private: must not reach raw_json
-
-
-def test_normalize_comment_shapes_praw_object():
-    row = normalize_comment(FakePrawComment())
-
-    assert row["source_id"] == "t1_kd8fj2q"
-    assert row["permalink"].startswith("https://www.reddit.com/")
-    assert row["created_utc"] == 1700000000, "float timestamp truncated to int"
-
-    raw = json.loads(row["raw_json"])
-    assert raw["total_awards_received"] == 3, "unused fields retained for later"
-    assert not any(k.startswith("_") for k in raw), "private attrs excluded"
