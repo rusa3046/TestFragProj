@@ -397,6 +397,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
+    # Every other entrypoint does this; daily.py did not, so a local run
+    # silently ignored .env and reported both keys missing while the file
+    # sat right there. The loop is the entrypoint most likely to be run
+    # by a scheduler that has no shell profile to inherit from.
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
+
     if args.command == "spend":
         from fragrance_graph.budget import summary
 

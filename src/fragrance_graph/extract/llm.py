@@ -756,18 +756,38 @@ def iter_batches(
 # --------------------------------------------------------------------------
 
 
+#: Checked when `ANTHROPIC_API_KEY` is absent.
+#:
+#: Some managed runners reserve `ANTHROPIC_API_KEY` for their own agent
+#: auth and will not pass a user-supplied one through to the process —
+#: Claude Code says so outright: "ANTHROPIC_API_KEY won't be used to
+#: authenticate requests." On those runners the name is unusable no matter
+#: how it is set, and extraction cannot run. This alias is a name nothing
+#: else claims, so a key set under it arrives intact.
+ALT_KEY_ENV = "FRAGRANCE_ANTHROPIC_API_KEY"
+
+
+def anthropic_api_key() -> str | None:
+    """The extraction key, preferring the standard name."""
+    return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get(ALT_KEY_ENV)
+
+
 def build_client() -> Any:
     """Construct an Anthropic client, checking credentials first."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    key = anthropic_api_key()
+    if not key:
         raise SystemExit(
-            "ANTHROPIC_API_KEY must be set. "
+            "No Anthropic API key. Set ANTHROPIC_API_KEY, or "
+            f"{ALT_KEY_ENV} if the runner reserves that name.\n\n"
             "Copy .env.example to .env and fill it in."
         )
     try:
         import anthropic
     except ImportError as exc:  # pragma: no cover - depends on install state
         raise SystemExit("anthropic is not installed. Run: uv sync") from exc
-    return anthropic.Anthropic()
+    # Passed explicitly rather than left to the SDK's own env lookup, which
+    # only knows the standard name.
+    return anthropic.Anthropic(api_key=key)
 
 
 def call_model(

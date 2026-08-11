@@ -179,3 +179,42 @@ class TestReportRendering:
     def test_pages_delta_is_silent_when_unchanged(self):
         assert "(no change)" in RunReport(pages_before=4, pages_after=4).render()
         assert "(+2 today)" in RunReport(pages_before=4, pages_after=6).render()
+
+
+class TestCredentialPlumbing:
+    """The keys have to actually arrive, which is where local runs fail."""
+
+    def test_alt_key_is_used_when_the_standard_name_is_reserved(self,
+                                                                monkeypatch):
+        """A runner that reserves ANTHROPIC_API_KEY must not block extraction."""
+        from fragrance_graph.extract.llm import ALT_KEY_ENV, anthropic_api_key
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv(ALT_KEY_ENV, "sk-alt")
+        assert anthropic_api_key() == "sk-alt"
+
+    def test_the_standard_name_still_wins(self, monkeypatch):
+        from fragrance_graph.extract.llm import ALT_KEY_ENV, anthropic_api_key
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-standard")
+        monkeypatch.setenv(ALT_KEY_ENV, "sk-alt")
+        assert anthropic_api_key() == "sk-standard"
+
+    def test_neither_set_is_still_a_clean_refusal(self, monkeypatch):
+        from fragrance_graph.extract.llm import ALT_KEY_ENV, anthropic_api_key
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv(ALT_KEY_ENV, raising=False)
+        assert anthropic_api_key() is None
+
+    def test_daily_loads_dotenv(self, tmp_path, monkeypatch):
+        """`daily run` must read .env like every other entrypoint."""
+        import fragrance_graph.daily as daily
+
+        called = []
+        monkeypatch.setattr(
+            "dotenv.load_dotenv", lambda *a, **k: called.append(True) or True
+        )
+        monkeypatch.setattr(daily, "summary", lambda **k: "", raising=False)
+        daily.main(["spend", "--days", "1"])
+        assert called, "daily.main did not load .env"
