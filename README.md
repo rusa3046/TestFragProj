@@ -510,6 +510,40 @@ the first N rows by id, which are N comments from one video's comment section �
 a labelled set that measures that video rather than the corpus. The sample is
 deterministic, so a labelling session can be resumed.
 
+### Label the comments that are worth an evening
+
+Uniform sampling is right for estimating typical performance and wasteful for
+everything else: at ~0.44 claims per comment, most of a uniform hour is spent
+typing empty lists. `evals.sample` picks the rows that discriminate instead:
+
+```bash
+uv run python -m fragrance_graph.evals.sample coverage        # what you have
+uv run python -m fragrance_graph.evals.sample plan next.json -n 50
+# fill in "claims"; `_why` says why each row is there
+uv run python -m fragrance_graph.evals.labels import next.json --labeler you
+```
+
+Four strata, and one of them is the point:
+
+| stratum | why |
+|---|---|
+| `rejected` | extraction produced something the schema refused |
+| `silent` | extraction produced **nothing**, but the comment talks like a comparison |
+| `edge` | produced a SIMILAR_TO / DUPE_OF / BETTER_THAN claim — what actually gets published |
+| `control` | uniform, so precision on an ordinary comment stays measurable |
+
+**`silent` is the eval's structural blind spot.** Scoring compares labels
+against extracted claims, so a comment the extractor passed over in silence
+contributes nothing to inspect and its false negatives cannot be counted — no
+matter how many claims you read. On the current corpus `coverage` reports
+**402** such comments. The only way to see them is to label comments the
+extractor said nothing about.
+
+`control` is not optional and is held at a third of each batch. A set built
+only from failures measures failure; precision on ordinary comments — the
+number that says whether the extractor is usable at all — can only come from
+rows that were not chosen for being hard.
+
 Templates are keyed on `(source, source_id)`. Importing one into a database it
 was not exported from fails loudly rather than attaching your labels to
 whatever rows happen to hold those ids.
