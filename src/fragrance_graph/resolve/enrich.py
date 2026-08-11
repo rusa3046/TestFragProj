@@ -127,16 +127,51 @@ def _kept(record: dict) -> dict:
     return {f: record.get(f) for f in KEPT_FIELDS}
 
 
-def distinguishing_words(mention: str, candidate: str) -> list[str]:
+def distinguishing_words(
+    mention: str, candidate: str, brand: str = ""
+) -> list[str]:
     """The words in a catalogue name that the mention does not have.
 
     For mention "Club de Nuit" against "Club de Nuit Sillage" this is
     ["sillage"] — the word that makes it a different bottle. Flankers are
     the failure that actually happens in review, and the extra word is
     what separates them.
+
+    **The brand is excluded, and omitting it made the auto-rule
+    unreachable.** People write bare names; catalogues return the house.
+    Without `brand`, "Layton" against "Parfums de Marly Layton" yields
+    ["parfums", "de", "marly"] — three words that read as flanker
+    qualifiers and are nothing of the kind. Measured against the 25
+    hand-verified entries in `data/curation/verified.json`, **zero**
+    cleared the rule; with the brand excluded, the ones a human approved
+    clear it and the flanker family does not:
+
+        Khamrah  vs Lattafa Khamrah Qahwa            -> ["qahwa"]
+        Layton   vs Parfums de Marly Layton Exclusif -> ["exclusif"]
+        Sauvage  vs Dior Eau Sauvage                 -> ["eau"]
+        Khamrah  vs Lattafa Khamrah                  -> []
+
+    The brand is a separate field the catalogue already returns, so this
+    costs nothing and asks the question that was always intended: what
+    does this name add *beyond the bottle the mention names*.
     """
-    mention_words = set(normalize_name(mention).split())
-    return [w for w in normalize_name(candidate).split() if w not in mention_words]
+    known = set(normalize_name(mention).split())
+    known |= set(normalize_name(brand or "").split())
+    return [w for w in normalize_name(candidate).split() if w not in known]
+
+
+def debranded(candidate: str, brand: str = "") -> str:
+    """A catalogue name with the house removed.
+
+    Name similarity has the same brand problem as `distinguishing_words`:
+    "Khamrah" against "Lattafa Khamrah" scores 0.64 and fails `CONFIDENT`,
+    even though it is the exact bottle. Comparing against the de-branded
+    name scores 1.00.
+    """
+    brand_words = set(normalize_name(brand or "").split())
+    return " ".join(
+        w for w in normalize_name(candidate).split() if w not in brand_words
+    )
 
 
 def corpus_support(
@@ -221,7 +256,9 @@ def propose_for(
     proposal.canonical_name = top["Name"]
     proposal.brand = top["Brand"]
     proposal.year = top["Year"]
-    proposal.score = round(similarity(mention, top["Name"] or ""), 3)
+    proposal.score = round(
+        similarity(mention, debranded(top["Name"] or "", top["Brand"] or "")), 3
+    )
     proposal.confident = proposal.score >= CONFIDENT
     proposal.corpus_mentions = support.get(top["Name"], -1)
     proposal.alternatives = [
@@ -239,7 +276,7 @@ def propose_for(
                   if a["corpus_mentions"] != 0]
         notes.append(
             "nobody in the corpus wrote "
-            f"{' '.join(distinguishing_words(mention, top['Name'] or ''))!r}"
+            f"{' '.join(distinguishing_words(mention, top['Name'] or '', top['Brand'] or ''))!r}"
             + (f" — see alternatives ({len(better)} better supported)"
                if better else "")
         )
@@ -294,7 +331,9 @@ def _propose_one(conn, client, key: str, mention: str, count: int) -> Proposal:
     results = _search(client, key, mention)
     support = {
         r["Name"]: corpus_support(
-            conn, distinguishing_words(mention, r["Name"]), mention=mention
+            conn,
+            distinguishing_words(mention, r["Name"], r.get("Brand") or ""),
+            mention=mention,
         )
         for r in results
         if r.get("Name")

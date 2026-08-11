@@ -94,6 +94,26 @@ Club de Nuit Imperial, others — and a reviewer following this page would
 have moved plain Layton, the corpus's most-discussed fragrance, onto a
 flanker five people mentioned.
 
+### The brand is not a flanker
+
+`corpus_mentions` compares what a catalogue name adds **beyond the bottle
+you named** — and the house does not count. People write bare names;
+catalogues return them qualified:
+
+```
+"Layton"  ->  "Parfums de Marly Layton"
+```
+
+Read literally that adds three words, and an earlier version of this rule
+treated them as flanker qualifiers. Measured against the 25 hand-verified
+entries in `data/curation/verified.json`, **zero** cleared the auto-rule —
+not because it was strict, but because it was unreachable.
+
+With the house excluded, 19 of those 25 clear it and the 6 held are exactly
+the family this page is about: `Club de Nuit` → Intense Man, `Qahwa` →
+Khamrah Qahwa, `Imperiale`, `Amethyst`, `Orientica Royal Bleu`, and the
+deliberately-ambiguous `Perseus`.
+
 `corpus_mentions` values:
 
 | value | meaning |

@@ -381,3 +381,71 @@ def test_a_name_adding_nothing_is_the_plain_bottle(conn):
                     support={"Layton": -1})
     assert p.corpus_mentions == -1
     assert "nobody in the corpus wrote" not in p.note
+
+
+# --- the brand prefix made the auto-rule unreachable -------------------------
+
+
+def test_the_house_is_not_a_flanker_qualifier():
+    """The bug that made auto-curation impossible.
+
+    People write bare names; catalogues return the house. Without the
+    brand, "Layton" against "Parfums de Marly Layton" yields three words
+    that read as flanker qualifiers and are nothing of the kind.
+    """
+    from fragrance_graph.resolve.enrich import distinguishing_words as dw
+
+    assert dw("Layton", "Parfums de Marly Layton") == ["parfums", "de", "marly"]
+    assert dw("Layton", "Parfums de Marly Layton", "Parfums de Marly") == []
+
+
+@pytest.mark.parametrize(
+    "mention,candidate,brand,expected",
+    [
+        ("Khamrah", "Lattafa Khamrah Qahwa", "Lattafa", ["qahwa"]),
+        ("Layton", "Parfums de Marly Layton Exclusif", "Parfums de Marly",
+         ["exclusif"]),
+        ("Club de Nuit", "Armaf Club de Nuit Sillage", "Armaf", ["sillage"]),
+        ("Sauvage", "Dior Eau Sauvage", "Dior", ["eau"]),
+    ],
+)
+def test_flankers_survive_brand_exclusion(mention, candidate, brand, expected):
+    """Excluding the house must not blunt the thing the rule is for.
+
+    `Eau Sauvage` is the one that matters most: Dior's 1966 citrus shares a
+    word with the 2015 Sauvage everyone discusses, and attaching modern
+    clone talk to it would be the worst merge available.
+    """
+    from fragrance_graph.resolve.enrich import distinguishing_words
+
+    assert distinguishing_words(mention, candidate, brand) == expected
+
+
+def test_similarity_is_measured_against_the_debranded_name():
+    """`CONFIDENT` had the same brand problem as the word comparison.
+
+    "Khamrah" against "Lattafa Khamrah" scores 0.64 and fails the gate,
+    despite being the exact bottle.
+    """
+    from fragrance_graph.resolve.enrich import CONFIDENT, debranded
+    from fragrance_graph.resolve.names import similarity
+
+    assert similarity("Khamrah", "Lattafa Khamrah") < CONFIDENT
+    assert similarity("Khamrah", debranded("Lattafa Khamrah", "Lattafa")) == 1.0
+
+
+def test_a_plain_bottle_reaches_the_auto_rule(conn):
+    """End to end: the two gates a proposal must clear to be auto-approved."""
+    from fragrance_graph.resolve.enrich import (
+        CONFIDENT,
+        corpus_support,
+        debranded,
+        distinguishing_words,
+    )
+    from fragrance_graph.resolve.names import similarity
+
+    mention, name, brand = "Khamrah", "Lattafa Khamrah", "Lattafa"
+    words = distinguishing_words(mention, name, brand)
+
+    assert corpus_support(conn, words, mention=mention) == -1
+    assert similarity(mention, debranded(name, brand)) >= CONFIDENT
