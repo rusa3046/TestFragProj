@@ -1,0 +1,362 @@
+[
+  {
+    "alternatives": [
+      {
+        "Brand": "Roads",
+        "Name": "This Weekend unisex",
+        "Year": "2014",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Floraiku",
+        "Name": "Floraiku This July Evening",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Zadig & Voltaire",
+        "Name": "Zadig & Voltaire This Is Us!",
+        "Year": "2020",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "This Works",
+    "canonical_name": "This Works",
+    "confident": false,
+    "corpus_mentions": -1,
+    "count": 7,
+    "examples": [
+      "Top note: Stronger with you absolutely + Angel's share",
+      "Easily 24 hours with stronger smell even after that"
+    ],
+    "mention": "this stuff",
+    "note": "name differs from the mention",
+    "score": 0.0,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Creed",
+        "Name": "Creed Pour Enfants unisex",
+        "Year": "2015",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Creed",
+        "Name": "Creed Centaurus",
+        "Year": "",
+        "corpus_mentions": 4
+      },
+      {
+        "Brand": "Creed",
+        "Name": "Creed Carmina",
+        "Year": "2023",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Creed",
+    "canonical_name": "Creed",
+    "confident": false,
+    "corpus_mentions": -1,
+    "count": 6,
+    "examples": [
+      "A lot of companies using DNA are catching up to them for 1/8th of the price",
+      "Creed's quality went down the toilet when they sold out to L'OREAL"
+    ],
+    "mention": "Creed",
+    "note": "name differs from the mention",
+    "score": 0.0,
+    "year": "2010"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Aether",
+        "Name": "Supaer unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Aether",
+        "Name": "Muskethanol unisex",
+        "Year": "2016",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Aether",
+        "Name": "Celluloid unisex",
+        "Year": "2017",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Aether",
+    "canonical_name": "Aether Oxyde unisex",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 5,
+    "examples": [
+      "Midori by Fragrance world is the same situation",
+      "Aether for greenly doesn't do it either"
+    ],
+    "mention": "Aether",
+    "note": "name differs from the mention; nobody in the corpus wrote 'oxyde unisex'",
+    "score": 0.222,
+    "year": "2016"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Catwalk",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Mistique",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Chic",
+        "Year": "2023",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Club De Nuit Untold",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 5,
+    "examples": [
+      "one of the most synthetic",
+      "worst dupe of (540)"
+    ],
+    "mention": "Armaf Untold",
+    "note": "name differs from the mention; nobody in the corpus wrote 'club de nuit'",
+    "score": 0.452,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Ramz Lattafa Gold",
+        "Year": "",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Ajwad",
+        "Year": "2021",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Lattafa",
+        "Name": "Lattafa Musamam",
+        "Year": "2022",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Lattafa",
+    "canonical_name": "Lattafa Ramz Lattafa Silver",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 5,
+    "examples": [
+      "All of them, like literally all of them had the exact same undertone of something thick, rotten, puke-ish",
+      "I got 6 Lattafa fragrances so far and I'm hugely impressed quality fragrances"
+    ],
+    "mention": "Lattafa",
+    "note": "name differs from the mention; nobody in the corpus wrote 'ramz silver'",
+    "score": 0.111,
+    "year": "2021"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Chic",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Catwalk",
+        "Year": "2023",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Miss Armaf Mistique",
+        "Year": "2023",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Miss Armaf Attitude",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "my Armaf btl is empty and not my fav or even a dumb reach in my collection. There is no way I wore the 120ml of that yet it's empty",
+      "But nowdays idk I think they changing formula"
+    ],
+    "mention": "Armaf",
+    "note": "name differs from the mention; nobody in the corpus wrote 'miss attitude'",
+    "score": 0.111,
+    "year": "2023"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Poesie",
+        "Name": "Cloud unisex",
+        "Year": "2018",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Ariana Grande",
+        "Name": "Cloud Ariana Grande",
+        "Year": "2018",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Zarkoperfume",
+        "Name": "Zarkoperfume Cloud Collection 1",
+        "Year": "2017",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Khadlaj",
+    "canonical_name": "Cloud Candy",
+    "confident": false,
+    "corpus_mentions": 0,
+    "count": 4,
+    "examples": [
+      "they do share a very similar DNA",
+      "Cloud smell cheap to my nose"
+    ],
+    "mention": "Cloud",
+    "note": "name differs from the mention; nobody in the corpus wrote 'candy' — see alternatives (1 better supported)",
+    "score": 0.625,
+    "year": ""
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit Iconic",
+        "Year": "2022",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit Imperiale",
+        "Year": "2022",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit Sillage",
+        "Year": "2020",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Club De Nuit",
+    "confident": true,
+    "corpus_mentions": -1,
+    "count": 4,
+    "examples": [
+      "the EDP is a banger and better sillage and longevity",
+      "they are so similar it's crazy"
+    ],
+    "mention": "Club De Nuit EDP",
+    "note": "",
+    "score": 0.857,
+    "year": "2015"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Grandeur",
+        "Name": "Grandeur Iconic Nuit",
+        "Year": "",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "Armaf",
+        "Name": "Armaf Club De Nuit",
+        "Year": "2015",
+        "corpus_mentions": -1
+      },
+      {
+        "Brand": "EPC Experimental Perfume Club",
+        "Name": "Santal Nuit unisex",
+        "Year": "",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Armaf",
+    "canonical_name": "Armaf Club De Nuit Iconic",
+    "confident": true,
+    "corpus_mentions": -1,
+    "count": 4,
+    "examples": [
+      "I bought Club de nuit Iconic and dude, I have to disagree. I actually think it's so much worse than the OG.",
+      "the original was definitely leaps better than this"
+    ],
+    "mention": "Club de nuit Iconic",
+    "note": "",
+    "score": 1.0,
+    "year": "2022"
+  },
+  {
+    "alternatives": [
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Clementine",
+        "Year": "2022",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Lilacs & Gooseberries",
+        "Year": "2021",
+        "corpus_mentions": 0
+      },
+      {
+        "Brand": "Shay & Blue",
+        "Name": "Shay & Blue Amber Rose",
+        "Year": "2013",
+        "corpus_mentions": 0
+      }
+    ],
+    "approved": null,
+    "brand": "Blue Bloom",
+    "canonical_name": "Blue Bloom",
+    "confident": false,
+    "corpus_mentions": -1,
+    "count": 4,
+    "examples": [
+      "EXCLUSIF BLUE ITS THE CLOSEST WITH GREAT PERFORMANCE",
+      "ITS EVEN STRONGER THAN THE NEW REFORMULATED LAYTON"
+    ],
+    "mention": "EXCLUSIF BLUE",
+    "note": "name differs from the mention",
+    "score": 0.0,
+    "year": "2017"
+  }
+]
