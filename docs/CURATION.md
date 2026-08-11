@@ -261,3 +261,37 @@ The catalogue's free tier is **20 requests per month** and the default
 `--lookup-limit` is 25, so one run overspends the month before any of
 this is weighed. Filter the candidate list, or lower the limit, before
 the next live run.
+
+## The reverse flanker, found on the first live run (2026-08-11)
+
+Excluding the brand made the auto-rule reachable. It also made a second
+defect reachable, and that one merged a bottle.
+
+`distinguishing_words` asks what the *catalogue name* adds. It never asked
+what the *mention* adds. So a mention more specific than the name it
+matched has no distinguishing words, scores `-1`, and auto-approves:
+
+    "Club De Nuit EDP"  vs  "Armaf Club De Nuit"   -> [] -> merged
+    "Layton Exclusif"   vs  "Parfums de Marly Layton"
+    "Khamrah Qahwa"     vs  "Lattafa Khamrah"
+    "Aventus Absolu"    vs  "Creed Aventus"
+
+The first of those actually happened. It created `Armaf Club De Nuit`
+alongside the hand-curated `Armaf Club de Nuit Intense Man`, so
+`Club De Nuit EDP` and `Club de Nuit` pointed at different nodes for the
+same bottle and its edges split across both. The row has been removed and
+the mention returned to unresolved.
+
+Of the two rows that first run auto-approved, one was this. **A 50% error
+rate**, against the module docstring's estimate that automatic curation
+would do somewhat worse than the 6% measured on hand-checked entries.
+
+A qualifier is a qualifier on whichever side it appears, so auto-approval
+now requires agreement in both directions — `names_agree`. Neither the
+mention nor the name may add a word the other lacks. `Club de nuit Iconic`
+→ `Armaf Club De Nuit Iconic` still auto-approves, because the qualifier
+is present on both sides and there is genuinely nothing to decide.
+
+The general lesson is the one the publishing gate already encodes: the
+auto-rule is not the thing keeping bad merges away from readers, and it
+should not be trusted as though it were.

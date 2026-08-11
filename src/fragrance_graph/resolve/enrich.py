@@ -160,6 +160,45 @@ def distinguishing_words(
     return [w for w in normalize_name(candidate).split() if w not in known]
 
 
+def mention_only_words(
+    mention: str, candidate: str, brand: str = ""
+) -> list[str]:
+    """The words the *mention* has that the catalogue name does not.
+
+    The mirror of `distinguishing_words`, and it has to be checked too.
+    That function asks what the candidate adds; on its own it treats a
+    mention *more specific than the name it matched* as having nothing to
+    decide, because the candidate adds no word:
+
+        "Layton Exclusif" vs "Parfums de Marly Layton" -> [] -> auto-merge
+
+    which is the single worst merge this project can make, and
+    `docs/CURATION.md` is largely about not making it. Measured on the
+    first live run, this fired: "Club De Nuit EDP" was auto-merged into
+    "Armaf Club De Nuit", creating a second node for a bottle the corpus
+    already had as "Armaf Club de Nuit Intense Man" and splitting its
+    edges across both.
+
+    A flanker qualifier is a flanker qualifier whichever side it sits on.
+    So auto-approval requires agreement in *both* directions: neither the
+    mention nor the name may add a word the other lacks.
+    """
+    known = set(normalize_name(candidate).split())
+    known |= set(normalize_name(brand or "").split())
+    return [w for w in normalize_name(mention).split() if w not in known]
+
+
+def names_agree(mention: str, candidate: str, brand: str = "") -> bool:
+    """Whether mention and catalogue name are the same bottle, word for word.
+
+    Brand words are excluded from both sides: people write bare names and
+    catalogues return the house.
+    """
+    return not distinguishing_words(mention, candidate, brand) and not (
+        mention_only_words(mention, candidate, brand)
+    )
+
+
 def debranded(candidate: str, brand: str = "") -> str:
     """A catalogue name with the house removed.
 
@@ -269,6 +308,14 @@ def propose_for(
     notes = []
     if not proposal.confident:
         notes.append("name differs from the mention")
+    extra = mention_only_words(mention, top["Name"] or "", top["Brand"] or "")
+    if extra:
+        # Loud, because this is the merge that costs the most: the reader
+        # said something more specific than the name they were matched to.
+        notes.append(
+            f"the mention says {' '.join(extra)!r} and the catalogue name "
+            "does not — probably a flanker of it, not the same bottle"
+        )
     if proposal.corpus_mentions == 0:
         # The decisive one. A flanker whose distinguishing word appears
         # nowhere in the corpus is a bottle nobody was talking about.

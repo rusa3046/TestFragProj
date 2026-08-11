@@ -76,7 +76,7 @@ from pathlib import Path
 
 from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
-from fragrance_graph.resolve.enrich import Proposal
+from fragrance_graph.resolve.enrich import Proposal, names_agree
 
 log = logging.getLogger("fragrance_graph.daily")
 
@@ -106,6 +106,13 @@ def auto_approvable(proposal: Proposal, *, min_count: int = AUTO_MIN_COUNT) -> b
         return False  # the proposed name is not the mention people wrote
     if proposal.corpus_mentions != -1:
         return False  # a flanker question exists, so a person answers it
+    if not names_agree(
+        proposal.mention, proposal.canonical_name, proposal.brand or ""
+    ):
+        # The mention is more specific than the name it matched — the
+        # flanker question in reverse. `corpus_mentions == -1` cannot see
+        # this, because it only asks what the *candidate* adds.
+        return False
     return proposal.count >= min_count
 
 

@@ -218,3 +218,51 @@ class TestCredentialPlumbing:
         monkeypatch.setattr(daily, "summary", lambda **k: "", raising=False)
         daily.main(["spend", "--days", "1"])
         assert called, "daily.main did not load .env"
+
+
+class TestReverseFlanker:
+    """A mention more specific than the name it matched must be held.
+
+    `corpus_mentions == -1` only asks what the catalogue name adds, so on
+    its own it auto-merges every flanker whose qualifier the commenter
+    supplied. This fired on the first live run.
+    """
+
+    @staticmethod
+    def _p(mention, name, brand):
+        return Proposal(
+            mention=mention, count=9, canonical_name=name, brand=brand,
+            confident=True, corpus_mentions=-1,
+        )
+
+    @pytest.mark.parametrize("mention,name,brand", [
+        ("Layton Exclusif", "Parfums de Marly Layton", "Parfums de Marly"),
+        ("Khamrah Qahwa", "Lattafa Khamrah", "Lattafa"),
+        ("Club de Nuit Sillage", "Armaf Club de Nuit", "Armaf"),
+        ("Aventus Absolu", "Creed Aventus", "Creed"),
+        # The one that actually happened, 2026-08-11.
+        ("Club De Nuit EDP", "Armaf Club De Nuit", "Armaf"),
+    ])
+    def test_reverse_flankers_are_held(self, mention, name, brand):
+        assert auto_approvable(self._p(mention, name, brand)) is False
+
+    @pytest.mark.parametrize("mention,name,brand", [
+        ("Khamrah", "Lattafa Khamrah", "Lattafa"),
+        ("Layton", "Parfums de Marly Layton", "Parfums de Marly"),
+        ("Aventus", "Creed Aventus", "Creed"),
+        ("oud wonder", "Fragrance World Oud Wonder", "Fragrance World"),
+        # Genuinely the same bottle, qualifier present on both sides.
+        ("Club de nuit Iconic", "Armaf Club De Nuit Iconic", "Armaf"),
+    ])
+    def test_exact_bottles_still_auto_approve(self, mention, name, brand):
+        assert auto_approvable(self._p(mention, name, brand)) is True
+
+    def test_the_reason_reaches_the_review_file(self):
+        from fragrance_graph.resolve.enrich import propose_for
+
+        p = propose_for("Layton Exclusif", 9, [
+            {"Name": "Parfums de Marly Layton", "Brand": "Parfums de Marly",
+             "Year": "2016"},
+        ])
+        assert "exclusif" in p.note
+        assert "flanker" in p.note
