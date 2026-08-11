@@ -145,3 +145,63 @@ def test_a_reviewed_file_round_trips_as_json(tmp_path):
     path = tmp_path / "batch.json"
     path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
     assert "drafted_by" not in json.loads(path.read_text())[0]
+
+
+class TestPolarity:
+    """A denial recorded as an assertion is the worst defect this corpus had.
+
+    The drafter emits no polarity at all, so every drafted claim arrives as
+    an implicit assertion — including "there's no clone of TF oud wood that
+    captures the scent", which drafts as two claims saying those houses
+    *are* dupes.
+    """
+
+    def test_a_denial_is_visible_before_it_is_signed(self):
+        entry = drafted()
+        entry["claims"][0]["polarity"] = "DENIED"
+        out = render_entry(entry, position=1, total=1)
+        assert "DENIED" in out
+
+    def test_flipping_marks_the_claim_denied(self):
+        entries = [drafted()]
+        review(entries, ask=answers("p", "a"), say=lambda _: None)
+        assert entries[0]["claims"][0]["polarity"] == "DENIED"
+        assert "drafted_by" not in entries[0]
+
+    def test_flipping_twice_returns_to_asserted(self):
+        entries = [drafted()]
+        review(entries, ask=answers("p", "p", "a"), say=lambda _: None)
+        assert entries[0]["claims"][0]["polarity"] == "ASSERTED"
+
+    def test_all_claims_can_be_flipped_at_once(self):
+        """The real case: one denial covering several bottles."""
+        entries = [drafted(claims=[
+            {"claim_type": "DUPE_OF", "raw_subject_text": "Maison Alhambra",
+             "raw_object_text": "TF Oud Wood", "sentiment": "NEGATIVE"},
+            {"claim_type": "DUPE_OF", "raw_subject_text": "Afnan",
+             "raw_object_text": "TF Oud Wood", "sentiment": "NEGATIVE"},
+        ])]
+        review(entries, ask=answers("p", "all", "a"), say=lambda _: None)
+        assert [c["polarity"] for c in entries[0]["claims"]] == \
+            ["DENIED", "DENIED"]
+
+    def test_flipping_alone_does_not_sign_the_row(self):
+        entries = [drafted()]
+        review(entries, ask=answers("p", "s"), say=lambda _: None)
+        assert entries[0]["claims"][0]["polarity"] == "DENIED"
+        assert entries[0]["drafted_by"], "a correction is not an approval"
+
+
+def test_the_drafter_is_asked_for_polarity():
+    """The schema must let a denial be expressed, or it never will be."""
+    from fragrance_graph.evals.autolabel import RESPONSE_SCHEMA, build_prompt
+
+    claim = (RESPONSE_SCHEMA["properties"]["results"]["items"]["properties"]
+             ["claims"]["items"])
+    assert "polarity" in claim["properties"]
+    assert "polarity" in claim["required"]
+    assert set(claim["properties"]["polarity"]["enum"]) == {"ASSERTED", "DENIED"}
+
+    prompt = build_prompt("skip")
+    assert "DENIED" in prompt
+    assert "not sentiment" in prompt

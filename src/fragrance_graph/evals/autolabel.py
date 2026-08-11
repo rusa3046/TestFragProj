@@ -39,7 +39,12 @@ from typing import Any
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 from fragrance_graph.evals.labels import export_template, load_labels
 from fragrance_graph.evals.score import edge_score, match_key, score
-from fragrance_graph.models import ALLOWED_OBJECT_KINDS, EDGE_CLAIM_TYPES, ClaimType
+from fragrance_graph.models import (
+    ALLOWED_OBJECT_KINDS,
+    EDGE_CLAIM_TYPES,
+    ClaimType,
+    Polarity,
+)
 
 log = logging.getLogger("fragrance_graph.evals.autolabel")
 
@@ -153,6 +158,16 @@ that everything else is measured against.
 - One subject per claim. A sentence naming three fragrances is three
   claims, never one claim with three names crammed into the subject.
 - {policy_text}
+- polarity is ASSERTED when the commenter says the relationship holds and
+  DENIED when they say it does not. "Nothing like Angels Share", "there is
+  no clone of Oud Wood that captures it", "this is NOT a dupe" are all
+  DENIED. Label the relationship the commenter is talking about, then say
+  whether they affirm or reject it — do not drop the claim.
+- polarity is not sentiment. A denial is usually NEGATIVE, but "worst dupe
+  of Aventus I have tried" is an ASSERTED dupe with NEGATIVE sentiment: the
+  commenter agrees it is a dupe and dislikes it. Collapsing the two is what
+  made 36 denials get stored as edges, so a page quoted people as evidence
+  for the claim they were rejecting.
 - sentiment is POSITIVE, NEGATIVE, or NEUTRAL, and describes how the
   commenter frames it. A complaint about weak projection is PROJECTION
   with NEGATIVE sentiment, not a separate claim type.
@@ -188,12 +203,17 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                                     "type": "string",
                                     "enum": ["POSITIVE", "NEGATIVE", "NEUTRAL"],
                                 },
+                                "polarity": {
+                                    "type": "string",
+                                    "enum": [p.value for p in Polarity],
+                                },
                             },
                             "required": [
                                 "claim_type",
                                 "raw_subject_text",
                                 "raw_object_text",
                                 "sentiment",
+                                "polarity",
                             ],
                             "additionalProperties": False,
                         },

@@ -38,6 +38,7 @@ MENU = """
   [a] accept        the claims are right
   [n] asserts nothing   clear the claims — the comment makes no claim
   [t] change type   fix DUPE_OF / SIMILAR_TO / ...
+  [p] flip polarity ASSERTED <-> DENIED — "X is NOT a dupe of Y"
   [s] skip          decide later; stays marked as a draft
   [q] save and quit
 """
@@ -74,9 +75,15 @@ def render_entry(entry: dict, *, position: int, total: int) -> str:
             subject = claim.get("raw_subject_text")
             obj = claim.get("raw_object_text")
             arrow = f" -> {obj!r}" if obj else ""
+            # Polarity is shown even when absent, and loudly when DENIED.
+            # A denial stored as an assertion quotes someone as evidence
+            # for the claim they were rejecting — the worst defect this
+            # corpus has had, and invisible if the field is not on screen.
+            polarity = claim.get("polarity", "ASSERTED")
+            mark = "  ** DENIED **" if polarity == "DENIED" else ""
             lines.append(
                 f"    {i}. {claim.get('claim_type')}: {subject!r}{arrow}"
-                f"  [{claim.get('sentiment', '-')}]"
+                f"  [{claim.get('sentiment', '-')}]{mark}"
             )
     return "\n".join(lines)
 
@@ -114,6 +121,45 @@ def _retype(entry: dict, ask: Callable[[str], str], say: Callable[[str], None]) 
     return True
 
 
+def _flip_polarity(
+    entry: dict, ask: Callable[[str], str], say: Callable[[str], None]
+) -> bool:
+    """Toggle a claim between ASSERTED and DENIED.
+
+    The drafter does not emit polarity at all, so every drafted claim
+    arrives as an implicit assertion — including the denials. "There is no
+    clone of TF Oud Wood that captures the scent" drafts as two claims
+    saying those houses *are* dupes, which is precisely backwards.
+    """
+    claims = entry.get("claims") or []
+    if not claims:
+        say("  Nothing to flip — this entry has no claims.")
+        return False
+
+    which = 1
+    if len(claims) > 1:
+        answer = ask(f"  which claim? [1-{len(claims)}, or 'all'] ").strip().lower()
+        if answer in {"all", "a", "*"}:
+            for claim in claims:
+                claim["polarity"] = (
+                    "DENIED" if claim.get("polarity", "ASSERTED") == "ASSERTED"
+                    else "ASSERTED"
+                )
+            say(f"  flipped all {len(claims)} claims.")
+            return True
+        if not answer.isdigit() or not 1 <= int(answer) <= len(claims):
+            say("  Not a claim number; nothing changed.")
+            return False
+        which = int(answer)
+
+    claim = claims[which - 1]
+    claim["polarity"] = (
+        "DENIED" if claim.get("polarity", "ASSERTED") == "ASSERTED" else "ASSERTED"
+    )
+    say(f"  claim {which} is now {claim['polarity']}.")
+    return True
+
+
 def review(
     entries: list[dict],
     *,
@@ -139,6 +185,11 @@ def review(
         say(MENU)
         while True:
             choice = (ask("  > ").strip() or "s")[0].lower()
+            if choice == "p":
+                _flip_polarity(entry, ask, say)
+                say(render_entry(entry, position=position, total=total))
+                say(MENU)
+                continue
             if choice == "t":
                 _retype(entry, ask, say)
                 progress.retyped += 1
@@ -149,7 +200,7 @@ def review(
                 continue
             if choice in {"a", "n", "s", "q"}:
                 break
-            say("  a, n, t, s or q.")
+            say("  a, n, t, p, s or q.")
 
         if choice == "q":
             say("\nSaved. Re-run to continue where this stopped.")
