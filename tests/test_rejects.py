@@ -173,3 +173,119 @@ def test_rejected_claims_are_json_not_a_python_repr(conn):
 
     raw = conn.execute("SELECT raw_json FROM rejected_claims").fetchone()[0]
     assert json.loads(raw)["raw_subject_text"] == "Khamrah"
+
+
+class TestRecoverable:
+    """Sizing the rejected pile without paying to extract again."""
+
+    @staticmethod
+    def _reject(conn, comment_id, reason, claim):
+        conn.execute(
+            "INSERT INTO rejected_claims (comment_id, reason, raw_json,"
+            " extraction_model, created_at)"
+            " VALUES (?, ?, ?, 'test', '2026-01-01')",
+            (comment_id, reason, json.dumps(claim)),
+        )
+
+    def _comment(self, conn, i=1):
+        from tests.test_query import add_comment
+
+        return add_comment(conn, i, body="khamrah is very sweet", author="u1")
+
+    def test_a_redundant_kind_is_coercible(self, conn):
+        """The dominant reason: NOTE_DESCRIPTOR emitted with kind NONE.
+
+        NOTE_DESCRIPTOR admits only TAG, so the model was asked for a
+        field with one legal answer and got it wrong while supplying the
+        descriptor itself.
+        """
+        from fragrance_graph.extract.rejects import COERCIBLE, recoverable
+
+        cid = self._comment(conn)
+        self._reject(conn, cid,
+                     "NOTE_DESCRIPTOR allows object_kind {TAG}, got NONE",
+                     {"claim_type": "NOTE_DESCRIPTOR", "subject_kind": "FRAGRANCE",
+                      "raw_subject_text": "khamrah", "object_kind": "NONE",
+                      "raw_object_text": "sweet", "confidence": 0.9,
+                      "evidence_span": "khamrah is very sweet",
+                      "polarity": "ASSERTED", "sentiment": "POSITIVE"})
+        conn.commit()
+
+        result = recoverable(conn)
+        assert len(result["buckets"][COERCIBLE]) == 1
+        assert result["coercible_by_type"] == {"NOTE_DESCRIPTOR -> TAG": 1}
+
+    def test_a_missing_object_is_not_recoverable(self, conn):
+        """"requires raw_object_text": there is no content to keep."""
+        from fragrance_graph.extract.rejects import NO_OBJECT, recoverable
+
+        cid = self._comment(conn)
+        self._reject(conn, cid, "DUPE_OF requires raw_object_text",
+                     {"claim_type": "DUPE_OF", "subject_kind": "FRAGRANCE",
+                      "raw_subject_text": "khamrah", "object_kind": "NONE",
+                      "raw_object_text": None, "confidence": 0.9,
+                      "evidence_span": "khamrah is very sweet",
+                      "polarity": "ASSERTED", "sentiment": "POSITIVE"})
+        conn.commit()
+        assert len(recoverable(conn)["buckets"][NO_OBJECT]) == 1
+
+    def test_a_real_disagreement_is_not_recoverable(self, conn):
+        """BETTER_THAN got TAG is the model contradicting the taxonomy.
+
+        "better than most vanillas" names a category, not a bottle.
+        Coercing TAG to FRAGRANCE would assert something nobody said.
+        """
+        from fragrance_graph.extract.rejects import recoverable
+
+        cid = self._comment(conn)
+        self._reject(conn, cid,
+                     "BETTER_THAN allows object_kind {FRAGRANCE}, got TAG",
+                     {"claim_type": "BETTER_THAN", "subject_kind": "FRAGRANCE",
+                      "raw_subject_text": "khamrah", "object_kind": "TAG",
+                      "raw_object_text": "most vanillas", "confidence": 0.9,
+                      "evidence_span": "khamrah is very sweet",
+                      "polarity": "ASSERTED", "sentiment": "POSITIVE"})
+        conn.commit()
+        from fragrance_graph.extract.rejects import COERCIBLE
+
+        assert not recoverable(conn)["buckets"].get(COERCIBLE)
+
+    def test_similar_to_is_never_coerced(self, conn):
+        """The one type with a genuine choice must not be guessed at."""
+        from fragrance_graph.extract.rejects import COERCIBLE, recoverable
+
+        cid = self._comment(conn)
+        self._reject(conn, cid,
+                     "SIMILAR_TO allows object_kind {FRAGRANCE, HOUSE, TAG}, got NONE",
+                     {"claim_type": "SIMILAR_TO", "subject_kind": "FRAGRANCE",
+                      "raw_subject_text": "khamrah", "object_kind": "NONE",
+                      "raw_object_text": "angels share", "confidence": 0.9,
+                      "evidence_span": "khamrah is very sweet",
+                      "polarity": "ASSERTED", "sentiment": "POSITIVE"})
+        conn.commit()
+        assert not recoverable(conn)["buckets"].get(COERCIBLE)
+
+    def test_the_verdict_is_tested_not_assumed(self, conn):
+        """A claim broken for a second reason stays rejected.
+
+        Coercion only counts if a real Claim validates afterwards.
+        """
+        from fragrance_graph.extract.rejects import COERCIBLE, recoverable
+
+        cid = self._comment(conn)
+        self._reject(conn, cid,
+                     "NOTE_DESCRIPTOR allows object_kind {TAG}, got NONE",
+                     {"claim_type": "NOTE_DESCRIPTOR", "subject_kind": "FRAGRANCE",
+                      "raw_subject_text": "khamrah", "object_kind": "NONE",
+                      "raw_object_text": "sweet", "confidence": 42.0,
+                      "evidence_span": "khamrah is very sweet",
+                      "polarity": "ASSERTED", "sentiment": "POSITIVE"})
+        conn.commit()
+        assert not recoverable(conn)["buckets"].get(COERCIBLE), \
+            "confidence 42.0 is still invalid after coercion"
+
+    def test_empty_table_explains_itself(self, conn):
+        from fragrance_graph.extract.rejects import recoverable, render_recoverable
+
+        out = render_recoverable(recoverable(conn))
+        assert "not part of the committed corpus" in out

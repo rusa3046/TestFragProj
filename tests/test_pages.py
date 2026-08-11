@@ -295,3 +295,30 @@ def test_an_empty_graph_still_writes_an_index(conn, tmp_path):
 def test_slugify_survives_real_fragrance_names(name, expected):
     """Apostrophes, ampersands and accents are ordinary in this domain."""
     assert slugify(name) == expected
+
+
+def test_a_page_says_creators_not_videos(conn):
+    """The gate counts `source_channel`, which is the uploading channel.
+
+    Pages said "across 2 videos" until 2026-08-11. Two videos by one
+    YouTuber are one audience, so the label understated a bar the code
+    had always enforced correctly. Pinned because it is public-facing
+    text describing what the evidence actually is.
+    """
+    from fragrance_graph.pages import qualifying_pairs, render_pair
+
+    pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+    pairs = qualifying_pairs(conn)
+    assert pairs, "fixture should clear the gate"
+    html = render_pair(pairs[0])
+    assert "creators" in html or "creator" in html
+    assert "video" not in html.lower(), "the gate does not count videos"
+
+
+def test_the_index_says_creators_too(conn):
+    from fragrance_graph.pages import qualifying_pairs, render_index
+
+    pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+    index = render_index(qualifying_pairs(conn))
+    assert "creators" in index
+    assert "videos" not in index

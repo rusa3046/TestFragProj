@@ -60,7 +60,7 @@ is why the rule refuses rather than guesses, and it is the same one
 — which is roughly a 6% error rate on carefully checked entries. Automatic
 curation will do worse than that, not better. What stops a bad merge
 reaching a reader is not this rule; it is the publishing gate in
-`pages.py`, which requires 3 distinct commenters across 2 videos before a
+`pages.py`, which requires 3 distinct commenters across 2 creators before a
 pair becomes a page. This rule only has to be good enough that the gate is
 not doing all the work alone.
 

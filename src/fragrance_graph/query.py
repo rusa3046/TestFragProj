@@ -40,7 +40,7 @@ page should lead with.
 **Sources are counted separately from people.** Three commenters in one
 video's comment section, possibly replying to each other, is not three
 independent observations, and "3 people said this" implies that it is.
-`sources` records how many distinct videos back a claim so a page can
+`sources` records how many distinct creators back a claim so a page can
 decline to imply consensus that a single thread cannot support.
 
 **Evidence is required.** Only claims whose `evidence_span` was verified
@@ -116,7 +116,7 @@ class Related:
     #: Distinct videos/threads backing the *pair* across every claim type,
     #: standing in the same relation to `sources` as `pair_commenters` does
     #: to `commenters`. Quoting one scope beside the other is how a page
-    #: ends up saying "5 people across 2 videos" where the 5 counts the
+    #: ends up saying "5 people across 2 creators" where the 5 counts the
     #: pair and the 2 counts a single row. Measured on the committed
     #: corpus, the two differ on 8 of 21 pairs.
     pair_sources: int
@@ -496,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
         "--min-sources",
         type=int,
         default=1,
-        help="Hide results backed by fewer than N distinct videos/threads",
+        help="Hide results backed by fewer than N distinct creators/channels",
     )
     parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
     args = parser.parse_args(argv)

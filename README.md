@@ -76,7 +76,8 @@ page.
 
 **Curation is still the live bottleneck**, and it is no longer the only
 thing standing between the corpus and a page. 50 entries yield 32 pairs, of
-which **6 clear the publishing gate** of 3+ commenters across 2+ videos.
+which **6 clear the publishing gate** of 3+ commenters across 2+ creators
+(distinct uploading channels, not distinct videos).
 The measured curve below says 60-80 entries yields ~45 pairs.
 
 First real corpus, 2026-08-09 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
@@ -104,7 +105,7 @@ Measured from the committed corpus, 2026-08-11:
   524  evidence verified     (-5)
    86  both ends resolved    <- 50 fragrances curated
    32  distinct pairs
-    6  pages published       <- 3+ commenters AND 2+ videos
+    6  pages published       <- 3+ commenters AND 2+ creators
 ```
 
 **An edge needs *both* its subject and its object to be a curated bottle**,
@@ -368,7 +369,7 @@ a loud minority as consensus.
 
 Each row also reports `(N sources; M for the pair)`:
 
-- **sources** — how many distinct videos back it. Three commenters in one
+- **sources** — how many distinct creators back it. Three commenters in one
   comment section is not three independent observations, and two of the
   eight currently resolved pairs are single-source. `--min-sources 2`
   filters them out.

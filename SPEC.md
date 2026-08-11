@@ -720,7 +720,8 @@ the number a page should lead with.
 CDNIM showed three distinct commenters, all from video `ZOd2QEVJX8c` —
 possibly replying to each other. "3 people said this" implies three
 independent observations and a single thread cannot support that.
-`Related.sources` counts distinct videos, and `min_sources` filters on it.
+`Related.sources` counts distinct creators (the uploading channel), and
+`min_sources` filters on it.
 
 Measured on the eight resolved pairs: **two of eight are single-source.**
 A quarter of the graph's current pairs would have implied a consensus that
@@ -867,14 +868,14 @@ people and readers were summing them. Rows share videos for exactly the same
 reason.
 
 Gating a row-scoped source count beside a pair-scoped commenter count would
-have printed page headings like *"5 people across 2 videos"* where the two
+have printed page headings like *"5 people across 2 creators"* where the two
 numbers count different things — the original defect, re-introduced one
 field over. So `pair_sources` was added alongside `pair_commenters`, and the
 gate reads both.
 
 **It is not cosmetic.** On the committed corpus the scopes disagree on 8 of
 21 candidate pairs, and one changes gate status: Club de Nuit Imperiale <->
-Delina Exclusif is 3 people across 2 videos, which is precisely what the bar
+Delina Exclusif is 3 people across 2 creators, which is precisely what the bar
 asks for, and a row-scoped check refused it.
 
 #### Counting a pair from one end under-counts it
@@ -961,7 +962,7 @@ name and brand, the mention must clear 3 slots, and an explicit human
 hand-curated entry called "confident" named the wrong house — two houses
 ship a Perseus — which is ~6% on carefully checked entries; automatic
 curation will do worse. What keeps a bad merge off a page is not this rule
-but the Phase D gate: 3 distinct commenters across 2 videos. The rule only
+but the Phase D gate: 3 distinct commenters across 2 creators. The rule only
 has to be good enough that the gate is not carrying the whole load alone.
 
 ### Deferred decisions
