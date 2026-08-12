@@ -91,6 +91,7 @@ from fragrance_graph.gate import (
 )
 from fragrance_graph.query import Related, pair_stats, similar_to
 from fragrance_graph.resolve.enrich import debranded
+from fragrance_graph.resolve.names import normalize_name
 
 #: Re-exported so `from fragrance_graph.pages import MIN_COMMENTERS` keeps
 #: working; `gate.py` is where they are defined and explained.
@@ -368,6 +369,61 @@ class Pair:
     @property
     def title(self) -> str:
         return f"{self.left} vs {self.right}"
+
+
+#: The editorial blocklist. Repo-relative rather than package-relative
+#: because it is meant to be opened and argued with, not shipped and
+#: forgotten.
+BLOCKLIST_PATH = Path(__file__).resolve().parents[2] / "data" / "blocklist.txt"
+
+
+def load_blocklist(path: Path | None = None) -> frozenset[str]:
+    """Words that keep a quote off a page.
+
+    A missing file logs a warning rather than quietly disabling the
+    filter: "no crude quotes were hidden" and "the filter never ran" look
+    identical on the output, and only one of them is fine.
+    """
+    path = BLOCKLIST_PATH if path is None else path
+    if not path.exists():
+        log.warning("No blocklist at %s — quotes are unfiltered", path)
+        return frozenset()
+    words = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            words.add(normalize_name(line))
+    words.discard("")
+    return frozenset(words)
+
+
+def crude_words(text: str, blocklist: frozenset[str]) -> list[str]:
+    """Which blocked words a comment contains, whole-word after normalising.
+
+    Whole words only. Substring matching turns "assessment" and "hello"
+    into profanity, and a filter that hides ordinary sentences is worse
+    than no filter — it removes evidence for a reason nobody can see.
+    """
+    if not blocklist:
+        return []
+    return sorted(set(normalize_name(text).split()) & blocklist)
+
+
+def hidden_quotes(
+    pair: Pair, blocklist: frozenset[str]
+) -> list[tuple[str, list[str]]]:
+    """Every quote this pair's page will not print, and why.
+
+    Separate from rendering so the build can report it. Nothing here is
+    dropped silently: `pages build` prints this list, and the page itself
+    says a comment was left out.
+    """
+    return [
+        (ev.permalink, words)
+        for statement in pair.statements
+        for ev in statement.row.evidence
+        if (words := crude_words(ev.quote, blocklist))
+    ]
 
 
 #: Pairs a bottle must have before it gets a page of its own. One pair is
@@ -804,14 +860,20 @@ def render_pair(
     pair: Pair,
     facts: dict[str, Bottle] | None = None,
     indexes: dict[str, ReverseIndex] | None = None,
+    blocklist: frozenset[str] | None = None,
 ) -> str:
     """One page, as a complete HTML document.
 
     Every interpolated value goes through `html.escape`, including the
     quotes, which are the whole point of the page and are also the one
     field written by someone other than us.
+
+    `blocklist` keeps crude sentences off the page without removing the
+    people who wrote them from the counts — see `load_blocklist`. Passing
+    None loads the committed list; passing an empty set disables it.
     """
     e = html.escape
+    blocklist = load_blocklist() if blocklist is None else blocklist
     out: list[str] = [
         "<!doctype html>",
         '<html lang="en">',
@@ -848,6 +910,7 @@ def render_pair(
         # dupe of": the cheaper bottle imitates the expensive one, and a
         # heading that swaps them says something nobody wrote.
         out.append(f"<h2>{e(_people(row.commenters))} {e(stmt.sentence)}</h2>")
+        hidden = 0
         # `<figure>` rather than `<ul><li>`. A blockquote is a block
         # element, so a browser puts the list marker on its own line and
         # starts the quote underneath it — which reads as an empty bullet
@@ -856,6 +919,13 @@ def render_pair(
         # rendered. `<figure>` + `<figcaption>` is also what the spec says
         # a quote with attribution is.
         for ev in row.evidence:
+            words = crude_words(ev.quote, blocklist)
+            if words:
+                log.info(
+                    "Hidden for language (%s): %s", ", ".join(words), ev.permalink
+                )
+                hidden += 1
+                continue
             # `outbound` is relative to the end the row was read from, not
             # to the direction the heading states.
             said_about = stmt.asked if ev.outbound else stmt.other
@@ -866,6 +936,14 @@ def render_pair(
                 f'<a href="{e(ev.permalink)}" rel="nofollow noopener">'
                 "read the comment</a></figcaption>"
                 "</figure>"
+            )
+        if hidden:
+            # Said on the page, not only in a log. A quote that vanishes
+            # without explanation reads as evidence we could not produce.
+            out.append(
+                f"<p>{hidden} comment{'' if hidden == 1 else 's'} not shown "
+                "here, for language. The count above still includes "
+                f"{'it' if hidden == 1 else 'them'}.</p>"
             )
         out.append("</section>")
 
@@ -990,10 +1068,11 @@ def build(
     facts = bottle_facts(conn)
     indexes = reverse_indexes(pairs)
     linked = {i.bottle: i for i in indexes}
+    blocklist = load_blocklist()
     out_dir.mkdir(parents=True, exist_ok=True)
     for pair in pairs:
         (out_dir / f"{pair.slug}.html").write_text(
-            render_pair(pair, facts, linked), encoding="utf-8"
+            render_pair(pair, facts, linked, blocklist), encoding="utf-8"
         )
     for index in indexes:
         (out_dir / f"{index.slug}.html").write_text(
@@ -1107,6 +1186,20 @@ def main(argv: list[str] | None = None) -> int:
         for pair in pairs:
             print(f"  {pair.slug}.html  ({pair.commenters} people, {pair.sources} sources)")
         print(f"\nWrote {len(pairs)} page(s) + index to {args.out}/")
+
+        blocklist = load_blocklist()
+        hidden = [(p, hidden_quotes(p, blocklist)) for p in pairs]
+        hidden = [(p, h) for p, h in hidden if h]
+        if hidden:
+            count = sum(len(h) for _, h in hidden)
+            print(
+                f"\nHid {count} quote(s) for language across {len(hidden)} "
+                f"page(s). The people who wrote them are still counted; "
+                f"edit {BLOCKLIST_PATH.name} to change what is hidden:"
+            )
+            for pair, quotes in hidden:
+                for permalink, words in quotes:
+                    print(f"  {pair.slug}  [{', '.join(words)}]  {permalink}")
         _report_flanker_holds(
             conn,
             min_commenters=args.min_commenters,

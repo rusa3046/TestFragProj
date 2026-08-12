@@ -1277,3 +1277,103 @@ class TestReverseIndex:
             text = page.read_text(encoding="utf-8")
             for forbidden in ("<img", "<svg", "background-image"):
                 assert forbidden not in text, page.name
+
+
+class TestLanguageFilter:
+    """Crude quotes stay off the page without leaving the corpus.
+
+    23 of the claim spans in the committed corpus contain a word from the
+    blocklist. None of them currently reach a published page, because the
+    three quotes each section shows are picked before the filter runs —
+    so this is a guard on what gets published next, not a change to what
+    is published today.
+    """
+
+    def blocklist(self):
+        from fragrance_graph.pages import load_blocklist
+
+        return load_blocklist()
+
+    def test_the_committed_list_is_readable_and_not_empty(self):
+        assert len(self.blocklist()) > 10
+
+    def test_whole_words_only(self):
+        """A filter that hides ordinary sentences is worse than none: it
+        removes evidence for a reason nobody can see."""
+        from fragrance_graph.pages import crude_words
+
+        blocklist = self.blocklist()
+        for innocent in ("a full assessment of the drydown",
+                         "hello, this is lovely",
+                         "the class of the composition",
+                         "it has a shitake mushroom note"):
+            assert crude_words(innocent, blocklist) == [], innocent
+
+    def test_it_catches_what_it_is_for(self):
+        from fragrance_graph.pages import crude_words
+
+        assert crude_words("performance is shit", self.blocklist()) == ["shit"]
+
+    def test_a_missing_list_warns_rather_than_silently_passing(self, tmp_path, caplog):
+        from fragrance_graph.pages import load_blocklist
+
+        with caplog.at_level("WARNING"):
+            assert load_blocklist(tmp_path / "nope.txt") == frozenset()
+        assert "unfiltered" in caplog.text
+
+    def crude_pair(self, conn):
+        """A pair whose *displayed* quotes include a crude one.
+
+        Quotes are picked before the filter runs and capped at three, so
+        appending a fourth commenter would leave the crude quote out of
+        the page for an unrelated reason and pass every test below
+        vacuously. This one is written first, which is how `_pick_evidence`
+        breaks ties.
+        """
+        a = add_fragrance(conn, "Aventus")
+        b = add_fragrance(conn, "Club de Nuit Intense Man")
+        cid = add_comment(conn, 0, body="performance is shit",
+                          author="sweary", video="vid-0")
+        add_claim(conn, cid, subject=b, obj=a, evidence="performance is shit")
+        for i in range(1, MIN_COMMENTERS + 1):
+            cid = add_comment(conn, i, body=f"person {i} wrote this",
+                              author=f"person-{i}",
+                              video=f"vid-{i % MIN_SOURCES}")
+            add_claim(conn, cid, subject=b, obj=a,
+                      evidence=f"person {i} wrote this")
+        pair = qualifying_pairs(conn)[0]
+        assert any("shit" in ev.quote for s in pair.statements
+                   for ev in s.row.evidence), "fixture must reach the page"
+        return pair
+
+    def test_a_crude_quote_does_not_reach_the_page(self, conn):
+        pair = self.crude_pair(conn)
+        assert "performance is shit" not in render_pair(pair, blocklist=self.blocklist())
+
+    def test_the_page_says_a_comment_was_left_out(self, conn):
+        """Not silently. A quote that vanishes without explanation reads
+        as evidence we could not produce."""
+        pair = self.crude_pair(conn)
+        html = render_pair(pair, blocklist=self.blocklist())
+        assert "not shown here, for language" in html
+        assert "still includes it" in html
+
+    def test_the_person_is_still_counted(self, conn):
+        """A display filter, not a change to the evidence."""
+        pair = self.crude_pair(conn)
+        assert pair.commenters == MIN_COMMENTERS + 1
+        assert f"{MIN_COMMENTERS + 1} people" in render_pair(
+            pair, blocklist=self.blocklist()
+        )
+
+    def test_the_build_can_name_what_it_hid(self, conn):
+        from fragrance_graph.pages import hidden_quotes
+
+        pair = self.crude_pair(conn)
+        (hidden,) = hidden_quotes(pair, self.blocklist())
+        permalink, words = hidden
+        assert words == ["shit"] and permalink.startswith("https://")
+
+    def test_an_empty_blocklist_hides_nothing(self, conn):
+        pair = self.crude_pair(conn)
+        assert "performance is shit" in render_pair(pair, blocklist=frozenset())

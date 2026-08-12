@@ -1,0 +1,52 @@
+# Words that keep a quote off the site.
+#
+# This is a *display* filter and nothing else. The comment stays in the
+# corpus, the person who wrote it is still counted, and the claim they
+# made still backs its page. All that changes is which sentence gets
+# reprinted on a page a stranger might land on.
+#
+# It is a file rather than a regex in the code because the decision is
+# editorial: someone should be able to read this list, disagree with a
+# line, and delete it without touching Python. Nothing is dropped
+# silently — `pages build` prints every quote it hid and why, and the
+# page itself says a comment was left out.
+#
+# Matching is whole-word after normalisation, so "ass" does not catch
+# "assessment" and "hell" does not catch "hello". Spellings that dodge it
+# ("f*ck") are not chased: the goal is not reprinting obviously crude
+# sentences, not policing what people typed.
+#
+# One word per line. Blank lines and lines starting with # are ignored.
+
+arse
+arsehole
+ass
+asshole
+bastard
+bitch
+bollocks
+bullshit
+cock
+cunt
+dick
+dickhead
+fuck
+fucked
+fucker
+fucking
+motherfucker
+nigga
+nigger
+piss
+pissed
+prick
+pussy
+retard
+retarded
+shit
+shite
+shitty
+slut
+twat
+wanker
+whore
