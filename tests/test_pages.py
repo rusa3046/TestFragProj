@@ -1157,3 +1157,123 @@ class TestFlankerGate:
             people=MIN_COMMENTERS, videos=MIN_SOURCES,
         )
         assert held_as_flankers(conn) == []
+
+
+class TestReverseIndex:
+    """"Layton dupes" is a question people type, and until now the site
+    could only answer it one comparison at a time.
+
+    Nothing new is claimed on these pages. Every row is a pair that
+    already cleared the gate, and the sentence is the one its own page
+    leads with.
+    """
+
+    def two_pairs_on(self, conn, hub="Parfums de Marly Layton"):
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        centre = add_fragrance(conn, hub, brand="Parfums de Marly")
+        others = []
+        for n, name in enumerate(("Al Haramain Detour Noir",
+                                  "The Woods Collection Dusk")):
+            other = add_fragrance(conn, name, brand=name.split()[0])
+            others.append(other)
+            for i in range(MIN_COMMENTERS + n):
+                cid = add_comment(
+                    conn, n * 20 + i, body=f"person {n}{i} wrote this",
+                    author=f"p{n}{i}", video=f"vid-{n}{i % MIN_SOURCES}",
+                )
+                add_claim(conn, cid, subject=other, obj=centre,
+                          claim_type="DUPE_OF",
+                          evidence=f"person {n}{i} wrote this")
+        return centre, others
+
+    def test_a_bottle_with_two_comparisons_gets_an_index(self, conn):
+        from fragrance_graph.pages import reverse_indexes
+
+        self.two_pairs_on(conn)
+        indexes = {i.bottle: i for i in reverse_indexes(qualifying_pairs(conn))}
+        assert "Parfums de Marly Layton" in indexes
+        assert len(indexes["Parfums de Marly Layton"].pairs) == 2
+
+    def test_a_bottle_with_one_comparison_does_not(self, conn):
+        """A page whose only job is to link to one other page."""
+        from fragrance_graph.pages import reverse_indexes
+
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        assert reverse_indexes(qualifying_pairs(conn)) == []
+
+    def test_rows_are_ranked_by_the_number_the_page_prints(self, conn):
+        """Sorting by the pair-wide count put "4 people" above "6 people".
+
+        The pair total counts everyone who connected the two bottles; the
+        line quotes one claim type. Two scopes, one of them invisible to a
+        reader looking at a list that appears mis-sorted.
+        """
+        from fragrance_graph.pages import reverse_indexes
+
+        self.two_pairs_on(conn)
+        (index,) = [i for i in reverse_indexes(qualifying_pairs(conn))
+                    if i.bottle == "Parfums de Marly Layton"]
+        counts = [s.row.commenters for _, _, s in index.rows]
+        assert counts == sorted(counts, reverse=True)
+
+    def test_the_title_only_says_dupes_when_someone_said_dupe(self, conn):
+        from fragrance_graph.pages import ReverseIndex, reverse_indexes
+
+        self.two_pairs_on(conn)
+        (index,) = [i for i in reverse_indexes(qualifying_pairs(conn))
+                    if i.bottle == "Parfums de Marly Layton"]
+        assert index.title == "Dupes of Parfums de Marly Layton"
+
+        preference_only = ReverseIndex(
+            bottle="Parfums de Marly Layton",
+            pairs=tuple(
+                replace(p, rows=tuple(
+                    replace(r, claim_type="BETTER_THAN") for r in p.rows
+                ))
+                for p in index.pairs
+            ),
+        )
+        assert preference_only.title == (
+            "Fragrances people compare to Parfums de Marly Layton"
+        )
+
+    def test_it_never_sums_people_across_comparisons(self, conn):
+        """One person can appear in several pairs; adding the counts
+        prints a number of humans the corpus cannot support."""
+        from fragrance_graph.pages import render_reverse, reverse_indexes
+
+        self.two_pairs_on(conn)
+        (index,) = [i for i in reverse_indexes(qualifying_pairs(conn))
+                    if i.bottle == "Parfums de Marly Layton"]
+        total = sum(p.commenters for p in index.pairs)
+        assert f"{total} people" not in render_reverse(index)
+
+    def test_every_link_it_writes_exists(self, conn, tmp_path):
+        import re
+
+        self.two_pairs_on(conn)
+        build(conn, tmp_path)
+        written = {p.name for p in tmp_path.glob("*.html")}
+        for page in tmp_path.glob("*.html"):
+            for href in re.findall(r'href="([^"]+)"',
+                                   page.read_text(encoding="utf-8")):
+                if href.startswith("http"):
+                    continue  # a permalink back to the comment itself
+                assert href in written, f"{page.name} -> {href}"
+
+    def test_a_pair_page_links_to_the_indexes_it_belongs_to(self, conn, tmp_path):
+        self.two_pairs_on(conn)
+        build(conn, tmp_path)
+        page = (tmp_path / "al-haramain-detour-noir-vs-parfums-de-marly-layton.html")
+        assert "dupes-of-parfums-de-marly-layton.html" in page.read_text(
+            encoding="utf-8"
+        )
+
+    def test_an_index_page_carries_no_imagery_either(self, conn, tmp_path):
+        self.two_pairs_on(conn)
+        build(conn, tmp_path)
+        for page in tmp_path.glob("dupes-of-*.html"):
+            text = page.read_text(encoding="utf-8")
+            for forbidden in ("<img", "<svg", "background-image"):
+                assert forbidden not in text, page.name

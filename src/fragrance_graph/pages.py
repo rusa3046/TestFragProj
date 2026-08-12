@@ -370,6 +370,94 @@ class Pair:
         return f"{self.left} vs {self.right}"
 
 
+#: Pairs a bottle must have before it gets a page of its own. One pair is
+#: a page that exists to link to a single other page, which is a worse
+#: version of the pair page and a page a search engine has no reason to
+#: prefer over it.
+MIN_REVERSE_PAIRS = 2
+
+
+@dataclass(frozen=True)
+class ReverseIndex:
+    """Everything the community compares to one bottle, in one place.
+
+    "Layton dupes" is a question people actually type, and the pair pages
+    answer it one bottle at a time. This is the page that answers it as a
+    list — which is also the shape of the question, since somebody
+    shopping wants the field rather than a single comparison.
+
+    Nothing new is claimed here. Every row is a pair that already cleared
+    the gate, ranked by the same count the pair page states.
+    """
+
+    bottle: str
+    pairs: tuple[Pair, ...]
+
+    @property
+    def slug(self) -> str:
+        return f"dupes-of-{slugify(self.bottle)}"
+
+    @property
+    def rows(self) -> tuple[tuple[Pair, str, Statement], ...]:
+        """Each pair, the *other* bottle in it, and its leading claim.
+
+        Ordered by the number this page actually prints. Sorting by the
+        pair-wide commenter count instead put "4 people" above "6 people",
+        because the pair total counts everyone who connected the two
+        bottles and the line quotes the claim type — two different scopes,
+        one of them invisible to the reader.
+        """
+        out = []
+        for pair in self.pairs:
+            other = pair.right if pair.left == self.bottle else pair.left
+            statements = pair.statements
+            if statements:
+                out.append((pair, other, statements[0]))
+        return tuple(sorted(out, key=lambda r: (-r[2].row.commenters, r[1])))
+
+    @property
+    def calls_it_a_dupe(self) -> bool:
+        """Whether anyone called anything a dupe *of this bottle*.
+
+        The title turns on it. "Dupes of Layton" is the phrase people
+        search, and it is also a claim: writing it over a list of bottles
+        nobody called a dupe would be inventing the one word that matters.
+        """
+        return any(
+            s.row.claim_type == "DUPE_OF" and s.target == self.bottle
+            for pair in self.pairs
+            for s in pair.statements
+        )
+
+    @property
+    def title(self) -> str:
+        if self.calls_it_a_dupe:
+            return f"Dupes of {self.bottle}"
+        return f"Fragrances people compare to {self.bottle}"
+
+
+def reverse_indexes(
+    pairs: list[Pair], *, min_pairs: int = MIN_REVERSE_PAIRS
+) -> list[ReverseIndex]:
+    """One index per bottle with enough qualifying pairs to be worth it."""
+    by_bottle: dict[str, list[Pair]] = {}
+    for pair in pairs:
+        by_bottle.setdefault(pair.left, []).append(pair)
+        by_bottle.setdefault(pair.right, []).append(pair)
+
+    return sorted(
+        (
+            ReverseIndex(
+                bottle=bottle,
+                pairs=tuple(sorted(found, key=lambda p: (-p.commenters, p.slug))),
+            )
+            for bottle, found in by_bottle.items()
+            if len(found) >= min_pairs
+        ),
+        key=lambda r: (-len(r.pairs), r.bottle),
+    )
+
+
 def brand_casing(conn: sqlite3.Connection) -> dict[str, str]:
     """The casing each brand is written in, by majority of curated rows.
 
@@ -712,7 +800,11 @@ def _absent(pair: Pair, top: Statement) -> str:
     return "Nothing here describes what either one smells like on its own."
 
 
-def render_pair(pair: Pair, facts: dict[str, Bottle] | None = None) -> str:
+def render_pair(
+    pair: Pair,
+    facts: dict[str, Bottle] | None = None,
+    indexes: dict[str, ReverseIndex] | None = None,
+) -> str:
     """One page, as a complete HTML document.
 
     Every interpolated value goes through `html.escape`, including the
@@ -777,6 +869,22 @@ def render_pair(pair: Pair, facts: dict[str, Bottle] | None = None) -> str:
             )
         out.append("</section>")
 
+    # Somebody who came for one comparison usually wants the field. Only
+    # bottles that have their own index are linked, so no link is a
+    # promise of a page that does not exist.
+    nearby = [
+        (indexes or {})[name]
+        for name in (pair.left, pair.right)
+        if name in (indexes or {})
+    ]
+    if nearby:
+        out.append("<nav><ul>")
+        for index in nearby:
+            out.append(
+                f'<li><a href="{e(index.slug)}.html">{e(index.title)}</a></li>'
+            )
+        out.append("</ul></nav>")
+
     out.append(
         "<footer><p>Similarity here is asserted by people, never computed. "
         "This page counts distinct commenters and shows what they wrote; "
@@ -788,7 +896,48 @@ def render_pair(pair: Pair, facts: dict[str, Bottle] | None = None) -> str:
     return "\n".join(out) + "\n"
 
 
-def render_index(pairs: list[Pair]) -> str:
+def render_reverse(index: ReverseIndex, facts: dict[str, Bottle] | None = None) -> str:
+    """One bottle, everything the community compares to it."""
+    e = html.escape
+    described = (facts or {}).get(index.bottle, Bottle(index.bottle)).described
+    out: list[str] = [
+        "<!doctype html>",
+        '<html lang="en">',
+        "<head>",
+        '<meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        f"<title>{e(index.title)}</title>",
+        "</head>",
+        "<body>",
+        f"<h1>{e(index.title)}</h1>",
+        # No total across the list. People appear in more than one
+        # comparison, so summing the pair counts would print a number of
+        # humans the corpus cannot support — the defect SPEC recorded when
+        # readers were adding up per-row counts themselves.
+        f"<p>{len(index.pairs)} comparisons involving {e(described)}, each "
+        f"backed by at least {MIN_COMMENTERS} people writing across "
+        f"{MIN_SOURCES} creators. Each line links to the comments behind "
+        "it.</p>",
+        "<ul>",
+    ]
+    for pair, other, statement in index.rows:
+        out.append(
+            f'<li><a href="{e(pair.slug)}.html">{e(other)}</a> — '
+            f"{e(_people(statement.row.commenters))} {e(statement.sentence)}</li>"
+        )
+    out += [
+        "</ul>",
+        "<footer><p>Every comparison above cleared the same bar: "
+        f"{MIN_COMMENTERS} people writing across {MIN_SOURCES} creators. "
+        "Nothing here is ranked by any commercial relationship.</p>"
+        '<p><a href="index.html">All comparisons</a></p></footer>',
+        "</body>",
+        "</html>",
+    ]
+    return "\n".join(out) + "\n"
+
+
+def render_index(pairs: list[Pair], indexes: list[ReverseIndex] | None = None) -> str:
     """The list of pages, in the order the pages themselves are ranked."""
     e = html.escape
     out = [
@@ -813,7 +962,17 @@ def render_index(pairs: list[Pair]) -> str:
             f'<li><a href="{e(p.slug)}.html">{e(p.title)}</a> — '
             f"{e(_people(p.commenters))} across {e(_sources(p.sources))}</li>"
         )
-    out += ["</ul>", "</body>", "</html>"]
+    out.append("</ul>")
+    if indexes:
+        out.append("<h2>Fragrances with more than one comparison</h2>")
+        out.append("<ul>")
+        for index in indexes:
+            out.append(
+                f'<li><a href="{e(index.slug)}.html">{e(index.title)}</a> — '
+                f"{len(index.pairs)} comparisons</li>"
+            )
+        out.append("</ul>")
+    out += ["</body>", "</html>"]
     return "\n".join(out) + "\n"
 
 
@@ -829,12 +988,20 @@ def build(
         conn, min_commenters=min_commenters, min_sources=min_sources
     )
     facts = bottle_facts(conn)
+    indexes = reverse_indexes(pairs)
+    linked = {i.bottle: i for i in indexes}
     out_dir.mkdir(parents=True, exist_ok=True)
     for pair in pairs:
         (out_dir / f"{pair.slug}.html").write_text(
-            render_pair(pair, facts), encoding="utf-8"
+            render_pair(pair, facts, linked), encoding="utf-8"
         )
-    (out_dir / "index.html").write_text(render_index(pairs), encoding="utf-8")
+    for index in indexes:
+        (out_dir / f"{index.slug}.html").write_text(
+            render_reverse(index, facts), encoding="utf-8"
+        )
+    (out_dir / "index.html").write_text(
+        render_index(pairs, indexes), encoding="utf-8"
+    )
     return pairs
 
 
