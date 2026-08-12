@@ -1519,3 +1519,75 @@ the holdout once, at the end, and that number is the one published.
 a small change. This fix is worth attempting because 0.00 is not a small
 change; anything subtler needs the eval nearer 150 comments, which the
 `sample plan` strata make cheap to grow.
+
+### Measured 2026-08-12: catalogue lookups are a poor tool for this corpus
+
+A costed experiment, run to test a claim I had been making: that the
+funnel's loss is *naming*, and that spending on catalogue lookups would
+convert it into edges. 60 lookups, $3.00, ingest and extraction disabled so
+nothing else could move the result.
+
+    before   56 fragrances   112 edges   8 pages
+    after    61 fragrances  ~135 edges   8 pages
+
+**Five names out of sixty.** All five correct — Green Irish Tweed, The
+Kingdom, Virgin Island Water, Hacivat, Sauvage Elixir — so the auto-rule's
+precision held. But 54 were held, and reading *why* is the finding:
+
+    liquid brun  -> a row about 'fragrance world for women'
+    Aether       -> 'oxyde unisex'
+    amber oud    -> 'dusk unisex'
+    SNOI         -> 'soda snob unisex'
+
+Those are not near-misses. The catalogue does not carry these bottles and
+returns unrelated products, and `corpus_mentions` refused them correctly.
+The held rows are a catalogue coverage problem, not a rule problem — which
+matters, because the obvious reading of "54 held" is "the rule is too
+strict", and that reading is wrong.
+
+**The diagnosis was right; the proposed fix was not.** Of the 379
+comparisons blocked by a single unnamed end:
+
+| what the unnamed end is | share |
+|---|---|
+| a real name that could be looked up | 326 (86%) |
+| a house, not a bottle | 20 (5%) |
+| generic — "limited edition" | 17 (4%) |
+| a pronoun — "it", "this" | 16 (4%) |
+
+So naming genuinely is the bottleneck. But at an 8% conversion rate,
+looking up the remaining 326 would cost ~$16 and yield perhaps 26 names.
+The lever is real and the tool is wrong for it.
+
+**Why this corpus specifically.** The searches that built it were dupe and
+clone queries, so the discussion is dominated by small houses — Fragrance
+World, Maison Alhambra, Rirana, Gissah — plus abbreviations (`CDN`,
+`CDNIM`, `OFG`, `BK540`), typos (`suavage`, `Quawa`, `Preciuex`), and
+phrases (`Nitro Black the original, not the intense`). A designer-fragrance
+catalogue indexes almost none of that. The same lookups against a corpus of
+mainstream releases would likely convert far better, which is the honest
+scope of this result.
+
+**Cheaper levers, both free:**
+
+1. **Aliases, not lookups.** Some blocked names are bottles already
+   curated: `detour` is Al Haramain Detour Noir, `fierce` is Abercrombie &
+   Fitch Fierce. `add_alias` exists for exactly this, and its docstring
+   already says why — "no amount of string comparison connects BR540 to
+   Baccarat Rouge 540; a person stating it once" does.
+2. **The 54 held rows are already paid for.** Many carry *"see alternatives
+   (N better supported)"*, meaning the right answer is in
+   `auto-review.json` and is simply not the top match.
+
+**A bug this exposed, since fixed.** The run was charged for all 60 lookups
+and applied none of them: a 429 arrives as `SystemExit`, and that branch
+returned before curating, discarding rows `propose` had already written to
+disk. The `BudgetExhausted` branch two lines above had always read them
+back. `daily curate` now applies an existing review file with no network
+and no spend, which is how the $3.00 was recovered.
+
+**What this changes in the roadmap.** "Spend on curation" moves down.
+Aliasing and reviewing held rows move up, being free. And the extraction
+recall problem — the eval says about half of real comparisons are missed
+entirely — moves up with them, because unlike catalogue coverage it is
+something this project controls.
