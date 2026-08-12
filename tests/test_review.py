@@ -340,3 +340,79 @@ class TestRecheckTerminates:
         entry["claims"][0]["polarity"] = "DENIED"
         stamp_polarity(entry)
         assert entry["claims"][0]["polarity"] == "DENIED"
+
+
+class TestUnreadRows:
+    """A silent batch arrives with no draft and no claims.
+
+    Neither the draft marker nor the denial filter selects those, so they
+    look finished and import as "these comments assert nothing" — which is
+    a real claim about the corpus that nobody made. 15 were imported that
+    way on 2026-08-11.
+    """
+
+    def _blank(self, body="Khamrah smells just like Angels Share"):
+        return {"source": "youtube", "source_id": "a", "_stratum": "silent",
+                "body": body, "claims": []}
+
+    def test_a_blank_row_needs_reading(self):
+        from fragrance_graph.evals.review import needs_reading
+
+        assert needs_reading(self._blank()) is True
+
+    def test_answering_takes_it_out_of_the_set(self):
+        from fragrance_graph.evals.review import needs_reading
+
+        entries = [self._blank()]
+        review(entries, ask=answers("n"), say=lambda _: None,
+               select=needs_reading)
+        assert needs_reading(entries[0]) is False, "would be asked forever"
+        assert entries[0]["_reviewed"] is True
+
+    def test_skipping_keeps_it(self):
+        from fragrance_graph.evals.review import needs_reading
+
+        entries = [self._blank()]
+        review(entries, ask=answers("s"), say=lambda _: None,
+               select=needs_reading)
+        assert needs_reading(entries[0]) is True
+
+    def test_a_claim_can_be_typed_in(self):
+        from fragrance_graph.evals.review import needs_reading
+
+        entries = [self._blank()]
+        review(entries,
+               ask=answers("+", "Khamrah", "Angels Share", "2", "y", "a"),
+               say=lambda _: None, select=needs_reading)
+        claim = entries[0]["claims"][0]
+        assert claim["claim_type"] == "SIMILAR_TO"
+        assert claim["raw_subject_text"] == "Khamrah"
+        assert claim["raw_object_text"] == "Angels Share"
+        assert claim["polarity"] == "ASSERTED"
+
+    def test_a_typed_denial_is_recorded_as_one(self):
+        from fragrance_graph.evals.review import needs_reading
+
+        entries = [self._blank("Khamrah is nothing like Angels Share")]
+        review(entries,
+               ask=answers("+", "Khamrah", "Angels Share", "2", "n", "a"),
+               say=lambda _: None, select=needs_reading)
+        assert entries[0]["claims"][0]["polarity"] == "DENIED"
+
+    def test_a_dupe_can_be_typed_in(self):
+        from fragrance_graph.evals.review import needs_reading
+
+        entries = [self._blank()]
+        review(entries,
+               ask=answers("+", "Khamrah", "Angels Share", "1", "y", "a"),
+               say=lambda _: None, select=needs_reading)
+        assert entries[0]["claims"][0]["claim_type"] == "DUPE_OF"
+
+    def test_an_empty_subject_adds_nothing(self):
+        from fragrance_graph.evals.review import needs_reading
+
+        entries = [self._blank()]
+        review(entries, ask=answers("+", "", "n"), say=lambda _: None,
+               select=needs_reading)
+        assert entries[0]["claims"] == []
+        assert entries[0]["_reviewed"] is True

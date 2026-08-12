@@ -64,6 +64,18 @@ def looks_like_a_denial(entry: dict) -> bool:
     return any(word in body for word in DENIAL_LANGUAGE)
 
 
+def needs_reading(entry: dict) -> bool:
+    """An entry nobody has answered for, drafted or not.
+
+    `silent.json` rows carry no draft and no claims, so neither the draft
+    marker nor the denial filter selects them — and an unread file imports
+    as "these 15 comments assert nothing", which is a real claim about the
+    corpus that nobody made. Signing sets `_reviewed`, so answering a row
+    takes it out of this set the way clearing `drafted_by` does.
+    """
+    return not entry.get("_reviewed") and not entry.get("drafted_by")
+
+
 def stamp_polarity(entry: dict) -> None:
     """Make an accepted row's polarity explicit.
 
@@ -76,6 +88,15 @@ def stamp_polarity(entry: dict) -> None:
         claim.setdefault("polarity", "ASSERTED")
 
 log = logging.getLogger("fragrance_graph.evals.review")
+
+#: Shown for rows that arrive with nothing on them — no draft to accept,
+#: so the only answers are "it says nothing" or a claim typed by hand.
+EMPTY_MENU = """
+  [n] says nothing about two fragrances smelling alike
+  [+] add a claim   type what this comment actually says
+  [s] skip          decide later
+  [q] save and quit
+"""
 
 MENU = """
   [a] accept        the claims are right
@@ -203,6 +224,42 @@ def _flip_polarity(
     return True
 
 
+def _add_claim(
+    entry: dict, ask: Callable[[str], str], say: Callable[[str], None]
+) -> bool:
+    """Type a claim in, for a comment that arrived with none."""
+    say("\n  Which two things is the comment comparing?")
+    subject = ask("  the fragrance being talked about: ").strip()
+    if not subject:
+        say("  Nothing entered; no claim added.")
+        return False
+    obj = ask("  the one it is compared to:        ").strip()
+    if not obj:
+        say("  Nothing entered; no claim added.")
+        return False
+
+    say("")
+    say("    1. DUPE_OF     a cheaper stand-in: 'dupe', 'clone', 'inspired by'")
+    say("    2. SIMILAR_TO  just smells alike: 'reminds me of', 'smells like'")
+    answer = ask("  which? [1/2] ").strip()
+    claim_type = "DUPE_OF" if answer.startswith("1") else "SIMILAR_TO"
+
+    say("")
+    say("  Is the person saying these DO smell alike, or that they DON'T?")
+    answer = ask("  [y] they do  /  [n] they don't: ").strip().lower()
+    polarity = "DENIED" if answer.startswith("n") else "ASSERTED"
+
+    entry.setdefault("claims", []).append({
+        "claim_type": claim_type,
+        "raw_subject_text": subject,
+        "raw_object_text": obj,
+        "sentiment": "NEUTRAL",
+        "polarity": polarity,
+    })
+    say(f"  added: {claim_type} {subject!r} -> {obj!r} [{polarity}]")
+    return True
+
+
 def review(
     entries: list[dict],
     *,
@@ -225,10 +282,18 @@ def review(
 
     total = len(pending)
     for position, entry in enumerate(pending, 1):
+        # A row with no draft and no claims has nothing to accept, so it
+        # gets the menu whose answers actually apply to it.
+        blank = not entry.get("drafted_by") and not (entry.get("claims") or [])
         say(render_entry(entry, position=position, total=total))
-        say(MENU)
+        say(EMPTY_MENU if blank else MENU)
         while True:
             choice = (ask("  > ").strip() or "s")[0].lower()
+            if choice in {"+", "e"}:
+                _add_claim(entry, ask, say)
+                say(render_entry(entry, position=position, total=total))
+                say(MENU if entry.get("claims") else EMPTY_MENU)
+                continue
             if choice == "p":
                 _flip_polarity(entry, ask, say)
                 say(render_entry(entry, position=position, total=total))
@@ -244,7 +309,7 @@ def review(
                 continue
             if choice in {"a", "n", "s", "q"}:
                 break
-            say("  a, n, t, p, s or q.")
+            say("  n, +, s or q." if blank else "  a, n, t, p, s or q.")
 
         if choice == "q":
             say("\nSaved. Re-run to continue where this stopped.")
@@ -259,6 +324,9 @@ def review(
         else:
             stamp_polarity(entry)
             progress.accepted += 1
+        # Records that a person answered for this row even when the answer
+        # left it empty, which `drafted_by` alone cannot express.
+        entry["_reviewed"] = True
         # The marker goes only here, on a row a person just answered for.
         entry.pop("drafted_by", None)
         entry.pop("pronoun_policy", None)
@@ -286,6 +354,14 @@ def main(argv: list[str] | None = None) -> int:
         "--all", action="store_true", dest="review_all",
         help="Re-open every row, signed or not.",
     )
+    parser.add_argument(
+        "--unread", action="store_true",
+        help=(
+            "Read rows that arrived with no draft and no claims — a "
+            "`sample plan` silent batch. Without this they look finished "
+            "and import as 'these comments assert nothing'."
+        ),
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -300,6 +376,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.review_all:
         select = lambda e: True  # noqa: E731
         what = "every row"
+    elif args.unread:
+        select = needs_reading  # type: ignore[assignment]
+        what = "rows nobody has read yet"
     elif args.recheck_denials:
         select = looks_like_a_denial  # type: ignore[assignment]
         what = "rows that read like a denial but were signed as asserted"
