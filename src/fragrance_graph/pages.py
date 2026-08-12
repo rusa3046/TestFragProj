@@ -77,7 +77,8 @@ import html
 import logging
 import re
 import sqlite3
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
@@ -155,6 +156,50 @@ class Pair:
         return f"{self.left} vs {self.right}"
 
 
+def brand_casing(conn: sqlite3.Connection) -> dict[str, str]:
+    """The casing each brand is written in, by majority of curated rows.
+
+    Curation is many sessions by hand and by catalogue, so a house arrives
+    spelled more than one way: "Parfums de Marly" fourteen times and
+    "Parfums De Marly" once. One page title carried both at the same time,
+    which reads as two different houses.
+
+    The majority wins rather than a rule about which words to capitalise,
+    because houses do not agree with each other — "de" is lowercase in
+    Parfums de Marly and "By" is capitalised in By Kilian. Only the corpus
+    knows, and it is nearly unanimous; a tie falls back to sorted order so
+    the output does not depend on row order.
+
+    Applied at render time. The stored rows are left alone: fixing them is
+    a curation decision with a merge behind it, and this is a display
+    concern.
+    """
+    seen: dict[str, Counter] = {}
+    for row in conn.execute(
+        "SELECT brand FROM fragrances WHERE brand IS NOT NULL AND brand != ''"
+    ):
+        seen.setdefault(row["brand"].lower(), Counter())[row["brand"]] += 1
+    out: dict[str, str] = {}
+    for key, counts in seen.items():
+        best = max(counts.items(), key=lambda kv: (kv[1], kv[0]))
+        out[key] = best[0]
+    return out
+
+
+def with_canonical_casing(name: str, casing: dict[str, str]) -> str:
+    """Rewrite any brand inside `name` to its majority casing.
+
+    Longest brand first, so "Parfums de Marly" is matched before a shorter
+    brand that happens to be a prefix of it.
+    """
+    for key in sorted(casing, key=len, reverse=True):
+        lowered = name.lower()
+        start = lowered.find(key)
+        if start != -1:
+            return name[:start] + casing[key] + name[start + len(key):]
+    return name
+
+
 def slugify(name: str) -> str:
     """A filename that survives a fragrance name.
 
@@ -179,8 +224,12 @@ def qualifying_pairs(
     name order decides which orientation becomes the page, and the second
     sighting is dropped rather than rendered as a near-duplicate page.
     """
+    # Casing is normalised here, at the single point every displayed name
+    # comes from, so a title, a heading and a "written about" line cannot
+    # disagree with each other about how a house is spelled.
+    casing = brand_casing(conn)
     fragrances = {
-        row["id"]: row["canonical_name"]
+        row["id"]: with_canonical_casing(row["canonical_name"], casing)
         for row in conn.execute("SELECT id, canonical_name FROM fragrances")
     }
 
@@ -227,8 +276,17 @@ def qualifying_pairs(
             if min_queries > 1 and 0 < ev.queries < min_queries:
                 continue
 
+            # Headings come from `similar_to`, which reads the stored name
+            # directly, so they need the same normalisation as the title —
+            # otherwise one page says "Parfums de Marly Layton" in its
+            # title and "Parfums De Marly Layton" in a heading.
             rows = tuple(
-                r
+                replace(
+                    r,
+                    canonical_name=with_canonical_casing(r.canonical_name, casing),
+                    brand=(with_canonical_casing(r.brand, casing)
+                           if r.brand else r.brand),
+                )
                 for r in similar_to(conn, frag_id, quotes=quotes)
                 if r.fragrance_id == related.fragrance_id
             )

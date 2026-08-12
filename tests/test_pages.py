@@ -501,3 +501,73 @@ class TestNoOrphanedBullets:
             assert text.count("<figure>") == text.count("<blockquote>")
             assert text.count("<figcaption>") == text.count("<blockquote>")
             assert "read the comment" in text
+
+
+class TestBrandCasing:
+    """One house, one spelling, on any single page.
+
+    Curation happens over many sessions, by hand and by catalogue, so a
+    brand arrives spelled more than one way — "Parfums de Marly" fourteen
+    times and "Parfums De Marly" once. One live page title carried both,
+    which reads as two different houses.
+    """
+
+    def test_the_majority_casing_wins(self, conn):
+        from fragrance_graph.pages import brand_casing
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        for i in range(3):
+            add_fragrance(conn, f"Parfums de Marly Bottle {i}",
+                          brand="Parfums de Marly")
+        add_fragrance(conn, "Parfums De Marly Odd One",
+                      brand="Parfums De Marly")
+        conn.commit()
+        assert brand_casing(conn)["parfums de marly"] == "Parfums de Marly"
+
+    def test_a_tie_is_deterministic(self, conn):
+        """Row order must not decide how a house is spelled."""
+        from fragrance_graph.pages import brand_casing
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Alpha One", brand="acme")
+        add_fragrance(conn, "Alpha Two", brand="Acme")
+        conn.commit()
+        assert brand_casing(conn)["acme"] == brand_casing(conn)["acme"]
+
+    def test_it_rewrites_the_brand_inside_a_name(self):
+        from fragrance_graph.pages import with_canonical_casing
+
+        casing = {"parfums de marly": "Parfums de Marly"}
+        assert with_canonical_casing("Parfums De Marly Layton Exclusif",
+                                     casing) == "Parfums de Marly Layton Exclusif"
+
+    def test_it_leaves_an_unknown_brand_alone(self):
+        from fragrance_graph.pages import with_canonical_casing
+
+        assert with_canonical_casing("Some Other Bottle", {}) == "Some Other Bottle"
+
+    def test_the_longest_brand_matches_first(self):
+        """A short brand that prefixes a longer one must not win."""
+        from fragrance_graph.pages import with_canonical_casing
+
+        casing = {"parfums": "PARFUMS", "parfums de marly": "Parfums de Marly"}
+        assert with_canonical_casing("Parfums De Marly Layton", casing) == \
+            "Parfums de Marly Layton"
+
+    def test_no_page_title_carries_two_casings_of_one_brand(self, conn, tmp_path):
+        import re
+
+        from fragrance_graph.pages import build
+
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        build(conn, tmp_path)
+        for page in tmp_path.glob("*.html"):
+            text = page.read_text(encoding="utf-8")
+            title = re.search(r"<title>(.*?)</title>", text, re.S)
+            if not title:
+                continue
+            words = title.group(1).split()
+            lowered = [w.lower() for w in words]
+            for w in lowered:
+                same = {words[j] for j, x in enumerate(lowered) if x == w}
+                assert len(same) == 1, f"{page.name}: {sorted(same)}"
