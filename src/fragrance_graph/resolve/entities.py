@@ -29,7 +29,8 @@ import json
 import logging
 import sqlite3
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field, fields
+from pathlib import Path
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 from fragrance_graph.gate import MIN_COMMENTERS, MIN_SOURCES
@@ -37,6 +38,7 @@ from fragrance_graph.resolve.names import (
     Candidate,
     Match,
     best_match,
+    debranded,
     looks_like_junk,
     normalize_name,
 )
@@ -232,11 +234,12 @@ class MentionValue:
     def publishable(self) -> int:
         """Unlocked pairs that would clear the gate on their own evidence.
 
-        A **lower bound**, deliberately. It counts only the claims that
-        name this mention, so if the curator resolves it to a bottle the
-        corpus already knows — the ordinary case, since most unresolved
-        text is a spelling of something curated — the real pair is this
-        evidence plus whatever that bottle already had.
+        Not a promise of that many *new* pages, in either direction. It
+        counts only the claims blocked on this mention, so a pair whose
+        bottle already has evidence under another spelling is undercounted
+        — and a pair that is already published under that other spelling
+        is counted here while adding no page at all. `apply` reports the
+        real before and after, which is the number that settles it.
         """
         return sum(1 for u in self.unlocks if u.clears())
 
@@ -300,6 +303,296 @@ def mention_values(
     if not include_junk:
         values = [v for v in values if not looks_like_junk(v.text)]
     return sorted(values, key=lambda v: v.rank_key)
+
+
+#: Words that are never a bottle, however often they appear opposite one.
+#: "this" is the most frequent unresolved mention in the corpus at 138
+#: occurrences; a review file that opens with it wastes the first minute
+#: of every session and teaches the reviewer to skim.
+PRONOUNS = frozenset(
+    """
+    it this that these those they them he she him her his hers one ones
+    something anything everything nothing mine yours theirs
+    """.split()
+)
+
+
+def is_pronoun(text: str) -> bool:
+    """Whether a mention is a word standing in for a bottle, not naming one."""
+    return normalize_name(text) in PRONOUNS
+
+
+#: Real sentences using a mention, with the video they were written under.
+#:
+#: A reviewer cannot name "Detour" from the string alone — Al Haramain
+#: ships Detour Noir and Detour Blanche — and the comment is the only
+#: evidence of which one somebody meant. The video title is the second
+#: piece: a mention under "3 Amazing PDM Layton Alternatives" is being
+#: compared to Layton whatever it turns out to be called.
+EXAMPLES_SQL = f"""
+SELECT DISTINCT c.evidence_span AS span, v.title AS title
+  FROM claims c
+  JOIN comments co ON co.id = c.comment_id
+  LEFT JOIN videos v ON v.source = co.source AND v.video_id = co.video_id
+ WHERE c.evidence_verified = 1
+   AND c.claim_type IN ({", ".join(f"'{t}'" for t in EDGE_TYPES)})
+   AND ((c.subject_kind = 'FRAGRANCE' AND c.subject_frag_id IS NULL
+         AND c.raw_subject_text = :mention)
+     OR (c.object_kind = 'FRAGRANCE' AND c.object_frag_id IS NULL
+         AND c.raw_object_text = :mention))
+ ORDER BY length(c.evidence_span) DESC, c.evidence_span
+"""
+
+
+@dataclass
+class BatchRow:
+    """One bottle to name, and everything needed to name it offline.
+
+    The fields above `canonical_name` are evidence; the ones below it are
+    the decision. Nothing here costs a request or a cent: the catalogue
+    lookup experiment on 2026-08-12 spent $3.00 on 60 lookups and produced
+    5 names and 0 pages, because the catalogue does not carry the small
+    houses this corpus is mostly about. A person who knows fragrance reads
+    two comments and knows the answer.
+    """
+
+    mention: str
+    #: Other spellings of the same thing; they become aliases on apply.
+    variants: list[str]
+    occurrences: int
+    pairs_unlocked: int
+    #: Of those, how many would clear the publishing gate on the evidence
+    #: already blocked on this mention alone.
+    would_publish: int
+    #: What it would connect to, with the counts behind each connection.
+    connects_to: list[str]
+    #: Real comment spans, and the videos they were written under.
+    examples: list[str]
+    videos: list[str]
+
+    #: --- everything below is filled in by a person ---
+    #: The name this is really called. Leave blank and set `skip` to true
+    #: to pass; leave both and `apply` refuses the file.
+    canonical_name: str = ""
+    brand: str = ""
+    house_year: int | None = None
+    #: Extra names it answers to, beyond the variants already listed.
+    aliases: list[str] = field(default_factory=list)
+    #: True for "I looked, and this is not a nameable bottle."
+    skip: bool = False
+    note: str = ""
+
+
+def batch_rows(
+    conn: sqlite3.Connection,
+    *,
+    limit: int = 40,
+    examples: int = 2,
+) -> list[BatchRow]:
+    """The next `limit` bottles worth naming, richest first.
+
+    Three exclusions, all of them about not spending a reviewer's evening
+    on rows that cannot pay it back:
+
+    - **Pronouns.** "this" is the most frequent unresolved mention there
+      is. It is never a bottle.
+    - **Mentions seen once.** One comment is not enough to tell which
+      bottle was meant, and naming it moves nothing.
+    - **Mentions unlocking no pair.** If nothing curated sits opposite it,
+      naming it changes no page today. `mention_values` already returns
+      only mentions that do.
+    """
+    out: list[BatchRow] = []
+    for value in mention_values(conn):
+        if value.occurrences < 2 or is_pronoun(value.text) or not value.pairs:
+            continue
+        spans, titles = [], []
+        for variant in value.variants:
+            for row in conn.execute(EXAMPLES_SQL, {"mention": variant}):
+                if row["span"] and row["span"] not in spans:
+                    spans.append(row["span"])
+                if row["title"] and row["title"] not in titles:
+                    titles.append(row["title"])
+        out.append(
+            BatchRow(
+                mention=value.text,
+                variants=list(value.variants),
+                occurrences=value.occurrences,
+                pairs_unlocked=value.pairs,
+                would_publish=value.publishable,
+                connects_to=[
+                    f"{u.other_name} ({u.commenters} people, "
+                    f"{u.creators} creators)"
+                    for u in value.unlocks
+                ],
+                examples=spans[:examples],
+                videos=titles[:examples],
+            )
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+def write_batch(path: Path, rows: list[BatchRow]) -> None:
+    """Write the review file. Stable, so a re-run diffs cleanly."""
+    path.write_text(
+        json.dumps([asdict(r) for r in rows], indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def read_batch(path: Path) -> list[BatchRow]:
+    """Read a review file back, tolerating fields a reviewer added."""
+    records = json.loads(path.read_text(encoding="utf-8"))
+    known = {f.name for f in fields(BatchRow)}
+    return [BatchRow(**{k: v for k, v in r.items() if k in known}) for r in records]
+
+
+class UnreviewedRows(Exception):
+    """Raised when a file has rows that are neither named nor skipped.
+
+    Loud, and before anything is written. A file half-filled in is the
+    normal state of a review session that got interrupted, and applying
+    its first ten rows while silently ignoring the rest is how a corpus
+    ends up in a state nobody can describe. On 2026-08-11 a drafted file
+    was imported as ground truth and overwrote two hand-made labels;
+    everything that touches curated data has refused ambiguity since.
+    """
+
+
+@dataclass
+class BatchApplyStats:
+    added: int = 0
+    aliased: int = 0
+    skipped: int = 0
+    unchanged: int = 0
+    resolved: int = 0
+
+    def __str__(self) -> str:
+        return (
+            f"{self.added} new fragrance(s), {self.aliased} alias(es) on "
+            f"bottles already curated, {self.skipped} skipped, "
+            f"{self.unchanged} already applied; "
+            f"{self.resolved} claim mention(s) resolved"
+        )
+
+
+def apply_batch(
+    conn: sqlite3.Connection, rows: list[BatchRow]
+) -> BatchApplyStats:
+    """Write the reviewed names, then resolve every mention they unlock.
+
+    Idempotent: re-running an applied file adds nothing and resolves
+    nothing, because each name is checked against everything the corpus
+    already answers to — canonical names, aliases and de-branded forms
+    alike — before it is written.
+
+    A name that already exists becomes an **alias** on that bottle rather
+    than a second node for it. That is the whole point of the tool: most
+    unresolved text is a spelling of something already curated, and a
+    second node splits the bottle's edges across both halves. Migration
+    0009 catches the rest at the layer that cannot be bypassed.
+    """
+    unreviewed = [r.mention for r in rows if not r.canonical_name and not r.skip]
+    if unreviewed:
+        raise UnreviewedRows(
+            f"{len(unreviewed)} row(s) have no canonical_name and are not "
+            f"skipped: {', '.join(unreviewed[:5])}"
+            + (" ..." if len(unreviewed) > 5 else "")
+        )
+
+    stats = BatchApplyStats()
+    for row in rows:
+        if row.skip and not row.canonical_name:
+            stats.skipped += 1
+            continue
+
+        names = [row.canonical_name, *row.variants, *row.aliases]
+        existing_id = _existing_fragrance(conn, row)
+        if existing_id is not None:
+            # Compare against everything the bottle already answers to,
+            # canonical name included. Comparing against the alias list
+            # alone re-added the canonical name as an alias on every run,
+            # which is harmless and still means "idempotent" was not true.
+            known = _answers_to(conn, existing_id)
+            added = False
+            for name in names:
+                if name and normalize_name(name) not in known:
+                    add_alias(conn, existing_id, name)
+                    known = _answers_to(conn, existing_id)
+                    added = True
+            stats.aliased += added
+            stats.unchanged += not added
+            continue
+
+        add_fragrance(
+            conn,
+            row.canonical_name,
+            brand=row.brand or None,
+            house_year=row.house_year,
+            aliases=sorted({n for n in names[1:] if n}),
+        )
+        stats.added += 1
+
+    stats.resolved = backfill(conn).total
+    return stats
+
+
+def published_pages(conn: sqlite3.Connection) -> set[str]:
+    """The pages that exist right now, by title.
+
+    Imported inside the function on purpose: `pages` imports `enrich`,
+    which imports this module, so a module-level import would be a cycle.
+    Counting pairs by hand here instead would be worse — the gate has
+    flanker rules and direction rules, and a second implementation of it
+    would drift from the one that renders.
+    """
+    from fragrance_graph.pages import qualifying_pairs
+
+    return {p.title for p in qualifying_pairs(conn)}
+
+
+def _answers_to(conn: sqlite3.Connection, fragrance_id: int) -> set[str]:
+    """Every normalised form a bottle already responds to.
+
+    Canonical name and aliases, each also de-branded: "Armaf Club de Nuit"
+    and "Club de Nuit" are one claim about one bottle, and treating them
+    as two is how the corpus grew a duplicate node in August.
+    """
+    row = conn.execute(
+        "SELECT canonical_name, brand, aliases FROM fragrances WHERE id = ?",
+        (fragrance_id,),
+    ).fetchone()
+    if row is None:
+        return set()
+    brand = row["brand"] or ""
+    forms = set()
+    for name in [row["canonical_name"], *json.loads(row["aliases"] or "[]")]:
+        if not name:
+            continue
+        forms.add(normalize_name(name))
+        forms.add(normalize_name(debranded(name, brand)))
+    forms.discard("")
+    return forms
+
+
+def _existing_fragrance(
+    conn: sqlite3.Connection, row: BatchRow
+) -> int | None:
+    """The bottle this row is already curated as, if any."""
+    wanted = {
+        normalize_name(row.canonical_name),
+        normalize_name(debranded(row.canonical_name, row.brand or "")),
+    }
+    wanted.discard("")
+    if not wanted:
+        return None
+
+    for frag in conn.execute("SELECT id FROM fragrances"):
+        if _answers_to(conn, frag["id"]) & wanted:
+            return frag["id"]
+    return None
 
 
 @dataclass
@@ -419,6 +712,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Name the bottles each mention would connect to",
     )
 
+    bat = sub.add_parser(
+        "batch", help="Write an offline review file of bottles worth naming"
+    )
+    bat.add_argument("file", type=Path)
+    bat.add_argument("--limit", type=int, default=40)
+    bat.add_argument(
+        "--examples", type=int, default=2,
+        help="Comment spans to include per row (default 2)",
+    )
+
+    app = sub.add_parser("apply", help="Apply a reviewed batch file")
+    app.add_argument("file", type=Path)
+
     add = sub.add_parser("add", help="Create a canonical fragrance")
     add.add_argument("canonical_name")
     add.add_argument("--brand", default=None)
@@ -442,7 +748,7 @@ def main(argv: list[str] | None = None) -> int:
     # Iterate the registered subparsers rather than a hand-written list —
     # the hand-written one silently omitted `edges`, so the subcommand
     # rejected --db-path.
-    for p in (rep, val, add, alias, fill, edges):
+    for p in (rep, val, bat, app, add, alias, fill, edges):
         p.add_argument("--db-path", default=DEFAULT_DB_PATH)
 
     args = parser.parse_args(argv)
@@ -488,6 +794,49 @@ def main(argv: list[str] | None = None) -> int:
                 "bound, counting only the evidence already blocked on that "
                 "mention and none the bottle may already have."
             )
+
+        elif args.command == "batch":
+            rows = batch_rows(conn, limit=args.limit, examples=args.examples)
+            if not rows:
+                print(
+                    "Nothing worth reviewing: every mention that sits opposite "
+                    "a curated bottle is either a pronoun or written once."
+                )
+                return 0
+            write_batch(args.file, rows)
+            publishable = sum(1 for r in rows if r.would_publish)
+            print(f"Wrote {len(rows)} row(s) to {args.file}")
+            print(
+                f"  {publishable} of them carry enough evidence to publish a "
+                "pair; some of those pairs may already exist under another "
+                "spelling, and `apply` reports the real before and after.\n"
+                "  No network calls were made and nothing was spent.\n"
+                "\nFill in canonical_name (or set skip to true) on each row, "
+                f"then:\n  python -m fragrance_graph.resolve.entities apply "
+                f"{args.file}"
+            )
+
+        elif args.command == "apply":
+            rows = read_batch(args.file)
+            before = published_pages(conn)
+            try:
+                stats = apply_batch(conn, rows)
+            except UnreviewedRows as exc:
+                print(f"Refusing to apply {args.file}: {exc}")
+                print(
+                    "Nothing was written. Every row needs either a "
+                    "canonical_name or skip: true."
+                )
+                return 1
+            after = published_pages(conn)
+            print(f"Applied {args.file}: {stats}")
+            print(f"Pages: {len(before)} -> {len(after)}")
+            for title in sorted(after - before):
+                print(f"  new: {title}")
+            for title in sorted(before - after):
+                # A merge can retire a page by folding one end into
+                # another bottle. Worth seeing, never worth hiding.
+                print(f"  gone: {title}")
 
         elif args.command == "add":
             frag_id = add_fragrance(

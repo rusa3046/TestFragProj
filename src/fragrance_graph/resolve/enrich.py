@@ -50,7 +50,7 @@ from pathlib import Path
 from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 from fragrance_graph.resolve.entities import add_fragrance, unresolved_mentions
-from fragrance_graph.resolve.names import normalize_name, similarity
+from fragrance_graph.resolve.names import debranded, normalize_name, similarity
 
 log = logging.getLogger("fragrance_graph.resolve.enrich")
 
@@ -254,20 +254,6 @@ def names_agree(mention: str, candidate: str, brand: str = "") -> bool:
     """
     return not distinguishing_words(mention, candidate, brand) and not (
         mention_only_words(mention, candidate, brand)
-    )
-
-
-def debranded(candidate: str, brand: str = "") -> str:
-    """A catalogue name with the house removed.
-
-    Name similarity has the same brand problem as `distinguishing_words`:
-    "Khamrah" against "Lattafa Khamrah" scores 0.64 and fails `CONFIDENT`,
-    even though it is the exact bottle. Comparing against the de-branded
-    name scores 1.00.
-    """
-    brand_words = set(normalize_name(brand or "").split())
-    return " ".join(
-        w for w in normalize_name(candidate).split() if w not in brand_words
     )
 
 

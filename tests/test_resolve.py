@@ -459,3 +459,273 @@ class TestMentionValue:
         assert [v.text for v in mention_values(conn)] == [
             v.text for v in mention_values(conn)
         ]
+
+
+class TestBatchFile:
+    """The offline curation loop: a file a person fills in on a train.
+
+    No network, no spend. The catalogue experiment on 2026-08-12 cost
+    $3.00 for 60 lookups and produced 5 names and 0 pages, because the
+    catalogue does not carry the small houses this corpus is about. A
+    person who knows fragrance reads two comments and knows the answer.
+    """
+
+    def seeded(self, conn, *, mention="mystery juice", people=3, channels=2):
+        other = add_fragrance(conn, "Creed Aventus")
+        for i in range(people):
+            seed_edge(conn, i, mention=mention, other_id=other,
+                      author=f"person-{i}", channel=f"UC-{i % channels}")
+        return other
+
+    def test_a_row_carries_the_evidence_to_decide_on(self, conn, tmp_path):
+        from fragrance_graph.resolve.entities import batch_rows
+
+        self.seeded(conn)
+        (row,) = batch_rows(conn)
+        assert row.mention == "mystery juice"
+        assert row.occurrences == 3
+        assert row.pairs_unlocked == 1
+        assert row.would_publish == 1
+        assert row.connects_to == ["Creed Aventus (3 people, 2 creators)"]
+        assert row.examples, "a reviewer needs the sentences people wrote"
+
+    def test_the_decision_fields_start_empty(self, conn):
+        from fragrance_graph.resolve.entities import batch_rows
+
+        self.seeded(conn)
+        (row,) = batch_rows(conn)
+        assert row.canonical_name == "" and row.brand == ""
+        assert row.aliases == [] and row.skip is False
+
+    def test_pronouns_never_reach_the_file(self, conn):
+        """"this" is the most frequent unresolved mention in the corpus."""
+        from fragrance_graph.resolve.entities import batch_rows
+
+        other = add_fragrance(conn, "Creed Aventus")
+        for i in range(4):
+            seed_edge(conn, i, mention="this", other_id=other,
+                      author=f"p{i}", channel=f"UC-{i}")
+        assert batch_rows(conn) == []
+
+    def test_a_mention_written_once_never_reaches_the_file(self, conn):
+        from fragrance_graph.resolve.entities import batch_rows
+
+        other = add_fragrance(conn, "Creed Aventus")
+        seed_edge(conn, 1, mention="heard of it once", other_id=other,
+                  author="p", channel="UC-a")
+        assert batch_rows(conn) == []
+
+    def test_a_mention_unlocking_nothing_never_reaches_the_file(self, conn):
+        from fragrance_graph.resolve.entities import batch_rows
+
+        seed_claim(conn, subject="Unknown A", obj="Unknown B")
+        seed_claim(conn, subject="Unknown A", obj="Unknown C")
+        assert batch_rows(conn) == []
+
+    def test_a_page_today_outranks_more_pairs_later(self, conn):
+        """The queue is ordered by what publishes, then by what connects."""
+        from fragrance_graph.resolve.entities import batch_rows
+
+        aventus = add_fragrance(conn, "Creed Aventus")
+        layton = add_fragrance(conn, "Parfums de Marly Layton")
+        # One pair, but enough people behind it to publish.
+        for i in range(MIN_COMMENTERS):
+            seed_edge(conn, i, mention="one strong pair", other_id=aventus,
+                      author=f"a{i}", channel=f"UC-{i}")
+        # Two pairs, two people each: more reach, nothing publishable yet.
+        for i, other in enumerate((aventus, layton, aventus, layton)):
+            seed_edge(conn, 50 + i, mention="two thin pairs", other_id=other,
+                      author=f"b{i}", channel=f"UC-{i}")
+
+        assert [r.mention for r in batch_rows(conn)] == [
+            "one strong pair", "two thin pairs",
+        ]
+
+    def test_among_equals_the_wider_reach_wins(self, conn):
+        from fragrance_graph.resolve.entities import batch_rows
+
+        aventus = add_fragrance(conn, "Creed Aventus")
+        layton = add_fragrance(conn, "Parfums de Marly Layton")
+        for i in range(2):
+            seed_edge(conn, i, mention="one thin pair", other_id=aventus,
+                      author=f"a{i}", channel=f"UC-{i}")
+        for i, other in enumerate((aventus, layton)):
+            seed_edge(conn, 50 + i, mention="two thin pairs", other_id=other,
+                      author=f"b{i}", channel=f"UC-{i}")
+
+        assert [r.mention for r in batch_rows(conn)][0] == "two thin pairs"
+
+    def test_it_round_trips_through_disk(self, conn, tmp_path):
+        from fragrance_graph.resolve.entities import (
+            batch_rows,
+            read_batch,
+            write_batch,
+        )
+
+        self.seeded(conn)
+        path = tmp_path / "curate.json"
+        write_batch(path, batch_rows(conn))
+        assert read_batch(path) == batch_rows(conn)
+
+    def test_a_field_the_reviewer_invented_does_not_break_it(self, conn, tmp_path):
+        """People edit these by hand. A stray key is not a crash."""
+        from fragrance_graph.resolve.entities import read_batch
+
+        path = tmp_path / "curate.json"
+        path.write_text(json.dumps([{
+            "mention": "x", "variants": ["x"], "occurrences": 2,
+            "pairs_unlocked": 1, "would_publish": 0, "connects_to": [],
+            "examples": [], "videos": [], "canonical_name": "Some Bottle",
+            "my_own_note": "check this one",
+        }]), encoding="utf-8")
+        (row,) = read_batch(path)
+        assert row.canonical_name == "Some Bottle"
+
+
+class TestApplyBatch:
+    def rows_for(self, conn, **overrides):
+        from fragrance_graph.resolve.entities import batch_rows
+
+        rows = batch_rows(conn)
+        for row in rows:
+            for key, value in overrides.items():
+                setattr(row, key, value)
+        return rows
+
+    def test_a_named_bottle_becomes_a_fragrance_and_resolves_its_claims(
+        self, conn
+    ):
+        from fragrance_graph.resolve.entities import apply_batch, batch_rows
+
+        other = add_fragrance(conn, "Creed Aventus")
+        for i in range(3):
+            seed_edge(conn, i, mention="mystery juice", other_id=other,
+                      author=f"p{i}", channel=f"UC-{i % 2}")
+
+        stats = apply_batch(conn, self.rows_for(
+            conn, canonical_name="Armaf Club de Nuit Intense Man",
+        ))
+        assert stats.added == 1
+        assert stats.resolved == 3
+        assert batch_rows(conn) == [], "nothing left blocked on it"
+
+    def test_a_bottle_already_curated_gains_an_alias_not_a_second_node(
+        self, conn
+    ):
+        """The failure this tool exists to avoid.
+
+        Most unresolved text is a spelling of something already curated. A
+        second node splits that bottle's edges across both halves, and
+        nothing downstream can tell which one a name means.
+        """
+        from fragrance_graph.resolve.entities import apply_batch
+
+        other = add_fragrance(conn, "Creed Aventus")
+        existing = add_fragrance(conn, "Al Haramain Detour Noir",
+                                 brand="Al Haramain")
+        for i in range(3):
+            seed_edge(conn, i, mention="Detour", other_id=other,
+                      author=f"p{i}", channel=f"UC-{i % 2}")
+
+        stats = apply_batch(conn, self.rows_for(
+            conn, canonical_name="Al Haramain Detour Noir",
+        ))
+        assert stats.added == 0 and stats.aliased == 1
+        assert conn.execute("SELECT count(*) FROM fragrances").fetchone()[0] == 2
+        aliases = json.loads(conn.execute(
+            "SELECT aliases FROM fragrances WHERE id = ?", (existing,)
+        ).fetchone()[0])
+        assert "Detour" in aliases
+
+    def test_applying_twice_changes_nothing(self, conn):
+        from fragrance_graph.resolve.entities import apply_batch
+
+        other = add_fragrance(conn, "Creed Aventus")
+        for i in range(3):
+            seed_edge(conn, i, mention="mystery juice", other_id=other,
+                      author=f"p{i}", channel=f"UC-{i % 2}")
+
+        rows = self.rows_for(conn, canonical_name="Mystery Juice")
+        first = apply_batch(conn, rows)
+        second = apply_batch(conn, rows)
+        assert first.added == 1 and second.added == 0
+        assert second.aliased == 0 and second.unchanged == 1
+        assert second.resolved == 0
+
+    def test_an_unreviewed_row_stops_the_whole_file(self, conn):
+        """Half a file applied is a corpus state nobody can describe.
+
+        A drafted review file was imported as ground truth on 2026-08-11
+        and overwrote two hand-made labels. Everything touching curated
+        data has refused ambiguity since.
+        """
+        import pytest
+
+        from fragrance_graph.resolve.entities import (
+            UnreviewedRows,
+            apply_batch,
+            batch_rows,
+        )
+
+        other = add_fragrance(conn, "Creed Aventus")
+        for i in range(3):
+            seed_edge(conn, i, mention="first", other_id=other,
+                      author=f"p{i}", channel=f"UC-{i % 2}")
+        for i in range(10, 13):
+            seed_edge(conn, i, mention="second", other_id=other,
+                      author=f"q{i}", channel=f"UC-{i % 2}")
+
+        rows = batch_rows(conn)
+        rows[0].canonical_name = "Named One"
+        before = conn.execute("SELECT count(*) FROM fragrances").fetchone()[0]
+
+        with pytest.raises(UnreviewedRows):
+            apply_batch(conn, rows)
+        assert conn.execute(
+            "SELECT count(*) FROM fragrances"
+        ).fetchone()[0] == before, "nothing was written"
+
+    def test_a_skipped_row_is_allowed_and_writes_nothing(self, conn):
+        from fragrance_graph.resolve.entities import apply_batch
+
+        other = add_fragrance(conn, "Creed Aventus")
+        for i in range(3):
+            seed_edge(conn, i, mention="not a bottle", other_id=other,
+                      author=f"p{i}", channel=f"UC-{i % 2}")
+
+        stats = apply_batch(conn, self.rows_for(conn, skip=True))
+        assert stats.skipped == 1 and stats.added == 0
+        assert conn.execute("SELECT count(*) FROM fragrances").fetchone()[0] == 1
+
+    def test_every_spelling_becomes_an_alias(self, conn):
+        from fragrance_graph.resolve.entities import apply_batch
+
+        other = add_fragrance(conn, "Creed Aventus")
+        for i, spelling in enumerate(("Liquid Brun", "liquid brun", "LIQUID BRUN")):
+            seed_edge(conn, i, mention=spelling, other_id=other,
+                      author=f"p{i}", channel=f"UC-{i}")
+
+        apply_batch(conn, self.rows_for(
+            conn, canonical_name="Fragrance World Liquid Brun",
+            brand="Fragrance World",
+        ))
+        aliases = json.loads(conn.execute(
+            "SELECT aliases FROM fragrances WHERE canonical_name = ?",
+            ("Fragrance World Liquid Brun",),
+        ).fetchone()[0])
+        assert "liquid brun" in aliases and "LIQUID BRUN" in aliases
+
+    def test_a_year_supplied_by_the_reviewer_is_kept(self, conn):
+        from fragrance_graph.resolve.entities import apply_batch
+
+        other = add_fragrance(conn, "Creed Aventus")
+        for i in range(3):
+            seed_edge(conn, i, mention="mystery juice", other_id=other,
+                      author=f"p{i}", channel=f"UC-{i % 2}")
+
+        apply_batch(conn, self.rows_for(
+            conn, canonical_name="Mystery Juice", house_year=2021,
+        ))
+        assert conn.execute(
+            "SELECT house_year FROM fragrances WHERE canonical_name = 'Mystery Juice'"
+        ).fetchone()[0] == 2021
