@@ -54,10 +54,26 @@ def looks_like_a_denial(entry: dict) -> bool:
     claims = entry.get("claims") or []
     if not claims:
         return False
-    if any(c.get("polarity") == "DENIED" for c in claims):
-        return False  # already answered
+    if any(c.get("polarity") for c in claims):
+        # An explicit polarity — either value — means a person has already
+        # answered for this row. Testing for DENIED alone was wrong and
+        # produced a loop: accepting a row left its polarity absent, so it
+        # still matched and came back on every re-run, forever.
+        return False
     body = (entry.get("body") or "").lower()
     return any(word in body for word in DENIAL_LANGUAGE)
+
+
+def stamp_polarity(entry: dict) -> None:
+    """Make an accepted row's polarity explicit.
+
+    Absent polarity reads as ASSERTED everywhere downstream, so writing it
+    changes no meaning. What it changes is whether the row can be told
+    apart from one nobody has looked at — which is the difference between
+    "confirmed as asserted" and "not yet answered".
+    """
+    for claim in entry.get("claims") or []:
+        claim.setdefault("polarity", "ASSERTED")
 
 log = logging.getLogger("fragrance_graph.evals.review")
 
@@ -241,6 +257,7 @@ def review(
             entry["claims"] = []
             progress.emptied += 1
         else:
+            stamp_polarity(entry)
             progress.accepted += 1
         # The marker goes only here, on a row a person just answered for.
         entry.pop("drafted_by", None)

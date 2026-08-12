@@ -270,3 +270,73 @@ class TestRecheckingSignedRows:
                select=looks_like_a_denial)
         assert entries[0]["claims"][0]["polarity"] == "DENIED"
         assert "polarity" not in entries[1]["claims"][0], "untouched"
+
+
+class TestRecheckTerminates:
+    """Accepting a re-opened row must take it out of the filter.
+
+    The first version tested for DENIED alone, so accepting left polarity
+    absent, the row still matched, and it came back on every re-run —
+    forever. Observed live on "Khamrah is nothing like angel share btw".
+    """
+
+    def _signed(self):
+        return {"source": "youtube", "source_id": "a",
+                "body": "Khamrah is nothing like angel share btw",
+                "claims": [{"claim_type": "SIMILAR_TO",
+                            "raw_subject_text": "Khamrah",
+                            "raw_object_text": "angel share",
+                            "sentiment": "NEGATIVE"}]}
+
+    def test_accepting_ends_the_loop(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entries = [self._signed()]
+        assert looks_like_a_denial(entries[0]) is True
+        review(entries, ask=answers("a"), say=lambda _: None,
+               select=looks_like_a_denial)
+        assert looks_like_a_denial(entries[0]) is False, "would loop forever"
+        assert entries[0]["claims"][0]["polarity"] == "ASSERTED"
+
+    def test_flipping_also_ends_it(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entries = [self._signed()]
+        review(entries, ask=answers("p", "a"), say=lambda _: None,
+               select=looks_like_a_denial)
+        assert looks_like_a_denial(entries[0]) is False
+        assert entries[0]["claims"][0]["polarity"] == "DENIED"
+
+    def test_emptying_also_ends_it(self):
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entries = [self._signed()]
+        review(entries, ask=answers("n"), say=lambda _: None,
+               select=looks_like_a_denial)
+        assert looks_like_a_denial(entries[0]) is False
+
+    def test_skipping_deliberately_keeps_it(self):
+        """Only skipping should bring a row back."""
+        from fragrance_graph.evals.review import looks_like_a_denial
+
+        entries = [self._signed()]
+        review(entries, ask=answers("s"), say=lambda _: None,
+               select=looks_like_a_denial)
+        assert looks_like_a_denial(entries[0]) is True
+
+    def test_an_accepted_assertion_is_explicitly_recorded(self):
+        """"Confirmed asserted" and "never looked at" must differ."""
+        from fragrance_graph.evals.review import stamp_polarity
+
+        entry = self._signed()
+        assert "polarity" not in entry["claims"][0]
+        stamp_polarity(entry)
+        assert entry["claims"][0]["polarity"] == "ASSERTED"
+
+    def test_stamping_never_overwrites_a_denial(self):
+        from fragrance_graph.evals.review import stamp_polarity
+
+        entry = self._signed()
+        entry["claims"][0]["polarity"] = "DENIED"
+        stamp_polarity(entry)
+        assert entry["claims"][0]["polarity"] == "DENIED"
