@@ -775,6 +775,44 @@ constraint), a new-release crawler (a bottle launched yesterday has no
 discussion), video transcripts (owner-gated, and every workaround is the
 scraping this project refuses), and computed similarity from notes.
 
+## Running it without you
+
+`.github/workflows/daily.yml` runs the loop on GitHub, Mondays and
+Thursdays at 06:00 UTC, and on a button (`workflow_dispatch`). It rebuilds
+the database from the committed corpus, collects, extracts, resolves,
+rebuilds pages, and commits the corpus back.
+
+Two things it deliberately does not do:
+
+- **No catalogue lookups.** Measured 2026-08-12: 60 lookups converted 5
+  names, because the catalogue does not carry the small-house bottles this
+  corpus discusses. An unattended run must not spend on an 8% yield, so
+  lookups stay manual — `daily curate` applies a review file with no
+  network and no spend.
+- **No news unless a person is needed.** A run that collected comments and
+  published nothing is not worth an interruption. It opens *one* issue,
+  labelled `loop`, and comments on it, when curation is holding rows or
+  something failed. A fresh issue per run would train the reader to ignore
+  it, which defeats the point.
+
+Cost is about $0.20 a run, inside the $1/day cap — which now holds, since
+the ledger is committed and read from the repository root rather than the
+working directory.
+
+### Setup
+
+Add three repository secrets under **Settings → Secrets and variables →
+Actions**:
+
+| secret | why |
+|---|---|
+| `YOUTUBE_API_KEY` | collecting comments |
+| `FRAGRANCE_ANTHROPIC_API_KEY` | extraction. **Not** `ANTHROPIC_API_KEY` — some runners reserve that name and decline to pass a user-supplied one through |
+| `FRAGELLA_API_KEY` | optional; unused by the schedule, since lookups are manual |
+
+Then run it once by hand from the **Actions** tab to confirm it works
+before trusting the schedule.
+
 ## Development
 
 ```bash

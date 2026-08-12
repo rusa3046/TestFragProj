@@ -1,0 +1,138 @@
+# The loop, running without anyone watching.
+#
+# `daily.py` was written for this and had never been scheduled: budget.py
+# assumes "each scheduled run gets a fresh container: the repository is
+# cloned, the database is rebuilt from data/corpus/", which is exactly what
+# happens below. Until this file existed, every run was a person typing.
+#
+# Two decisions are encoded here rather than in the code.
+#
+# **No catalogue lookups.** Measured 2026-08-12: 60 lookups converted 5
+# names, because the catalogue does not carry the small-house bottles this
+# corpus discusses. Lookups stay manual and occasional, so an unattended run
+# cannot spend on an 8% yield. See SPEC.
+#
+# **Silence unless a person is needed.** A run that collected comments and
+# published nothing is not news. The issue below opens only when curation
+# is holding rows or something failed — the two cases where the loop is
+# genuinely waiting on a human.
+name: fragrance-graph
+
+on:
+  schedule:
+    # Mondays and Thursdays, 06:00 UTC. Cron here is always UTC.
+    - cron: "0 6 * * 1,4"
+  workflow_dispatch:        # and a button, for running it by hand
+
+permissions:
+  contents: write           # commits the corpus back
+  issues: write             # opens the one issue that asks for a decision
+
+concurrency:
+  # Two runs at once would both rebuild from the corpus, both extract, and
+  # the second would overwrite the first's commit. The ledger would also
+  # be read twice before either wrote, handing out the cap twice.
+  group: fragrance-graph-loop
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --extra dev
+
+      - name: Rebuild the database from the committed corpus
+        run: |
+          uv run python -m fragrance_graph.db init
+          uv run python -m fragrance_graph.corpus import
+
+      - name: Run the loop
+        id: loop
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          FRAGRANCE_ANTHROPIC_API_KEY: ${{ secrets.FRAGRANCE_ANTHROPIC_API_KEY }}
+          FRAGRANCE_DB_PATH: data/fragrance_graph.db
+        run: |
+          set -o pipefail
+          uv run python -m fragrance_graph.daily run \
+            --lookup-limit 0 \
+            --queries "fragrance dupe" "aventus clone" "oud wood dupe" \
+                      "khamrah review" "parfums de marly layton" \
+                      "baccarat rouge 540 dupe" "sauvage clone" \
+            2>&1 | tee run.log
+          {
+            echo '## Loop report'
+            echo '```'
+            tail -40 run.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Export the corpus
+        env:
+          FRAGRANCE_DB_PATH: data/fragrance_graph.db
+        run: uv run python -m fragrance_graph.corpus export
+
+      - name: Commit anything new
+        run: |
+          git config user.name  "fragrance-graph bot"
+          git config user.email "noreply@github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "nothing new" >> "$GITHUB_STEP_SUMMARY"
+          else
+            git commit -m "Scheduled run: $(date -u +%Y-%m-%d)"
+            # Rebase rather than force: a person may have curated by hand
+            # since the last run, and their work outranks this one's.
+            git pull --rebase --autostash
+            git push
+          fi
+
+      - name: Ask for a decision, only if one is needed
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const log = fs.existsSync('run.log')
+              ? fs.readFileSync('run.log', 'utf8') : '';
+            const failed = '${{ job.status }}' !== 'success';
+            const problems = /^Problems:/m.test(log);
+            const held = /^Held for you \((\d+)\)/m.exec(log);
+            if (!failed && !problems && !held) return;   // nothing to say
+
+            const title = 'Loop needs a decision';
+            const body = [
+              failed ? '**The run failed.** See the Actions log.' : '',
+              held ? `**${held[1]} names are held** — the catalogue offered `
+                   + 'something with a flanker question in it, which only a '
+                   + 'person can settle.\n\n```\nuv run python -m '
+                   + 'fragrance_graph.daily curate\n```' : '',
+              problems ? 'The run reported problems:' : '',
+              '```', log.split('\n').slice(-45).join('\n'), '```',
+            ].filter(Boolean).join('\n\n');
+
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'loop',
+            });
+            if (open.data.length) {
+              // One issue, updated. A new issue per run would train you to
+              // ignore the notification, which defeats the point of it.
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: open.data[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['loop'],
+              });
+            }
