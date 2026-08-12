@@ -247,3 +247,43 @@ uv run python -m fragrance_graph.evals.autolabel agreement --human aanya
 Import replaces by labeler, so re-importing after a fix overwrites cleanly.
 If the file has a JSON syntax error the import fails before writing anything
 — nothing ends up half-loaded.
+
+## A house named where a bottle belongs
+
+Real comment:
+
+> Bad advice this is straight ass. There's no clone of TF oud wood that
+> captures the scent. I tried this brand, Maison Alhambra's, and Afnan and
+> all were very offputting
+
+The drafter produced two `DUPE_OF` claims with `Maison Alhambra` and
+`Afnan` as subjects. Both are houses, and neither is a bottle — the
+commenter means "Maison Alhambra's oud wood clone" and elides the name.
+
+**Label it anyway, as a denial.** Two `DUPE_OF` claims against
+`TF oud wood`, both `DENIED`, sentiment `NEGATIVE`, subjects left as the
+commenter wrote them.
+
+Three reasons, in the order they matter:
+
+1. **The denial is the part that can go wrong.** "There's no clone that
+   captures the scent" recorded as an assertion puts this person's name
+   behind the opposite of what they wrote. That is the defect `polarity`
+   exists to prevent, and it is the only one of the three that is scored.
+2. **A house subject cannot be recorded.** Labels carry no `subject_kind`,
+   and `match_key` is `(comment, claim_type, subject, object)`. There is
+   nowhere to put "this is a house", so leaving the text as written is the
+   only available answer, not a compromise.
+3. **A denial is never an edge.** `is_edge` requires `ASSERTED`, so a
+   `DENIED` claim cannot reach a page whatever its subject is. Recording it
+   costs nothing downstream.
+
+**Do not answer this one with "asserts nothing".** The comment asserts a
+great deal; it just asserts the negative. Marking it empty teaches the eval
+that silence is correct here, and silence loses the denial altogether —
+which is how the corpus ended up with 36 of them stored as assertions.
+
+The general rule: **label the relationship the commenter is talking about,
+then say whether they affirm or reject it.** Do not drop a claim because
+its subject is imprecise. Imprecision fails later, at entity resolution,
+visibly. A missing denial fails silently.

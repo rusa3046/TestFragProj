@@ -5,9 +5,11 @@
 -- other, and a single thread cannot support "three independent
 -- observations". That guard is real but weaker than it reads.
 --
--- Measured on the committed corpus: four of the six pairs that currently
--- clear the publishing gate are backed by videos that were *all retrieved
--- by the same search query*. Three different `parfums de marly layton
+-- Measured on the committed corpus at 6 published pairs: four of the six
+-- were backed by videos *all retrieved by the same search query*. At 8
+-- pairs the figure is six of eight — and, more importantly, seven of the
+-- eight have at least one backing video with no retrieval record at all,
+-- so `queries` is a lower bound nearly everywhere. Three different `parfums de marly layton
 -- dupe` videos are three separate comment sections, so `min_sources >= 2`
 -- passes them — but they are three rooms in which the same question was
 -- asked of an audience assembled for that question. Counting them as

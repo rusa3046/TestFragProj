@@ -5,8 +5,9 @@ video, as a markdown table, for a human to read. That table turns out to
 carry the answer to a question the product needs to ask programmatically:
 **how many genuinely different searches back this edge?**
 
-Measured across the six pairs that currently clear the publishing gate,
-four are supported entirely by videos retrieved by a *single* query. Three
+Measured across the six pairs clearing the gate when this was written,
+four were supported entirely by videos retrieved by a *single* query; at
+eight pairs it is six of eight. Three
 different `parfums de marly layton dupe` videos are three separate comment
 sections — so `min_sources >= 2` passes them — but they are three rooms in
 which the same question was put to an audience gathered for that question.

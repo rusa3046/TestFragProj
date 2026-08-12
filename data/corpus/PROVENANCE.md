@@ -82,3 +82,42 @@ to reconstruct this exact corpus, quota permitting.
 
 Ingest is idempotent on `(source, source_id)`, so re-running is safe and
 adds only what is genuinely new.
+
+## Retrieval provenance is incomplete, and the gap cannot be closed
+
+`video_discoveries` records which search surfaced which video. It covers
+**24 of 39 videos** — the run-1 ingest of 2026-08-09, transcribed from the
+table above.
+
+The other 15 arrived on 2026-08-11 through `daily run`, before the loop
+recorded discoveries. Their queries are **not recoverable**, for the reason
+`record_discovery` states in its own docstring: a search re-run later
+returns a different ranking, so a discovery not written down at the time is
+gone. Two runs are known to have used
+
+    fragrance dupe / fragrance clone / best fragrance 2026
+    oud wood dupe / aventus clone / parfums de marly layton /
+      khamrah review / cedrat boise / montblanc explorer
+
+but the loop de-duplicated video ids across the queries of a run before
+ingesting, so which query surfaced which video was never held anywhere.
+Attributing them by guesswork would be worse than leaving them absent: the
+count exists to gate publication, and inventing rows would inflate the
+number the gate reads while looking like evidence.
+
+Consequences, which the code models rather than hides:
+
+- `Pair.unprovenanced` counts backing videos with no discovery row, and
+  **7 of the 8 currently published pairs have at least one**. `queries` is
+  therefore a lower bound nearly everywhere.
+- `qualifying_pairs` skips the query check when `queries == 0`, so an
+  unattributed pair is never failed for a record that was never written.
+- Raising `MIN_QUERIES` above 1 should wait until new, fully-provenanced
+  ingest is a large enough share of the corpus for the number to mean
+  something. Ingest from 2026-08-11 onward records discoveries as it goes,
+  so this closes on its own.
+
+Video **titles** are a different case and were backfilled on 2026-08-11:
+`videos.list` refetches 50 for one quota unit, so a title is recoverable
+in a way a ranking is not. All 39 now carry title, channel and publish
+date.

@@ -462,7 +462,7 @@ uncomfortable:
 ```
 
 **The clean measurement is on the first 24 videos, where provenance is
-complete: four of the six pairs publishing then rested on a single search
+complete: six of the eight pairs publishing now rest on a single search
 query.** Three different `parfums de marly layton dupe` videos are three
 separate comment sections, so the creator bar passes them — but they are
 three rooms in which the same question was put to an audience assembled for
