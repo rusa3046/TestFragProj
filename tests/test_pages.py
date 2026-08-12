@@ -1040,3 +1040,120 @@ class TestWhatThisIs:
         from fragrance_graph.pages import render_index
 
         assert "answers one question" in render_index([])
+
+
+class TestFlankerGate:
+    """A house compared against its own line clears a higher bar.
+
+    Two bottles from one house whose names overlap are what entity
+    resolution gets wrong most often, and the failure is silent: the names
+    differ by one word, so a comment about the flanker resolves to the
+    parent about as easily as to the flanker. `mention_only_words` exists
+    because that merge was made once, live.
+    """
+
+    def branded_pair(self, conn, left, right, *, brand, people, videos,
+                     right_brand=None):
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        a = add_fragrance(conn, left, brand=brand)
+        b = add_fragrance(conn, right, brand=right_brand or brand)
+        for i in range(people):
+            cid = add_comment(
+                conn, i, body=f"person {i} wrote this", author=f"person-{i}",
+                video=f"vid-{i % videos}",
+            )
+            add_claim(conn, cid, subject=b, obj=a, claim_type="DUPE_OF",
+                      evidence=f"person {i} wrote this")
+        return a, b
+
+    def test_a_flanker_is_recognised(self):
+        from fragrance_graph.pages import Bottle, is_flanker_pair
+
+        assert is_flanker_pair(
+            Bottle("Parfums de Marly Layton", "Parfums de Marly"),
+            Bottle("Parfums de Marly Layton Exclusif", "Parfums de Marly"),
+        )
+
+    def test_two_flankers_of_one_parent_count_too(self):
+        """Neither is the other's parent, and they are just as confusable."""
+        from fragrance_graph.pages import Bottle, is_flanker_pair
+
+        assert is_flanker_pair(
+            Bottle("Armaf Club de Nuit Intense Man", "Armaf"),
+            Bottle("Armaf Club de Nuit Sillage", "Armaf"),
+        )
+
+    def test_two_unrelated_bottles_from_one_house_are_not_flankers(self):
+        from fragrance_graph.pages import Bottle, is_flanker_pair
+
+        assert not is_flanker_pair(
+            Bottle("Parfums de Marly Layton", "Parfums de Marly"),
+            Bottle("Parfums de Marly Delina Exclusif", "Parfums de Marly"),
+        )
+
+    def test_two_houses_are_never_a_flanker_pair(self):
+        """The comparison the site exists for: a cheap bottle against a
+        expensive one. It must never be caught by this."""
+        from fragrance_graph.pages import Bottle, is_flanker_pair
+
+        assert not is_flanker_pair(
+            Bottle("Armaf Club de Nuit Intense Man", "Armaf"),
+            Bottle("Creed Aventus", "Creed"),
+        )
+
+    def test_an_unknown_brand_does_not_raise_the_bar(self):
+        """With nothing to compare houses on, assume nothing."""
+        from fragrance_graph.pages import Bottle, is_flanker_pair
+
+        assert not is_flanker_pair(Bottle("Layton"), Bottle("Layton Exclusif"))
+
+    def test_a_flanker_pair_at_the_ordinary_bar_is_not_published(self, conn):
+        from fragrance_graph.pages import MIN_COMMENTERS as MC
+
+        self.branded_pair(
+            conn, "Marly Layton", "Marly Layton Exclusif", brand="Marly",
+            people=MC + 1, videos=MIN_SOURCES,
+        )
+        assert qualifying_pairs(conn) == []
+
+    def test_a_flanker_pair_that_clears_the_higher_bar_is_published(self, conn):
+        from fragrance_graph.pages import (
+            MIN_FLANKER_COMMENTERS,
+            MIN_FLANKER_SOURCES,
+        )
+
+        self.branded_pair(
+            conn, "Marly Layton", "Marly Layton Exclusif", brand="Marly",
+            people=MIN_FLANKER_COMMENTERS, videos=MIN_FLANKER_SOURCES,
+        )
+        assert len(qualifying_pairs(conn)) == 1
+
+    def test_a_cross_house_pair_still_only_needs_the_ordinary_bar(self, conn):
+        self.branded_pair(
+            conn, "Creed Aventus", "Armaf Club de Nuit Intense Man",
+            brand="Creed", right_brand="Armaf",
+            people=MIN_COMMENTERS, videos=MIN_SOURCES,
+        )
+        assert len(qualifying_pairs(conn)) == 1
+
+    def test_the_cost_of_the_bar_is_reported(self, conn):
+        """A raised bar is a page that stopped existing; it gets named."""
+        from fragrance_graph.pages import held_as_flankers
+
+        self.branded_pair(
+            conn, "Marly Layton", "Marly Layton Exclusif", brand="Marly",
+            people=MIN_COMMENTERS, videos=MIN_SOURCES,
+        )
+        (held,) = held_as_flankers(conn)
+        assert held.title == "Marly Layton vs Marly Layton Exclusif"
+
+    def test_nothing_is_reported_when_nothing_is_held(self, conn):
+        from fragrance_graph.pages import held_as_flankers
+
+        self.branded_pair(
+            conn, "Creed Aventus", "Armaf Club de Nuit Intense Man",
+            brand="Creed", right_brand="Armaf",
+            people=MIN_COMMENTERS, videos=MIN_SOURCES,
+        )
+        assert held_as_flankers(conn) == []

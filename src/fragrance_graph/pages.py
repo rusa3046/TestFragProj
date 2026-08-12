@@ -83,6 +83,7 @@ from pathlib import Path
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
 from fragrance_graph.query import Related, pair_stats, similar_to
+from fragrance_graph.resolve.enrich import debranded
 
 log = logging.getLogger("fragrance_graph.pages")
 
@@ -96,6 +97,27 @@ MIN_COMMENTERS = 3
 #: observations, and three comment sections belonging to one channel are
 #: one audience.
 MIN_SOURCES = 2
+
+#: The same two bars, raised, for a house compared against its own line —
+#: Layton vs Layton Exclusif, Amber Oud Ruby vs Amber Oud Black Edition.
+#:
+#: Two bottles from one house whose names overlap are the case entity
+#: resolution gets wrong most often, and the failure is silent: the names
+#: differ by one word, so a comment about the flanker resolves to the
+#: parent about as easily as to the flanker, and the resulting page reads
+#: as a house duping itself. `docs/CURATION.md` is largely about not making
+#: that merge, and `mention_only_words` exists because it was made once.
+#:
+#: The evidence is also weaker than it looks. "The Exclusif is better" is
+#: the single most common sentence under a flanker video, and it is an
+#: opinion about two bottles the same house sells — nobody is choosing
+#: between houses, and no shopper is being warned off a fake.
+#:
+#: So these pairs need five people across three creators rather than three
+#: across two. It is a deliberately steep bar for a category that is cheap
+#: to produce and easy to get wrong.
+MIN_FLANKER_COMMENTERS = 5
+MIN_FLANKER_SOURCES = 3
 
 #: Distinct *search queries* those videos must span. Deliberately 1 — i.e.
 #: off — because raising it is a product decision that should be made
@@ -226,6 +248,32 @@ def bottle_facts(
             year=row["house_year"],
         )
     return out
+
+
+def is_flanker_pair(a: Bottle | None, b: Bottle | None) -> bool:
+    """Whether two bottles are one house's own line compared to itself.
+
+    Same brand, and their names overlap once the house is removed. The
+    overlap is what separates a flanker from a stablemate: Layton and
+    Layton Exclusif share "layton" and are the same fragrance twice, while
+    Layton and Delina Exclusif are two unrelated Parfums de Marly bottles
+    and get the ordinary gate.
+
+    One shared word rather than a prefix rule, so that two flankers of one
+    parent are caught as well — Club de Nuit Intense Man against Club de
+    Nuit Sillage is neither one's parent, and it is exactly as easy to
+    confuse.
+
+    A missing brand means no: with nothing to compare houses on, this
+    would raise the bar on pairs it has no evidence about.
+    """
+    if a is None or b is None or not a.brand or not b.brand:
+        return False
+    if a.brand.casefold() != b.brand.casefold():
+        return False
+    words_a = set(debranded(a.name, a.brand).split())
+    words_b = set(debranded(b.name, b.brand).split())
+    return bool(words_a & words_b)
 
 
 @dataclass(frozen=True)
@@ -402,18 +450,25 @@ def qualifying_pairs(
     min_commenters: int = MIN_COMMENTERS,
     min_sources: int = MIN_SOURCES,
     min_queries: int = MIN_QUERIES,
+    min_flanker_commenters: int = MIN_FLANKER_COMMENTERS,
+    min_flanker_sources: int = MIN_FLANKER_SOURCES,
     quotes: int = 3,
 ) -> list[Pair]:
-    """Every pair that clears both bars, each returned once.
+    """Every pair that clears its bars, each returned once.
 
     A pair is discovered twice — once from each end — so the canonical
     name order decides which orientation becomes the page, and the second
     sighting is dropped rather than rendered as a near-duplicate page.
+
+    A house compared against its own line clears a higher bar; see
+    `MIN_FLANKER_COMMENTERS` for why, and `held_as_flankers` for what that
+    costs on the current corpus.
     """
     # Casing is normalised here, at the single point every displayed name
     # comes from, so a title, a heading and a "written about" line cannot
     # disagree with each other about how a house is spelled.
     casing = brand_casing(conn)
+    facts = bottle_facts(conn, casing)
     fragrances = {
         row["id"]: with_canonical_casing(row["canonical_name"], casing)
         for row in conn.execute("SELECT id, canonical_name FROM fragrances")
@@ -454,6 +509,11 @@ def qualifying_pairs(
             # pair twice.
             if ev.commenters < min_commenters or ev.creators < min_sources:
                 continue
+            if is_flanker_pair(facts.get(name), facts.get(other)) and (
+                ev.commenters < min_flanker_commenters
+                or ev.creators < min_flanker_sources
+            ):
+                continue
             # Query diversity is reported but only gates when asked for.
             # A pair with no retrieval record has queries == 0, which means
             # "unknown", not "narrow" — gating on it by default would
@@ -487,6 +547,20 @@ def qualifying_pairs(
             )
 
     return sorted(found.values(), key=lambda p: (-p.commenters, -p.sources, p.slug))
+
+
+def held_as_flankers(conn: sqlite3.Connection, **kwargs) -> list[Pair]:
+    """Pairs the general gate would publish and the flanker bar holds back.
+
+    Raising a bar is a decision about which pages stop existing, and that
+    is not something to take on the argument alone — so the cost is
+    computed rather than asserted, and the CLI prints it every time.
+    """
+    lenient = qualifying_pairs(
+        conn, **{**kwargs, "min_flanker_commenters": 0, "min_flanker_sources": 0}
+    )
+    published = {p.slug for p in qualifying_pairs(conn, **kwargs)}
+    return [p for p in lenient if p.slug not in published]
 
 
 def _rows_between(
@@ -784,6 +858,28 @@ def build(
     return pairs
 
 
+def _report_flanker_holds(conn: sqlite3.Connection, **kwargs) -> None:
+    """Name every page the flanker bar is keeping off the site.
+
+    Printed on every run rather than kept in a report someone has to think
+    to ask for: a raised bar is a page that stopped existing, and the only
+    way that stays a decision instead of a drift is to see it each time.
+    """
+    held = held_as_flankers(conn, **kwargs)
+    if not held:
+        return
+    print(
+        f"\n{len(held)} pair(s) held back by the flanker bar "
+        f"({MIN_FLANKER_COMMENTERS} people across {MIN_FLANKER_SOURCES} "
+        "creators for a house compared with its own line):"
+    )
+    for pair in held:
+        print(
+            f"  {pair.commenters:>3} people  {pair.sources} creators  "
+            f"{pair.title}"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate static comparison pages.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -847,6 +943,12 @@ def main(argv: list[str] | None = None) -> int:
                     "satisfy the creator bar while being one question asked "
                     "in several rooms — see MIN_QUERIES."
                 )
+            _report_flanker_holds(
+                conn,
+                min_commenters=args.min_commenters,
+                min_sources=args.min_sources,
+                min_queries=args.min_queries,
+            )
             return 0
 
         pairs = build(
@@ -858,6 +960,11 @@ def main(argv: list[str] | None = None) -> int:
         for pair in pairs:
             print(f"  {pair.slug}.html  ({pair.commenters} people, {pair.sources} sources)")
         print(f"\nWrote {len(pairs)} page(s) + index to {args.out}/")
+        _report_flanker_holds(
+            conn,
+            min_commenters=args.min_commenters,
+            min_sources=args.min_sources,
+        )
         if not pairs:
             print(
                 "\nNothing cleared the gate. That is the gate working: a pair "

@@ -1044,6 +1044,44 @@ records how many of a row's claims ran from the queried end, and the
 majority decides the subject; ties keep the queried end in front so the
 wording cannot depend on which side the page was built from.
 
+#### A house compared with its own line clears a higher bar (2026-08-12)
+
+Flanker pairs — Layton vs Layton Exclusif, Amber Oud Ruby vs Amber Oud
+Black Edition — now need **5 commenters across 3 creators** rather than 3
+across 2. `MIN_FLANKER_COMMENTERS` / `MIN_FLANKER_SOURCES`.
+
+Two reasons, both recorded elsewhere in this file already.
+
+*The resolution is least reliable exactly here.* The names differ by one
+word, so a comment about the flanker resolves to the parent about as
+easily as to the flanker; `mention_only_words` exists because
+"Club De Nuit EDP" was auto-merged into the wrong node once, live. A wrong
+page in this category reads as a house duping itself.
+
+*The claim is worth less.* "The Exclusif is better" is the most common
+sentence under a flanker video and it is an opinion about two bottles the
+same house sells. Nobody is choosing between houses and no shopper is
+being warned off a fake, which is the question the site exists to answer.
+
+A pair counts as a flanker pair when both ends carry the **same brand**
+and their de-branded names **share at least one word**. Sharing a word
+rather than a prefix rule, so two flankers of one parent are caught as
+well; same brand alone would catch Layton vs Delina Exclusif, which are
+two unrelated Parfums de Marly bottles and get the ordinary gate.
+
+**What it unpublished, measured on the committed corpus: one page.**
+
+    Parfums de Marly Layton vs Parfums de Marly Layton Exclusif
+    3 people, 2 creators
+
+The site goes from 9 pages to 8. That page was already the weakest one
+published — its own verdict line read *"3 people across 2 creators
+mentioned Layton and Layton Exclusif together, but no two of them made the
+same comparison"*, which is a page saying out loud that it has nothing to
+report. `pages pairs` and `pages build` print the held-back list on every
+run, so the cost of the bar stays visible rather than becoming a number
+nobody re-reads.
+
 #### Asking from one end also dropped evidence
 
 `pair_stats` counts a pair direction-blind, but *rendering* still read rows
