@@ -39,6 +39,16 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Job-level, so every step reads and writes the *same* database.
+    # Setting it only on the step that runs the loop meant the rebuild
+    # populated the default path while the loop used data/, so the loop
+    # ran against an empty database: no fragrances, nothing resolvable,
+    # and an export that would have committed a corpus with 65 hand
+    # labels and 56 curated bottles deleted. The export guard refused it,
+    # which is the only reason this was a wasted run rather than a
+    # destroyed corpus.
+    env:
+      FRAGRANCE_DB_PATH: data/fragrance_graph.db
     steps:
       - uses: actions/checkout@v4
 
@@ -54,12 +64,33 @@ jobs:
           uv run python -m fragrance_graph.db init
           uv run python -m fragrance_graph.corpus import
 
+      - name: Check the rebuild actually landed
+        # A database on the wrong path imports fine and reports success,
+        # so "import succeeded" is not evidence the loop will see the
+        # data. This asserts the corpus is present where the loop reads.
+        run: |
+          uv run python -c "
+          import sqlite3, sys
+          from fragrance_graph.db import get_connection
+          try:
+              c = get_connection('data/fragrance_graph.db')
+              n = c.execute('select count(*) from fragrances').fetchone()[0]
+              labels = c.execute('select count(*) from eval_labels').fetchone()[0]
+          except sqlite3.OperationalError as exc:
+              sys.exit(f'Rebuild did not land at data/fragrance_graph.db ({exc}). '
+                       'The import step wrote somewhere else — check '
+                       'FRAGRANCE_DB_PATH is set for every step.')
+          print(f'{n} fragrances, {labels} eval labels')
+          if not n:
+              sys.exit('Rebuild did not land: no fragrances. Refusing to run '
+                       'the loop against an empty database.')
+          "
+
       - name: Run the loop
         id: loop
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           FRAGRANCE_ANTHROPIC_API_KEY: ${{ secrets.FRAGRANCE_ANTHROPIC_API_KEY }}
-          FRAGRANCE_DB_PATH: data/fragrance_graph.db
         run: |
           set -o pipefail
           uv run python -m fragrance_graph.daily run \
@@ -76,8 +107,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Export the corpus
-        env:
-          FRAGRANCE_DB_PATH: data/fragrance_graph.db
         run: uv run python -m fragrance_graph.corpus export
 
       - name: Commit anything new
