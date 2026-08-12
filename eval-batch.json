@@ -1,0 +1,398 @@
+[
+  {
+    "source": "youtube",
+    "source_id": "UgxkgO_vW20dftAR4uR4AaABAg.AMw_kQqZtXFAMwhtYNh9vu",
+    "split": "holdout",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "Thanks for watching!",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgxyMnCuXy-oQEgok7F4AaABAg",
+    "split": "train",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "Make more of this",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgymnknBnNroTUa3PN94AaABAg",
+    "split": "train",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "Where from you get this miniature ??",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgzQzr7ShLvt4Pxr3FV4AaABAg",
+    "split": "holdout",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "I recommend this scent for the money. Spray on your clothes it lasts for days..",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugy98Nb1CI6oR_EigTF4AaABAg",
+    "split": "train",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "Nice review and choice's love the video Gents Scents stay motivated Dream big 1 mill on the way",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgwHzqHCWFi3I8KrvaB4AaABAg",
+    "split": "train",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "The top bottles imo\n\n1.  Xerjoff\n2.  Parfums de Marly (PDM)\n3.  Creed\n4.  Amouage\n5.  Jean Paul Gaultier (JPG)",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugy387P-GTqAqSx8bEp4AaABAg.AVWWpFJLkEPAZ4KUsPfFde",
+    "split": "train",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "whats the Different type of smoke in those?",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugx2ZzoDtxbK3eTTHTV4AaABAg",
+    "split": "train",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "This is false information. Real fragrance has pheromones. It's more than smell, it triggers parts of the brain in the opposite sex. I think if you're attractive looking already you don't need it. So I save myself an expense there.",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugzz7hTLVGhIEPnUyJF4AaABAg",
+    "split": "train",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "Man not choosing liquid brun is criminal😔",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgzG19q9pjobHkSWA854AaABAg.AKrpOokUt6yAKvPRrb_tzn",
+    "split": "train",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "Literally exactly what I said to myself.",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgxA7ZZ3LX0nP7DeOX94AaABAg",
+    "split": "holdout",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "well i cant say for tom ford but i got my oud wonder today and its just horrible i dont like the smell and its just like water it lasts like 15 minutes on my skin",
+    "claims": [
+      {
+        "claim_type": "LONGEVITY",
+        "raw_subject_text": "oud wonder",
+        "raw_object_text": null,
+        "sentiment": "NEGATIVE"
+      }
+    ]
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgyUJapSnMoeShb4qm94AaABAg",
+    "split": "train",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "Pl review about sere perfume and compare with OG perfume",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgyNv1CYo9S5yIqCdI54AaABAg",
+    "split": "train",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "Wow  🔥✨️🌺👑🌺✨️🔥yes.",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugw3j2whe623IQTH6V94AaABAg",
+    "split": "holdout",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "hamidi addicted rate it please",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgzGPXhAHC84Xdh_tMN4AaABAg",
+    "split": "holdout",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "BBB💯💪🏾🔥🔥🔥💰",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugx5FBL4q6r9_9uF5xJ4AaABAg",
+    "split": "holdout",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "I'm looking at a bottle of this at a Burlington. First time seeing it",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgxIhU8m6wWWxvMVk2R4AaABAg",
+    "split": "holdout",
+    "_stratum": "control",
+    "_why": "drawn uniformly, so precision on an ordinary comment stays measurable",
+    "body": "We’re can you buy a legit bottle of the lattafa cologne ? Thier are so much website that sell the cologne and I feel a-lot of those website are selling fake lattafa colognes. \n\nHelp please 🙏🏼",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgxZlk0qfFoyYhuil1p4AaABAg.AZPrjsbGkKlAZPyA8b071d",
+    "split": "train",
+    "_stratum": "rejected",
+    "_why": "extraction refused 1 claim(s) here",
+    "body": "Nah... not a bad fragrance, but I rather not smell like every guy on the party.",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugwf-270VeczaKqr1zV4AaABAg",
+    "split": "train",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "Bad advice this is straight ass. There’s no clone of TF oud wood that captures the scent. I tried this brand, Maison Alhambra’s, and Afnan and all were very offputting",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugzw-zWW_Dyr52StvdJ4AaABAg",
+    "split": "train",
+    "_stratum": "rejected",
+    "_why": "extraction refused 1 claim(s) here",
+    "body": "I bought Layton last month at some place it was 190 dollars for 125 ml I was like wait this is great but maybe it’s fake and wow to my surprise it was the original I was lucky I guess I love it",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugwo87FdVf_MaWhDFx54AaABAg",
+    "split": "train",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "I just try latafa it is nothing like angel share. I am curious how much did u get from latafa to hype the perfume ?",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgyHInzy55_tPmAOyGV4AaABAg",
+    "split": "train",
+    "_stratum": "rejected",
+    "_why": "extraction refused 2 claim(s) here",
+    "body": "Just smells like fruity pebbles & Vicks vapor rub",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgwLw4qRXM2VYf5pbZ14AaABAg",
+    "split": "train",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "I still think ajmal kuro is the best twist and my fave alternative is ambassador but it's the same price as suavage. Better product imo",
+    "claims": [
+      {
+        "claim_type": "BETTER_THAN",
+        "raw_subject_text": "ambassador",
+        "raw_object_text": "suavage",
+        "sentiment": "POSITIVE"
+      }
+    ]
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgwgI-6PJpqRRCbZc7p4AaABAg",
+    "split": "train",
+    "_stratum": "rejected",
+    "_why": "extraction refused 1 claim(s) here",
+    "body": "layton is soft asf. no one is getting complemented with this.",
+    "claims": [
+      {
+        "claim_type": "PROJECTION",
+        "raw_subject_text": "layton",
+        "raw_object_text": null,
+        "sentiment": "NEGATIVE"
+      }
+    ]
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugw6ioOOvBdZeQxEHKB4AaABAg",
+    "split": "train",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "The CDNIM *perfume oil*, (not pure Parfum) IS essentially the same blend as CDNIM extrait.. both are top tier cdnim.",
+    "claims": [
+      {
+        "claim_type": "SIMILAR_TO",
+        "raw_subject_text": "The CDNIM *perfume oil*",
+        "raw_object_text": "cdnim extrait",
+        "sentiment": "POSITIVE"
+      }
+    ]
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgzJ6plnG4pgIiduWJh4AaABAg",
+    "split": "holdout",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "Khamrah is nothing like angel share btw",
+    "claims": [
+      {
+        "claim_type": "SIMILAR_TO",
+        "raw_subject_text": "Khamrah",
+        "raw_object_text": "angel share",
+        "sentiment": "NEGATIVE",
+        "polarity": "DENIED"
+      }
+    ]
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugzbh4ZbtiHslbpfdpp4AaABAg.A0TIMyVcSA8A0t2SBjki44",
+    "split": "train",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "Yes but Qahwa better",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgzNxh0gyzdCjcFSXad4AaABAg",
+    "split": "holdout",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "Honestly Versace Eros energy smells almost exactly alike and lasts longer",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgxbaJayVDFWOUBj2Al4AaABAg.AQ_NcZSwOZAAUGrwrl53Ax",
+    "split": "holdout",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "Explorer is often found for $30-$50 and is (in my opinion) designer quality and a great substitute to Aventus!",
+    "claims": [
+      {
+        "claim_type": "DUPE_OF",
+        "raw_subject_text": "Explorer",
+        "raw_object_text": "Aventus",
+        "sentiment": "POSITIVE"
+      }
+    ]
+  },
+  {
+    "source": "youtube",
+    "source_id": "Ugy4cFm5EM5K-UPPkTZ4AaABAg.ASGCsmv8l1gAYzbA2tXtLQ",
+    "split": "holdout",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "Not until you try the Extait De Parfum. Easily the best one and most like Aventus",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgzZr55iApU4i3lc9Op4AaABAg",
+    "split": "train",
+    "_stratum": "edge",
+    "_why": "produced 3 edge claim(s), which is the output the product actually publishes",
+    "body": "Don't even bother with clones, they are made with cheap materials and don't smell anywhere close to what they're supposed clone is from. Spend the extra $50-$100 for a real brand cologne. \n\nGot a oud wood tom ford clone from jomas or whatever site , and it fkin sux. Not even worth 30$ \n\nYou get what you pay for and I personally have had good feedback from real Hugo boss cologne or even real tom for EDT dont come off strong and smell way nicer than any clones. \n\nJust thought I'd say it after the disappointing experience with these clones suggestions. \n\nMaybe I'll find a clone of the Hugo boss one I got good feedback on and see what the consensus is but the issue is the solvent used not being an expensive one and you risk giving people around you a headache 🤣",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgxtcjYi5gdTGtv7g8R4AaABAg",
+    "split": "train",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "Mont Blanc explorer is close",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgynjyW9Rgq1V-uW12B4AaABAg",
+    "split": "train",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "I have some niche shops and clones shops in my city, and i can guarante they smell very similar, sometimes even better",
+    "claims": []
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgwpoYizvBTX__aLxip4AaABAg",
+    "split": "train",
+    "_stratum": "edge",
+    "_why": "produced 2 edge claim(s), which is the output the product actually publishes",
+    "body": "Tommy Hilfiger Impact Intense smells completely different than Layton. Detout Noir smells the sames Layton. Its a perfect dupe.",
+    "claims": [
+      {
+        "claim_type": "SIMILAR_TO",
+        "raw_subject_text": "Tommy Hilfiger Impact Intense",
+        "raw_object_text": "Layton",
+        "sentiment": "NEGATIVE"
+      },
+      {
+        "claim_type": "SIMILAR_TO",
+        "raw_subject_text": "Detout Noir",
+        "raw_object_text": "Layton",
+        "sentiment": "POSITIVE"
+      },
+      {
+        "claim_type": "DUPE_OF",
+        "raw_subject_text": "Detout Noir",
+        "raw_object_text": "Layton",
+        "sentiment": "POSITIVE"
+      }
+    ]
+  },
+  {
+    "source": "youtube",
+    "source_id": "UgxqmC59UeAvd0gcTG14AaABAg",
+    "split": "train",
+    "_stratum": "edge",
+    "_why": "produced 1 edge claim(s), which is the output the product actually publishes",
+    "body": "Knew I wasn’t tripping, I always said Versace Energy smelled a little like Creed…but Intense Man limited edition takes the cake for sure. It smells amazing and has great performance",
+    "claims": [
+      {
+        "claim_type": "SIMILAR_TO",
+        "raw_subject_text": "Versace Energy",
+        "raw_object_text": "Creed",
+        "sentiment": "POSITIVE"
+      },
+      {
+        "claim_type": "SIMILAR_TO",
+        "raw_subject_text": "Intense Man limited edition",
+        "raw_object_text": "Creed",
+        "sentiment": "POSITIVE"
+      },
+      {
+        "claim_type": "LONGEVITY",
+        "raw_subject_text": "Intense Man limited edition",
+        "raw_object_text": null,
+        "sentiment": "POSITIVE"
+      }
+    ]
+  }
+]
