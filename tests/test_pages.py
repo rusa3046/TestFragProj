@@ -450,3 +450,54 @@ def test_two_videos_by_one_creator_are_one_source(conn):
     assert ev.sources == 2, "two distinct videos"
     assert ev.creators == 1, "but one channel uploaded both"
     assert qualifying_pairs(conn) == []
+
+
+class TestNoOrphanedBullets:
+    """A quote must not render with an empty bullet above it.
+
+    The markup was never malformed — `<li><blockquote>` is valid — so a
+    test for an *empty* `<li>` would have passed while every quote on the
+    live site sat under a stray marker. `<blockquote>` is a block element,
+    so the browser breaks the line after the marker and leaves it alone.
+    The check therefore has to be "no list item leads with a block
+    element", not "no list item is empty".
+    """
+
+    BLOCK = ("blockquote", "figure", "div", "p", "ul", "ol", "section")
+
+    def _pages(self, conn, tmp_path):
+        from fragrance_graph.pages import build
+
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        build(conn, tmp_path)
+        return list(tmp_path.glob("*.html"))
+
+    def test_no_list_item_leads_with_a_block_element(self, conn, tmp_path):
+        import re
+
+        pages = self._pages(conn, tmp_path)
+        assert pages, "fixture should publish something"
+        pattern = re.compile(
+            r"<li>\s*<(" + "|".join(self.BLOCK) + r")\b", re.IGNORECASE
+        )
+        for page in pages:
+            hit = pattern.search(page.read_text(encoding="utf-8"))
+            assert not hit, f"{page.name}: orphaned bullet before {hit.group(1)}"
+
+    def test_no_empty_list_item(self, conn, tmp_path):
+        import re
+
+        for page in self._pages(conn, tmp_path):
+            text = page.read_text(encoding="utf-8")
+            assert not re.search(r"<li>\s*</li>", text), page.name
+
+    def test_quotes_are_figures_with_attribution(self, conn, tmp_path):
+        """The replacement has to keep the quote *and* who said it."""
+        pages = [p for p in self._pages(conn, tmp_path) if p.name != "index.html"]
+        for page in pages:
+            text = page.read_text(encoding="utf-8")
+            if "<blockquote>" not in text:
+                continue
+            assert text.count("<figure>") == text.count("<blockquote>")
+            assert text.count("<figcaption>") == text.count("<blockquote>")
+            assert "read the comment" in text

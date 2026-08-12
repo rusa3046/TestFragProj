@@ -315,18 +315,23 @@ def render_pair(pair: Pair) -> str:
                 f"<p>Stated about {e(pair.left)}, not about "
                 f"{e(row.canonical_name)}.</p>"
             )
-        out.append("<ul>")
+        # `<figure>` rather than `<ul><li>`. A blockquote is a block
+        # element, so a browser puts the list marker on its own line and
+        # starts the quote underneath it — which reads as an empty bullet
+        # above every quote. The markup was never malformed, which is why
+        # "no empty <li>" would have passed; the defect was only visible
+        # rendered. `<figure>` + `<figcaption>` is also what the spec says
+        # a quote with attribution is.
         for ev in row.evidence:
             said_about = pair.left if ev.outbound else row.canonical_name
             out.append(
-                "<li>"
+                "<figure>"
                 f"<blockquote>{e(ev.quote)}</blockquote>"
-                f'<p>Written about {e(said_about)}. '
+                f"<figcaption>Written about {e(said_about)}. "
                 f'<a href="{e(ev.permalink)}" rel="nofollow noopener">'
-                "read the comment</a></p>"
-                "</li>"
+                "read the comment</a></figcaption>"
+                "</figure>"
             )
-        out.append("</ul>")
         out.append("</section>")
 
     out.append(
