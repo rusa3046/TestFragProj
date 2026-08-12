@@ -405,12 +405,22 @@ def test_a_page_says_creators_not_videos(conn):
 
 
 def test_the_index_says_creators_too(conn):
+    """The bar is creators, and the index must not describe it as videos.
+
+    This banned the word "videos" outright until 2026-08-12, when the
+    index gained a paragraph saying where the comments come from — which
+    is videos, truthfully. The rule was never about the word: it is that
+    no count on the page may be labelled with the wrong unit.
+    """
+    import re
+
     from fragrance_graph.pages import qualifying_pairs, render_index
 
     pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
     index = render_index(qualifying_pairs(conn))
     assert "creators" in index
-    assert "videos" not in index
+    assert not re.search(r"\d+\s+videos", index), "the gate does not count videos"
+    assert not re.search(r"across \d+ videos", index)
 
 
 def test_two_videos_by_one_creator_are_one_source(conn):
@@ -987,3 +997,46 @@ class TestBottleFacts:
         add_fragrance(conn, "Atomic Rose", brand="Initio Parfums Prives",
                       house_year=2020)
         assert bottle_facts(conn)["Atomic Rose"].year == 2020
+
+
+class TestWhatThisIs:
+    """The index has to explain itself to someone who arrived from Google.
+
+    It landed on a bare list of links under a one-line count. A stranger
+    could not tell whether the numbers were reviews, ratings, or a
+    machine's guesses — which is the whole question this project is
+    answering.
+    """
+
+    def index(self, conn):
+        from fragrance_graph.pages import render_index
+
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        return render_index(qualifying_pairs(conn))
+
+    def test_it_says_where_the_sentences_come_from(self, conn):
+        text = self.index(conn)
+        assert "comments left under fragrance videos" in text
+        assert "links back to the comment" in text
+
+    def test_it_states_the_bar_a_page_has_to_clear(self, conn):
+        text = self.index(conn)
+        assert f"{MIN_COMMENTERS} different people" in text
+        assert f"{MIN_SOURCES} different creators" in text
+
+    def test_it_says_what_is_deliberately_absent(self, conn):
+        text = self.index(conn)
+        for absent in ("no notes lists", "no ratings", "no shopping"):
+            assert absent in text.lower(), absent
+
+    def test_it_sells_nothing(self, conn):
+        """Including the site itself."""
+        text = self.index(conn).lower()
+        for hype in ("best", "ultimate", "amazing", "must-have", "trusted",
+                     "accurate", "definitive", "curated by experts"):
+            assert hype not in text, hype
+
+    def test_an_empty_index_still_explains_itself(self, conn):
+        from fragrance_graph.pages import render_index
+
+        assert "answers one question" in render_index([])

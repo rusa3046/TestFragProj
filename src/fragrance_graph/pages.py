@@ -145,6 +145,32 @@ VERDICT_PRECEDENCE = ("DUPE_OF", "BETTER_THAN", "SIMILAR_TO")
 VERDICT_MIN_COMMENTERS = 2
 
 
+#: What the site is, for someone who arrived from a search engine and has
+#: no idea who made this or why to believe it.
+#:
+#: Written to be read once and understood: what the pages are made of,
+#: where the sentences came from, what has to be true before a page exists
+#: at all, and what is deliberately absent. No adjectives about the
+#: fragrances and none about the site — a page that had to describe itself
+#: as reliable would be admitting it is not.
+WHAT_THIS_IS = (
+    "<p>Every page here answers one question — do people think these two "
+    "fragrances smell alike? — using comments left under fragrance videos "
+    "on YouTube. Nothing is computed and nothing is a review. If a page "
+    "says six people called something a dupe, six different people wrote "
+    "it, and every quote links back to the comment so you can read it in "
+    "context.</p>"
+    "<p>A comparison only gets a page once at least "
+    f"{MIN_COMMENTERS} different people have made it, across videos by at "
+    f"least {MIN_SOURCES} different creators. Three people replying to each "
+    "other under one video are one conversation, not three opinions. Most "
+    "pairs do not clear that bar, which is why this list is short.</p>"
+    "<p>There are no notes lists, no ratings, no scores and no shopping "
+    "links. Nothing on any page is ordered by a commercial relationship, "
+    "and the quotes are shown as people typed them.</p>"
+)
+
+
 @dataclass(frozen=True)
 class Bottle:
     """A fragrance as a page introduces it: what it is called, by whom, when.
@@ -721,6 +747,7 @@ def render_index(pairs: list[Pair]) -> str:
         "</head>",
         "<body>",
         "<h1>Fragrance comparisons</h1>",
+        WHAT_THIS_IS,
         f"<p>{len(pairs)} comparison"
         f"{'' if len(pairs) == 1 else 's'}, each backed by at least "
         f"{MIN_COMMENTERS} people writing across at least {MIN_SOURCES} "
