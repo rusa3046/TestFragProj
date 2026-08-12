@@ -500,3 +500,68 @@ class TestQuotaDoesNotDiscardWhatWasPaidFor:
         )
         assert any("rejected key" in e for e in report.errors)
         assert not report.auto_approved
+
+
+class TestSeedQueries:
+    """Six of the eight original seeds contained "dupe".
+
+    That is a leading question asked of an audience assembled to answer
+    it, and 71% of the searches behind the committed corpus have that
+    shape. A seed list is the one place a sampling bias can be fixed
+    cheaply, and the one place nobody looks unless a test does.
+    """
+
+    def test_the_dupe_shape_is_a_minority(self):
+        from fragrance_graph.daily import SEED_QUERIES, shape_mix
+
+        mix = shape_mix(SEED_QUERIES)
+        assert mix["dupe/clone"] * 2 < sum(mix.values())
+
+    def test_it_still_asks_the_question_that_works(self):
+        """Broadening is not abandoning: dupe searches built this corpus."""
+        from fragrance_graph.daily import SEED_QUERIES, shape_mix
+
+        assert shape_mix(SEED_QUERIES)["dupe/clone"] >= 1
+
+    def test_several_shapes_are_represented(self):
+        from fragrance_graph.daily import SEED_QUERIES, shape_mix
+
+        assert len(shape_mix(SEED_QUERIES)) >= 5
+
+    @pytest.mark.parametrize("query,shape", [
+        ("creed aventus vs", "head to head"),
+        ("is parfums de marly layton worth it", "worth it"),
+        ("smells like baccarat rouge 540", "smells like"),
+        ("better than dior sauvage", "better than"),
+        ("alternative to tom ford oud wood", "alternative to"),
+        ("aventus clone", "dupe/clone"),
+        ("khamrah review", "review"),
+        ("parfums de marly layton", "bare name"),
+    ])
+    def test_shapes_are_read_from_the_phrase(self, query, shape):
+        from fragrance_graph.daily import query_shape
+
+        assert query_shape(query) == shape
+
+    def test_the_report_shows_the_plan_beside_what_happened(self, conn):
+        """Changing the seeds does nothing until an ingest runs, and a
+        report that showed only the new list would hide that."""
+        from fragrance_graph.daily import render_seed_diversity
+
+        out = render_seed_diversity(conn)
+        assert "seeds now" in out and "corpus so far" in out
+        assert "No retrieval records yet" in out
+
+    def test_the_scheduled_run_uses_them(self):
+        """The workflow inlined its own list, so the seeds could be
+        broadened in code and the schedule would go on asking the old
+        question twice a week."""
+        from pathlib import Path
+
+        workflow = Path(".github/workflows/daily.yml").read_text(encoding="utf-8")
+        run_step = workflow.split("Run the loop", 1)[1].split("- name:", 1)[0]
+        commands = [
+            line for line in run_step.splitlines()
+            if not line.strip().startswith("#")
+        ]
+        assert "--queries" not in "\n".join(commands), "the loop must take the seeds"

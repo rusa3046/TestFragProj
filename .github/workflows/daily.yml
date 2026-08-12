@@ -95,11 +95,13 @@ jobs:
           FRAGRANCE_ANTHROPIC_API_KEY: ${{ secrets.FRAGRANCE_ANTHROPIC_API_KEY }}
         run: |
           set -o pipefail
+          # No --queries: the seeds live in `daily.SEED_QUERIES`, where
+          # they are documented, shape-checked by a test, and reviewable
+          # in a diff. Six of the eight queries this step used to inline
+          # contained "dupe", which is a leading question asked of an
+          # audience assembled to answer it.
           uv run python -m fragrance_graph.daily run \
             --lookup-limit 0 \
-            --queries "fragrance dupe" "aventus clone" "oud wood dupe" \
-                      "khamrah review" "parfums de marly layton" \
-                      "baccarat rouge 540 dupe" "sauvage clone" \
             2>&1 | tee run.log
           {
             echo '## Loop report'

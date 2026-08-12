@@ -88,6 +88,7 @@ import argparse
 import logging
 import os
 import sqlite3
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -103,10 +104,121 @@ log = logging.getLogger("fragrance_graph.daily")
 #: mention were a different person, so the lookup buys nothing.
 AUTO_MIN_COUNT = 3
 
+#: How the phrase a search was made with shapes what comes back.
+#:
+#: Ordered longest-first where prefixes overlap, so "better than" is not
+#: read as the bare word "than".
+QUERY_SHAPES = (
+    ("dupe/clone", ("dupe", "dupes", "clone", "clones")),
+    ("smells like", ("smells like", "smell like")),
+    ("better than", ("better than",)),
+    ("alternative to", ("alternative to", "alternatives to", "instead of")),
+    ("compared to", ("compared to", "comparison")),
+    ("worth it", ("worth it", "worth the")),
+    ("head to head", (" vs ", " vs. ", " versus ")),
+    ("review", ("review", "honest thoughts")),
+)
+
+
+def query_shape(query: str) -> str:
+    """Which kind of question a search phrase is asking.
+
+    Reporting only. It exists because "how diverse are the seeds" was
+    being answered by reading a list and counting in your head, which is
+    exactly the kind of thing that quietly stops happening.
+    """
+    lowered = f" {query.lower()} "
+    for name, needles in QUERY_SHAPES:
+        if any(needle in lowered for needle in needles):
+            return name
+    return "bare name"
+
+
+#: The searches the scheduled loop makes when nothing else is asked for.
+#:
+#: **Six of the eight original seeds contained "dupe".** That is a leading
+#: question asked of an audience assembled to answer it, and the corpus
+#: shows it: every published pair is a dupe claim or sits beside one, and
+#: `MIN_QUERIES` cannot be raised to 2 because four of the six pairs that
+#: published in August rested on a single query.
+#:
+#: A dupe search finds people agreeing that A imitates B. It does not find
+#: the person who says B is worth the money, or the one who says A smells
+#: like C instead — claims the taxonomy already models and the corpus
+#: barely contains. The fix is not a better prompt; it is asking a
+#: different question.
+#:
+#: So the shapes are mixed deliberately, and the dupe shape is now a
+#: minority of the list rather than three quarters of it. The bottles are
+#: the ones the corpus already has evidence about, because a broader
+#: question about a bottle nobody discusses returns nothing either way.
+SEED_QUERIES = (
+    "creed aventus vs",
+    "parfums de marly layton vs",
+    "lattafa khamrah vs",
+    "is parfums de marly layton worth it",
+    "smells like baccarat rouge 540",
+    "better than dior sauvage",
+    "alternative to tom ford oud wood",
+    "compared to creed aventus",
+    "fragrance dupe",
+    "aventus clone",
+)
+
 #: Comments to pull per scheduled run. The cap is the real limit; this
 #: stops a single run from queueing far more extraction than a day's budget
 #: can pay for, which would otherwise just be re-read as pending each run.
 DEFAULT_INGEST_LIMIT = 400
+
+
+def shape_mix(queries) -> Counter:
+    """How many queries of each shape, most common first."""
+    return Counter(query_shape(q) for q in queries)
+
+
+def render_seed_diversity(conn) -> str:
+    """The seeds beside the searches the corpus was actually built from.
+
+    Two columns, because the seeds are a plan and the corpus is what
+    happened. Changing the plan does nothing until an ingest runs, and a
+    report that showed only the new list would read as though the corpus
+    had already broadened.
+    """
+    corpus = [
+        row["retrieval_query"]
+        for row in conn.execute(
+            "SELECT DISTINCT retrieval_query FROM video_discoveries"
+            " WHERE retrieval_query IS NOT NULL AND retrieval_query != ''"
+        )
+    ]
+    seeds, built = shape_mix(SEED_QUERIES), shape_mix(corpus)
+    shapes = sorted(set(seeds) | set(built))
+
+    lines = [
+        f"{'shape':<16} {'seeds now':>9} {'corpus so far':>14}",
+    ]
+    for shape in shapes:
+        lines.append(f"{shape:<16} {seeds.get(shape, 0):>9} {built.get(shape, 0):>14}")
+    lines.append(f"{'total':<16} {sum(seeds.values()):>9} {sum(built.values()):>14}")
+
+    dupe_seeds = seeds.get("dupe/clone", 0)
+    dupe_built = built.get("dupe/clone", 0)
+    lines.append("")
+    lines.append(
+        f"Dupe-shaped: {_share(dupe_seeds, sum(seeds.values()))} of the seeds, "
+        f"{_share(dupe_built, sum(built.values()))} of the searches behind the "
+        "corpus."
+    )
+    if not corpus:
+        lines.append(
+            "No retrieval records yet — the corpus column fills in as "
+            "provenance-recording ingest runs."
+        )
+    return "\n".join(lines)
+
+
+def _share(part: int, whole: int) -> str:
+    return "0%" if not whole else f"{round(100 * part / whole)}%"
 
 
 def auto_approvable(proposal: Proposal, *, min_count: int = AUTO_MIN_COUNT) -> bool:
@@ -481,8 +593,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument(
         "--queries",
         nargs="+",
-        default=["fragrance dupe", "fragrance clone", "best fragrance 2026"],
-        help="YouTube searches. Broad on purpose; the corpus is the detector.",
+        default=list(SEED_QUERIES),
+        help="YouTube searches. See SEED_QUERIES for the shapes and why.",
     )
     r.add_argument("--ingest-limit", type=int, default=DEFAULT_INGEST_LIMIT)
     r.add_argument("--lookup-limit", type=int, default=25)
@@ -510,7 +622,12 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("spend", help="Recent daily spend")
     s.add_argument("--days", type=int, default=7)
 
-    for p in (r, s, cur):
+    sd = sub.add_parser(
+        "seeds",
+        help="The seed queries by shape, beside what the corpus was built from",
+    )
+
+    for p in (r, s, cur, sd):
         p.add_argument("--db-path", default=DEFAULT_DB_PATH)
 
     args = parser.parse_args(argv)
@@ -569,6 +686,15 @@ def main(argv: list[str] | None = None) -> int:
         from fragrance_graph.budget import summary
 
         print(summary(days=args.days))
+        return 0
+
+    if args.command == "seeds":
+        conn = get_connection(args.db_path)
+        migrate(conn)
+        try:
+            print(render_seed_diversity(conn))
+        finally:
+            conn.close()
         return 0
 
     conn = get_connection(args.db_path)
