@@ -115,11 +115,97 @@ MIN_QUERIES = 1
 #: DUPE_OF and SIMILAR_TO are symmetric — "B is a dupe of A" is the same
 #: fact whichever bottle you arrived at — so a page states them once.
 #: BETTER_THAN is not, and its direction is preserved in the wording.
+#: How the claim types read in a sentence, with both bottles named.
+#:
+#: These said "called **it** a dupe of X" until 2026-08-12, leaving "it" to
+#: be inferred from the page title. That is fine directly under a title and
+#: wrong in a verdict line, which is the first sentence a stranger reads —
+#: and it hid a worse problem: "it" always meant the alphabetically first
+#: bottle, so a page could render six people's "Dusk is a dupe of Layton"
+#: as *Layton* being the dupe. Naming both ends forces the direction to be
+#: decided rather than assumed.
+#:
+#: The verb is stored apart from the rest so it can agree with the count in
+#: front of it: a section can be one person, and "1 person call X a dupe of
+#: Y" is the kind of sentence that tells a reader a machine wrote the page.
 PHRASING = {
-    "DUPE_OF": "called it a dupe of",
-    "SIMILAR_TO": "said it smells similar to",
-    "BETTER_THAN": "said it beats",
+    "DUPE_OF": ("call", "{subject} a dupe of {target}"),
+    "SIMILAR_TO": ("say", "{subject} smells similar to {target}"),
+    "BETTER_THAN": ("say", "{subject} is better than {target}"),
 }
+
+#: Tie-break order when two claim types are backed by the same number of
+#: people. Strongest claim first, so a tie between "a dupe of" and "similar
+#: to" leads with the one that says more; the list exists mostly so the
+#: sentence does not depend on dict iteration order.
+VERDICT_PRECEDENCE = ("DUPE_OF", "BETTER_THAN", "SIMILAR_TO")
+
+#: Below this, a claim type is one person's opinion. The verdict refuses to
+#: lead with it — see `verdict`.
+VERDICT_MIN_COMMENTERS = 2
+
+
+@dataclass(frozen=True)
+class Statement:
+    """One claim type connecting the pair, pointed the way people said it.
+
+    `query.similar_to` answers "what relates to X", so every row it returns
+    is oriented towards whichever end it was asked from. A pair page is
+    about both ends at once and has to put the subject back where the
+    commenters put it.
+    """
+
+    #: The end `similar_to` was called from. `Related.outbound` is relative
+    #: to this, and so is "written about" on each quote.
+    asked: str
+    #: The end its rows point at.
+    other: str
+    row: Related
+
+    @property
+    def subject(self) -> str:
+        """Whichever bottle the majority of these claims were made *about*.
+
+        BETTER_THAN only ever arrives outbound — `similar_to` refuses to
+        return "things that beat X" when asked about X — so its direction
+        is already `asked` beats `other`. The symmetric types collapse both
+        directions into one row, and there the majority decides: six people
+        wrote "Dusk is a dupe of Layton" and none wrote the reverse.
+
+        A tie keeps `asked` in front, so the sentence does not depend on
+        which end the page was built from.
+        """
+        if self.row.claim_type == "BETTER_THAN":
+            return self.asked
+        if self.row.outbound_claims * 2 < self.row.claims:
+            return self.other
+        return self.asked
+
+    @property
+    def target(self) -> str:
+        return self.other if self.subject == self.asked else self.asked
+
+    @property
+    def sentence(self) -> str:
+        """"call Detour Noir a dupe of Layton" — the count goes in front.
+
+        Conjugated for however many people said it, so the caller can put
+        "9 people" or "1 person" ahead of it and get English either way.
+        """
+        phrasing = PHRASING.get(self.row.claim_type)
+        if phrasing is None:
+            return (
+                f"made a {self.row.claim_type} claim about "
+                f"{self.subject} and {self.target}"
+            )
+        verb, rest = phrasing
+        if self.row.commenters == 1:
+            verb += "s"
+        return f"{verb} {rest.format(subject=self.subject, target=self.target)}"
+
+    @property
+    def rank_key(self) -> tuple:
+        return (-self.row.commenters, -self.row.claims, self.subject, self.target)
 
 
 @dataclass(frozen=True)
@@ -146,6 +232,23 @@ class Pair:
     unprovenanced: int
     #: Rows as `query.similar_to` returned them, read from `left`.
     rows: tuple[Related, ...]
+    #: BETTER_THAN read from `right` — i.e. people saying the right-hand
+    #: bottle wins. `similar_to` cannot return these from `left`, by
+    #: design: asked "what relates to Layton", it must not hand back
+    #: "things that beat Layton" as if they were recommendations for it.
+    #:
+    #: A pair page asks a different question, and without these it was
+    #: dropping evidence and then saying so out loud — the Layton/Dusk page
+    #: held two people preferring Dusk while its own verdict line said
+    #: nobody had said which they preferred.
+    reverse: tuple[Related, ...] = ()
+
+    @property
+    def statements(self) -> tuple[Statement, ...]:
+        """Every claim type on this pair, strongest support first."""
+        both = [Statement(self.left, self.right, r) for r in self.rows]
+        both += [Statement(self.right, self.left, r) for r in self.reverse]
+        return tuple(sorted(both, key=lambda s: s.rank_key))
 
     @property
     def slug(self) -> str:
@@ -276,19 +379,16 @@ def qualifying_pairs(
             if min_queries > 1 and 0 < ev.queries < min_queries:
                 continue
 
-            # Headings come from `similar_to`, which reads the stored name
-            # directly, so they need the same normalisation as the title —
-            # otherwise one page says "Parfums de Marly Layton" in its
-            # title and "Parfums De Marly Layton" in a heading.
-            rows = tuple(
-                replace(
-                    r,
-                    canonical_name=with_canonical_casing(r.canonical_name, casing),
-                    brand=(with_canonical_casing(r.brand, casing)
-                           if r.brand else r.brand),
-                )
-                for r in similar_to(conn, frag_id, quotes=quotes)
-                if r.fragrance_id == related.fragrance_id
+            rows = _rows_between(
+                conn, casing, frag_id, related.fragrance_id, quotes=quotes
+            )
+            # The other end's BETTER_THAN, which `similar_to` will only
+            # hand over when asked from that side. Nothing else is taken
+            # from there: the symmetric types already carry both directions
+            # and would arrive twice.
+            reverse = _rows_between(
+                conn, casing, related.fragrance_id, frag_id, quotes=quotes,
+                only=("BETTER_THAN",),
             )
             found[key] = Pair(
                 left=name,
@@ -300,9 +400,36 @@ def qualifying_pairs(
                 queries=ev.queries,
                 unprovenanced=ev.videos_without_provenance,
                 rows=rows,
+                reverse=reverse,
             )
 
     return sorted(found.values(), key=lambda p: (-p.commenters, -p.sources, p.slug))
+
+
+def _rows_between(
+    conn: sqlite3.Connection,
+    casing: dict[str, str],
+    asked_id: int,
+    other_id: int,
+    *,
+    quotes: int,
+    only: tuple[str, ...] | None = None,
+) -> tuple[Related, ...]:
+    """`similar_to(asked)` narrowed to one other bottle, names normalised.
+
+    Headings read the stored name directly, so they need the same casing
+    pass as the title — otherwise one page says "Parfums de Marly Layton"
+    in its title and "Parfums De Marly Layton" in a heading.
+    """
+    return tuple(
+        replace(
+            r,
+            canonical_name=with_canonical_casing(r.canonical_name, casing),
+            brand=(with_canonical_casing(r.brand, casing) if r.brand else r.brand),
+        )
+        for r in similar_to(conn, asked_id, quotes=quotes)
+        if r.fragrance_id == other_id and (only is None or r.claim_type in only)
+    )
 
 
 def queries_behind(conn: sqlite3.Connection, pair: Pair) -> list[str]:
@@ -336,6 +463,118 @@ def _sources(n: int) -> str:
     return "1 creator" if n == 1 else f"{n} creators"
 
 
+def verdict(pair: Pair) -> str:
+    """What the page found, and what it did not, in two sentences.
+
+    A stranger arriving from a search engine reads one line before
+    deciding whether the rest is worth their time. Until now that line was
+    "5 people connected these two fragrances", which is a fact about our
+    corpus rather than an answer to their question.
+
+    Both sentences are generated from counts. Nothing here weighs, hedges
+    or interprets: the first names the claim the most people made and how
+    many made it, the second names what nobody said. The register is
+    deliberately flat — "9 people across 6 creators call Detour Noir a dupe
+    of Layton" is a countable statement, "Detour Noir is a convincing dupe"
+    is not, and this file must never be able to produce the second.
+
+    Two rules keep it honest:
+
+    - **People and creators are counted over the same rows.** The pair-wide
+      creator count is larger than the one behind a single claim type, and
+      quoting it beside a claim-type commenter count would make the line
+      read as more independent than it is.
+    - **A claim only one person made is never the verdict.** Below
+      `VERDICT_MIN_COMMENTERS` the page says so plainly instead of picking a
+      winner out of a field of ones — "3 people said three different
+      things" is the true summary there, and it is also the useful one.
+    """
+    statements = pair.statements
+    if not statements:
+        # Not reachable through the gate, which requires evidence. Kept so
+        # the function is total: a caller rendering an arbitrary Pair gets
+        # a truthful sentence rather than an IndexError.
+        return (
+            f"Nobody in this corpus compared {pair.left} and {pair.right}."
+        )
+
+    ranked = sorted(
+        statements,
+        key=lambda s: (
+            -s.row.commenters,
+            VERDICT_PRECEDENCE.index(s.row.claim_type)
+            if s.row.claim_type in VERDICT_PRECEDENCE
+            else len(VERDICT_PRECEDENCE),
+            s.row.claim_type,
+            s.subject,
+        ),
+    )
+    top = ranked[0]
+
+    if top.row.commenters < VERDICT_MIN_COMMENTERS:
+        return (
+            f"{_people(pair.commenters)} across {_sources(pair.sources)} "
+            f"mentioned {pair.left} and {pair.right} together, but no two of "
+            "them made the same comparison. Nothing on this page was said by "
+            "more than one person."
+        )
+
+    return (
+        f"{_people(top.row.commenters)} across {_sources(top.row.creators)} "
+        f"{top.sentence}. {_absent(pair, top)}"
+    )
+
+
+def _contradiction(pair: Pair, top: Statement) -> Statement | None:
+    """A preference stated the other way round, if anyone stated one.
+
+    Four people preferring Khamrah is a different fact when two people
+    prefer Angels' Share, and a verdict that reports only the four has
+    picked a side by omission. Both directions reach the page now — before
+    2026-08-12 the reverse one was dropped before rendering — so the
+    headline sentence has to account for the disagreement.
+    """
+    if top.row.claim_type != "BETTER_THAN":
+        return None
+    return next(
+        (
+            s
+            for s in pair.statements
+            if s.row.claim_type == "BETTER_THAN" and s.subject != top.subject
+        ),
+        None,
+    )
+
+
+def _absent(pair: Pair, top: Statement) -> str:
+    """The half of the verdict that says what the evidence does not show.
+
+    Derived from which claim types are present, never from reading the
+    quotes. Each branch is a statement about the comments on this page, so
+    it stays true no matter what else exists in the corpus — which is why
+    it reads `statements` rather than `rows`. Reading `rows` looked
+    equivalent and was not: it cannot see a preference stated in the other
+    direction, so the Layton/Dusk page held two people preferring Dusk
+    while announcing that nobody had said which they preferred.
+    """
+    against = _contradiction(pair, top)
+    if against is not None:
+        return f"{_people(against.row.commenters)} said the opposite."
+
+    present = {s.row.claim_type for s in pair.statements}
+    alike = present & {"DUPE_OF", "SIMILAR_TO"}
+    preference = "BETTER_THAN" in present
+
+    if preference and not alike:
+        return "None of them said how the two differ."
+    if alike and not preference:
+        return "Nobody here said which of the two they preferred."
+    # Both kinds of claim are on the page. What is missing then is not a
+    # comparison at all: no page renders descriptor claims, so no page can
+    # tell a reader what either bottle actually smells like.
+    return "Nothing here describes what either one smells like on its own."
+
+
 def render_pair(pair: Pair) -> str:
     """One page, as a complete HTML document.
 
@@ -354,25 +593,22 @@ def render_pair(pair: Pair) -> str:
         "</head>",
         "<body>",
         f"<h1>{e(pair.title)}</h1>",
-        f"<p>{e(_people(pair.commenters))} connected these two fragrances, "
-        f"across {e(_sources(pair.sources))}. Every line below is quoted from "
-        f"a comment, and links back to it.</p>",
+        # The answer first, then how it was counted. A reader who stops
+        # after one line should still have left with something true.
+        f"<p>{e(verdict(pair))}</p>",
+        f"<p>In total, {e(_people(pair.commenters))} connected these two "
+        f"fragrances, across {e(_sources(pair.sources))}. Every line below is "
+        f"quoted from a comment, and links back to it.</p>",
     ]
 
-    for row in pair.rows:
-        phrase = PHRASING.get(row.claim_type, row.claim_type)
+    for stmt in pair.statements:
+        row = stmt.row
         out.append("<section>")
-        out.append(
-            f"<h2>{e(_people(row.commenters))} {e(phrase)} "
-            f"{e(row.canonical_name)}</h2>"
-        )
-        if row.claim_type == "BETTER_THAN":
-            # A preference runs one way. Saying it symmetrically would turn
-            # a bottle's critics into its recommendations.
-            out.append(
-                f"<p>Stated about {e(pair.left)}, not about "
-                f"{e(row.canonical_name)}.</p>"
-            )
+        # Both bottles are named in the heading, in the direction people
+        # said it. A preference runs one way and so, in English, does "a
+        # dupe of": the cheaper bottle imitates the expensive one, and a
+        # heading that swaps them says something nobody wrote.
+        out.append(f"<h2>{e(_people(row.commenters))} {e(stmt.sentence)}</h2>")
         # `<figure>` rather than `<ul><li>`. A blockquote is a block
         # element, so a browser puts the list marker on its own line and
         # starts the quote underneath it — which reads as an empty bullet
@@ -381,7 +617,9 @@ def render_pair(pair: Pair) -> str:
         # rendered. `<figure>` + `<figcaption>` is also what the spec says
         # a quote with attribution is.
         for ev in row.evidence:
-            said_about = pair.left if ev.outbound else row.canonical_name
+            # `outbound` is relative to the end the row was read from, not
+            # to the direction the heading states.
+            said_about = stmt.asked if ev.outbound else stmt.other
             out.append(
                 "<figure>"
                 f"<blockquote>{e(ev.quote)}</blockquote>"

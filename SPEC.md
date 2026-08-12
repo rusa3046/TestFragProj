@@ -997,6 +997,68 @@ Pages are not committed, for the reason products are not: no quota, no
 money, no judgement, and a pure function of `data/corpus/`. Output is
 byte-stable, so a diff under `site/` could only mean the corpus moved.
 
+### A page has to answer the question, and say the claim the right way round (2026-08-12)
+
+A page opened with *"5 people connected these two fragrances, across 3
+creators."* True, and a fact about our corpus rather than an answer to the
+question that brought someone here. Pages now lead with a **verdict line**:
+two sentences, both generated from counts, the first naming the claim the
+most people made and the second naming what nobody said.
+
+    6 people across 3 creators call The Woods Collection Dusk a dupe of
+    Parfums de Marly Layton. Nothing here describes what either one smells
+    like on its own.
+
+Three rules keep it a count rather than an opinion.
+
+**People and creators are counted over the same rows.** The pair-wide
+creator count is the larger one, and quoting it beside a claim-type
+commenter count is the scope defect recorded two sections up, one field
+over. `Related.creators` was added so the two numbers in one sentence
+describe one set of comments.
+
+**A claim only one person made is never the verdict.** Below two
+commenters the line says so — *"3 people across 2 creators mentioned X and
+Y together, but no two of them made the same comparison"* — rather than
+picking a winner from a field of ones. Layton vs Layton Exclusif was that
+page on the day this was written.
+
+**Both halves are stated.** What the evidence shows, and what it does not:
+a preference with no similarity claim behind it gets *"None of them said
+how the two differ"*; similarity with no preference gets *"Nobody here said
+which of the two they preferred."*
+
+#### The direction defect this uncovered
+
+Writing the sentence made an old bug visible. `similar_to` collapses
+DUPE_OF and SIMILAR_TO across both directions — correct for counting people
+— and pages then rendered every row from the **alphabetically first**
+bottle. Six people wrote *"Dusk is a dupe of Layton"*; the page said Layton
+was the dupe. The £200 bottle imitating the £30 one, on a live page, in the
+one direction a house would object to.
+
+It was invisible because the old wording never named the subject: *"6
+people called **it** a dupe of The Woods Collection Dusk"*, where "it" was
+whatever the title happened to start with. `Related.outbound_claims` now
+records how many of a row's claims ran from the queried end, and the
+majority decides the subject; ties keep the queried end in front so the
+wording cannot depend on which side the page was built from.
+
+#### Asking from one end also dropped evidence
+
+`pair_stats` counts a pair direction-blind, but *rendering* still read rows
+from the left-hand bottle only — so an inbound `BETTER_THAN` was counted in
+the gate and then never shown. Layton/Dusk held two people preferring Dusk
+while the page announced that nobody had said which they preferred.
+
+`Pair.reverse` asks the far end for `BETTER_THAN` alone (the symmetric
+types already carry both directions and would arrive twice), and
+`Pair.statements` merges the two into claims with an explicit subject.
+Where both directions of a preference exist, the verdict says so:
+*"4 people across 2 creators say Lattafa Khamrah is better than Kilian
+Angels' Share. 2 people said the opposite."* Reporting only the larger side
+is picking a winner by omission.
+
 ### The unattended loop: a hard cap and a narrow auto-curation rule (2026-08-11)
 
 `daily.py` implements the demand-driven loop specified above. Two decisions

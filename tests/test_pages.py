@@ -7,6 +7,7 @@ is asserting the product's central editorial rule rather than an edge case.
 """
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -571,3 +572,349 @@ class TestBrandCasing:
             for w in lowered:
                 same = {words[j] for j, x in enumerate(lowered) if x == w}
                 assert len(same) == 1, f"{page.name}: {sorted(same)}"
+
+
+class TestVerdict:
+    """The first line of a page has to answer the question that brought
+    someone here, without ever grading a fragrance.
+
+    A page used to open with "5 people connected these two fragrances",
+    which is a fact about our corpus rather than an answer. The verdict
+    replaces it with two counted sentences: what the most people said, and
+    what nobody said. Everything below pins that it stays *counted* — a
+    line this file can generate must be checkable against rows.
+    """
+
+    def better_than(self, conn, a, b, *, people, videos, start=100):
+        """`people` commenters saying a beats b, spread over `videos`."""
+        for i in range(start, start + people):
+            cid = add_comment(
+                conn,
+                i,
+                body=f"person {i} wrote this",
+                author=f"pref-{i}",
+                video=f"vid-{(i - start) % videos}",
+            )
+            add_claim(
+                conn, cid, subject=a, obj=b, claim_type="BETTER_THAN",
+                evidence=f"person {i} wrote this",
+            )
+
+    def test_it_leads_with_the_claim_the_most_people_made(self, conn):
+        from fragrance_graph.pages import verdict
+
+        a, b = pair_of(conn, people=3, videos=2, claim_type="SIMILAR_TO")
+        self.better_than(conn, a, b, people=5, videos=2)
+        (pair,) = qualifying_pairs(conn)
+
+        line = verdict(pair)
+        assert line.startswith("5 people across 2 creators say ")
+        assert "is better than" in line
+
+    def test_both_bottles_are_named(self, conn):
+        """The verdict is the first sentence read, so "it" has no antecedent."""
+        from fragrance_graph.pages import verdict
+
+        pair_of(conn, people=3, videos=2)
+        (pair,) = qualifying_pairs(conn)
+        line = verdict(pair)
+        assert pair.left in line and pair.right in line
+
+    def test_people_and_creators_are_counted_over_the_same_rows(self, conn):
+        """The two numbers in one sentence must describe one set of comments.
+
+        The pair-wide creator count is the larger one. Quoting it beside a
+        claim-type commenter count would read as more independent evidence
+        than exists — the scope mismatch SPEC recorded once already.
+        """
+        from fragrance_graph.pages import verdict
+
+        a, b = pair_of(conn, people=3, videos=2, claim_type="SIMILAR_TO")
+        # Four people, but all of them under one uploader.
+        self.better_than(conn, a, b, people=4, videos=1)
+        (pair,) = qualifying_pairs(conn)
+
+        assert pair.sources == 2, "the pair as a whole spans two creators"
+        line = verdict(pair)
+        assert line.startswith("4 people across 1 creator ")
+        assert "across 2 creators" not in line
+
+    def test_a_claim_one_person_made_is_never_the_verdict(self, conn):
+        """Three people saying three different things is not a finding."""
+        from fragrance_graph.pages import verdict
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        a = add_fragrance(conn, "Aventus")
+        b = add_fragrance(conn, "Club de Nuit Intense Man")
+        for i, claim_type in enumerate(("SIMILAR_TO", "DUPE_OF", "BETTER_THAN")):
+            cid = add_comment(
+                conn, i, body=f"person {i} wrote this", author=f"person-{i}",
+                video=f"vid-{i}",
+            )
+            add_claim(
+                conn, cid, subject=a, obj=b, claim_type=claim_type,
+                evidence=f"person {i} wrote this",
+            )
+        (pair,) = qualifying_pairs(conn)
+
+        line = verdict(pair)
+        assert "no two of them made the same comparison" in line
+        assert "dupe" not in line, "it must not pick a winner out of ones"
+
+    def test_a_preference_alone_says_nothing_about_smell(self, conn):
+        from fragrance_graph.pages import verdict
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        a = add_fragrance(conn, "Aventus")
+        b = add_fragrance(conn, "Club de Nuit Intense Man")
+        self.better_than(conn, a, b, people=3, videos=2, start=0)
+        (pair,) = qualifying_pairs(conn)
+        assert verdict(pair).endswith("None of them said how the two differ.")
+
+    def test_similarity_alone_says_nothing_about_preference(self, conn):
+        from fragrance_graph.pages import verdict
+
+        pair_of(conn, people=3, videos=2, claim_type="DUPE_OF")
+        (pair,) = qualifying_pairs(conn)
+        assert verdict(pair).endswith(
+            "Nobody here said which of the two they preferred."
+        )
+
+    def test_when_both_are_present_the_gap_is_what_they_smell_like(self, conn):
+        from fragrance_graph.pages import verdict
+
+        a, b = pair_of(conn, people=3, videos=2, claim_type="DUPE_OF")
+        self.better_than(conn, a, b, people=3, videos=2)
+        (pair,) = qualifying_pairs(conn)
+        assert verdict(pair).endswith(
+            "Nothing here describes what either one smells like on its own."
+        )
+
+    def test_every_verdict_states_an_absence(self, conn):
+        """Half the sentence is the half that says what we do not know."""
+        from fragrance_graph.pages import verdict
+
+        a, b = pair_of(conn, people=3, videos=2, claim_type="DUPE_OF")
+        self.better_than(conn, a, b, people=2, videos=2)
+        (pair,) = qualifying_pairs(conn)
+        line = verdict(pair)
+        assert any(w in line for w in ("Nobody", "None", "Nothing")), line
+
+    def test_a_tie_does_not_depend_on_row_order(self, conn):
+        from fragrance_graph.pages import verdict
+
+        a, b = pair_of(conn, people=3, videos=2, claim_type="DUPE_OF")
+        self.better_than(conn, a, b, people=3, videos=2)
+        (pair,) = qualifying_pairs(conn)
+        assert verdict(pair) == verdict(replace(pair, rows=pair.rows[::-1]))
+
+    def test_it_is_the_first_thing_on_the_page(self, conn):
+        from fragrance_graph.pages import verdict
+
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        (pair,) = qualifying_pairs(conn)
+        html = render_pair(pair)
+
+        line = verdict(pair)
+        assert line in html
+        assert html.index(line) < html.index("<h2"), "the verdict comes first"
+
+    def test_a_pair_with_no_rows_still_gets_a_true_sentence(self):
+        from fragrance_graph.pages import Pair, verdict
+
+        empty = Pair(
+            left="A", right="B", left_id=1, right_id=2, commenters=0,
+            sources=0, queries=0, unprovenanced=0, rows=(),
+        )
+        assert verdict(empty) == "Nobody in this corpus compared A and B."
+
+
+class TestDirection:
+    """A page has to repeat a claim the way round it was made.
+
+    `query.similar_to` answers "what relates to X", so it collapses
+    DUPE_OF and SIMILAR_TO across both directions — right for counting
+    people, wrong for quoting them. Pages rendered every row from the
+    alphabetically first bottle, so six people writing "Dusk is a dupe of
+    Layton" appeared as *Layton* being the dupe: the £200 bottle imitating
+    the £30 one, which is both false and the exact inversion a house would
+    object to.
+    """
+
+    def dupe_claims(self, conn, *, subject, obj, people, start=0):
+        for i in range(start, start + people):
+            cid = add_comment(
+                conn, i, body=f"person {i} wrote this", author=f"person-{i}",
+                video=f"vid-{i % 2}",
+            )
+            add_claim(
+                conn, cid, subject=subject, obj=obj, claim_type="DUPE_OF",
+                evidence=f"person {i} wrote this",
+            )
+
+    def test_the_majority_direction_wins(self, conn):
+        from fragrance_graph.pages import verdict
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        # "Aventus" sorts first, so the page is built from that end — but
+        # every commenter named the other bottle as the dupe.
+        a = add_fragrance(conn, "Aventus")
+        b = add_fragrance(conn, "Club de Nuit Intense Man")
+        self.dupe_claims(conn, subject=b, obj=a, people=3)
+        (pair,) = qualifying_pairs(conn)
+
+        assert pair.left == "Aventus", "built from the alphabetical end"
+        assert verdict(pair).startswith(
+            "3 people across 2 creators call Club de Nuit Intense Man "
+            "a dupe of Aventus"
+        )
+
+    def test_the_heading_agrees_with_the_verdict(self, conn):
+        """One page must not state the claim both ways round."""
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        a = add_fragrance(conn, "Aventus")
+        b = add_fragrance(conn, "Club de Nuit Intense Man")
+        self.dupe_claims(conn, subject=b, obj=a, people=3)
+        (pair,) = qualifying_pairs(conn)
+
+        html = render_pair(pair)
+        assert "call Club de Nuit Intense Man a dupe of Aventus" in html
+        assert "call Aventus a dupe of" not in html
+
+    def test_a_tie_keeps_the_page_stable(self, conn):
+        """Neither direction has a majority; the wording must not flap."""
+        from fragrance_graph.pages import verdict
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        a = add_fragrance(conn, "Aventus")
+        b = add_fragrance(conn, "Club de Nuit Intense Man")
+        self.dupe_claims(conn, subject=b, obj=a, people=2)
+        self.dupe_claims(conn, subject=a, obj=b, people=2, start=50)
+        (pair,) = qualifying_pairs(conn)
+        assert verdict(pair) == verdict(pair)
+        assert verdict(pair).startswith("4 people across 2 creators call Aventus")
+
+    def test_a_preference_stated_from_the_other_end_still_reaches_the_page(
+        self, conn
+    ):
+        """The half of the evidence pages used to drop.
+
+        `similar_to` will not return "things that beat X" when asked about
+        X, and rightly — those are not recommendations for it. A pair page
+        asks a different question, and without asking from both ends it
+        held two people preferring Dusk while announcing that nobody had
+        said which they preferred.
+        """
+        from fragrance_graph.pages import verdict
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        a = add_fragrance(conn, "Aventus")
+        b = add_fragrance(conn, "Club de Nuit Intense Man")
+        self.dupe_claims(conn, subject=b, obj=a, people=3)
+        for i in range(50, 52):
+            cid = add_comment(
+                conn, i, body=f"person {i} wrote this", author=f"pref-{i}",
+                video=f"vid-{i % 2}",
+            )
+            add_claim(
+                conn, cid, subject=b, obj=a, claim_type="BETTER_THAN",
+                evidence=f"person {i} wrote this",
+            )
+        (pair,) = qualifying_pairs(conn)
+
+        assert pair.reverse, "the preference is only visible from the far end"
+        line = verdict(pair)
+        assert "Nobody here said which of the two they preferred" not in line
+        assert "is better than Aventus" in render_pair(pair)
+
+    def test_a_contested_preference_is_not_reported_as_a_finding(self, conn):
+        """Reporting the larger side alone picks a winner by omission."""
+        from fragrance_graph.pages import verdict
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        a = add_fragrance(conn, "Aventus")
+        b = add_fragrance(conn, "Club de Nuit Intense Man")
+        for i, (subj, obj) in enumerate([(a, b)] * 3 + [(b, a)] * 2):
+            cid = add_comment(
+                conn, i, body=f"person {i} wrote this", author=f"person-{i}",
+                video=f"vid-{i % 2}",
+            )
+            add_claim(
+                conn, cid, subject=subj, obj=obj, claim_type="BETTER_THAN",
+                evidence=f"person {i} wrote this",
+            )
+        (pair,) = qualifying_pairs(conn)
+
+        assert verdict(pair) == (
+            "3 people across 2 creators say Aventus is better than "
+            "Club de Nuit Intense Man. 2 people said the opposite."
+        )
+
+    def test_a_quote_is_attributed_to_the_bottle_it_was_written_about(
+        self, conn
+    ):
+        """`outbound` is relative to the end the row was read from.
+
+        The reverse rows are read from the other end, so reusing the
+        left-hand bottle as "written about" would caption every reverse
+        quote with the wrong name.
+        """
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        a = add_fragrance(conn, "Aventus")
+        b = add_fragrance(conn, "Club de Nuit Intense Man")
+        self.dupe_claims(conn, subject=b, obj=a, people=3)
+        for i in range(50, 53):
+            cid = add_comment(
+                conn, i, body=f"cdnim wins {i}", author=f"pref-{i}",
+                video=f"vid-{i % 2}",
+            )
+            add_claim(
+                conn, cid, subject=b, obj=a, claim_type="BETTER_THAN",
+                evidence=f"cdnim wins {i}",
+            )
+        (pair,) = qualifying_pairs(conn)
+
+        html = render_pair(pair)
+        for line in html.splitlines():
+            if "cdnim wins" in line:
+                assert "Written about Club de Nuit Intense Man." in line, line
+
+
+class TestReadsLikeEnglish:
+    """A section can rest on one person, and the count sits in front of a
+    verb — "1 person call X a dupe of Y" tells a reader a machine wrote
+    the page, which is exactly the credibility the quotes are there to buy.
+    """
+
+    def test_one_person_gets_a_singular_verb(self, conn):
+        from fragrance_graph.pages import Statement
+        from fragrance_graph.query import Related
+
+        row = Related(
+            fragrance_id=1, canonical_name="B", brand=None,
+            claim_type="DUPE_OF", commenters=1, pair_commenters=1, sources=1,
+            creators=1, pair_sources=1, claims=1, outbound_claims=1,
+            sentiment="POSITIVE", sentiment_counts={},
+        )
+        assert Statement("A", "B", row).sentence == "calls A a dupe of B"
+        assert replace(
+            Statement("A", "B", row), row=replace(row, commenters=2)
+        ).sentence == "call A a dupe of B"
+
+    def test_no_rendered_page_says_person_followed_by_a_plural_verb(
+        self, conn, tmp_path
+    ):
+        import re
+
+        a, b = pair_of(conn, people=3, videos=2, claim_type="DUPE_OF")
+        cid = add_comment(conn, 90, body="a beats b", author="lone", video="vid-9")
+        add_claim(conn, cid, subject=a, obj=b, claim_type="BETTER_THAN",
+                  evidence="a beats b")
+        build(conn, tmp_path)
+
+        for page in tmp_path.glob("*.html"):
+            text = page.read_text(encoding="utf-8")
+            assert not re.search(r"1 person (call|say) ", text), page.name
+            assert not re.search(r"\d\d* people (calls|says) ", text), page.name

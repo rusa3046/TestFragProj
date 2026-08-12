@@ -113,6 +113,13 @@ class Related:
     pair_commenters: int
     #: Distinct videos/threads backing this row.
     sources: int
+    #: Distinct uploading channels backing this row — the same notion the
+    #: publishing gate reads, scoped to one claim type. A page's verdict
+    #: line quotes people and creators in one breath, and those two numbers
+    #: have to count the same rows: pairing a claim-type commenter count
+    #: with the pair-wide creator count is the scope mismatch SPEC already
+    #: recorded once.
+    creators: int
     #: Distinct videos/threads backing the *pair* across every claim type,
     #: standing in the same relation to `sources` as `pair_commenters` does
     #: to `commenters`. Quoting one scope beside the other is how a page
@@ -121,6 +128,14 @@ class Related:
     #: corpus, the two differ on 8 of 21 pairs.
     pair_sources: int
     claims: int
+    #: How many of those claims were written with the *queried* fragrance as
+    #: the subject. DUPE_OF and SIMILAR_TO are collapsed across both
+    #: directions here, which is right for counting people and wrong for
+    #: repeating them: "Dusk is a dupe of Layton" is what six people wrote,
+    #: and a page that renders it from Layton's end says the reverse — that
+    #: the £200 bottle imitates the £30 one. A caller that wants to quote
+    #: the claim rather than count it needs to know which way it ran.
+    outbound_claims: int
     sentiment: str
     sentiment_counts: dict[str, int]
     evidence: list[Evidence] = field(default_factory=list)
@@ -180,6 +195,7 @@ SELECT c.id            AS claim_id,
        co.author_id    AS author_id,
        coalesce(co.video_id, co.source_channel)
                        AS source_ref,
+       co.source_channel AS channel,
        1               AS outbound,
        f.id            AS other_id,
        f.canonical_name AS other_name,
@@ -198,6 +214,7 @@ UNION ALL
 SELECT c.id, c.claim_type, c.sentiment, c.evidence_span, c.confidence,
        co.id, co.permalink, co.author_id,
        coalesce(co.video_id, co.source_channel),
+       co.source_channel,
        0 AS outbound,
        f.id, f.canonical_name, f.brand
   FROM claims c
@@ -392,8 +409,10 @@ def similar_to(
                 commenters=len(commenters),
                 pair_commenters=len(per_pair[other_id]),
                 sources=len(sources),
+                creators=len({r["channel"] for r in group if r["channel"]}),
                 pair_sources=len(per_pair_sources.get(other_id, ())),
                 claims=len(group),
+                outbound_claims=sum(1 for r in group if r["outbound"]),
                 sentiment=aggregate_sentiment(counts),
                 sentiment_counts=dict(counts),
                 evidence=_pick_evidence(group, quotes),
