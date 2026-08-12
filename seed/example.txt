@@ -1,0 +1,14 @@
+# Seed file format: entries separated by a line containing only ---
+# These examples are synthetic. Put real collected text in a file matching
+# seed/local-*.txt, which is gitignored — do not commit collected content.
+
+Delina smells just like Baccarat 540 honestly. Great for weddings too.
+
+---
+
+I wish this came in a body lotion, the scent is perfect but it's gone in
+two hours on me.
+
+---
+
+Anyone else think Layton is basically a dupe of Aventus? Cheaper too.

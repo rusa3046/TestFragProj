@@ -6,3 +6,27 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+
+# Raw pasted scratch content — never commit. The reviewed corpus export
+# under data/corpus/ is committed deliberately; these are not that.
+seed/local-*.txt
+labels*.json
+*.db.stray
+
+# Subagent worktrees — separate checkouts, not part of this tree
+.claude/worktrees/
+
+# Generated comparison pages. A build output, not an artifact: a pure
+# function of data/corpus/, costing no quota, money or judgement to
+# reproduce. Same reasoning that keeps products out of the corpus.
+site/
+
+# Labelling scratch files — templates and drafts are working files, not
+# corpus. The labels themselves land in data/corpus/eval_labels.jsonl.
+next*.json
+drafted*.json
+silent*.json
+labels*.json
+todraft*.json
+review*.json
+blind*.json

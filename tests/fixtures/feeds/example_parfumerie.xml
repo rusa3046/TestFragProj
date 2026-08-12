@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SYNTHETIC FIXTURE - NOT A REAL RETAILER FEED.
+
+  Every product below is invented for tests. "Example Parfumerie" is not a
+  shop, the product IDs and prices are made up, and the URLs point at the
+  reserved .test TLD so they can never resolve. Nothing here was obtained
+  from a retailer, an affiliate network, or by scraping anything.
+
+  Shaped after a Rakuten-style XML product feed. Two things about that shape
+  are load-bearing and are why this file exists as well as the CSV one:
+  the item element is <product> rather than <item>, and the currency is an
+  attribute of <price> rather than a field of its own.
+
+  Khamrah Qahwa and Xerjoff Naxos are here as the two rows that must never
+  attach to the wrong bottle. Naxos is not curated and so must match
+  nothing. Khamrah Qahwa is a genuinely different bottle from Khamrah at
+  roughly a third of the price; it was uncurated until 2026-08-11 and had to
+  match nothing, and now that it is curated it must match *itself*. Either
+  way the forbidden outcome is the same one: a Khamrah buy link.
+-->
+<productFeed>
+  <product>
+    <productID>RK-2001</productID>
+    <name>Parfums de Marly Delina Eau de Parfum 75ml</name>
+    <price currency="GBP">218.00</price>
+    <URL>https://shop.example-parfumerie.test/p/2001</URL>
+  </product>
+  <product>
+    <productID>RK-2002</productID>
+    <name>Parfums de Marly Pegasus 125ml EDP</name>
+    <price currency="GBP">245.00</price>
+    <URL>https://shop.example-parfumerie.test/p/2002</URL>
+  </product>
+  <product>
+    <productID>RK-2003</productID>
+    <name>Parfums de Marly Percival Eau de Parfum 125ml</name>
+    <price currency="GBP">245.00</price>
+    <URL>https://shop.example-parfumerie.test/p/2003</URL>
+  </product>
+  <product>
+    <productID>RK-2004</productID>
+    <name>Lattafa Khamrah Qahwa Eau de Parfum 100ml</name>
+    <price currency="GBP">34.50</price>
+    <URL>https://shop.example-parfumerie.test/p/2004</URL>
+  </product>
+  <product>
+    <productID>RK-2005</productID>
+    <name>Parfums de Marly Althair Eau de Parfum 125 ml</name>
+    <price currency="GBP">235.00</price>
+    <URL>https://shop.example-parfumerie.test/p/2005</URL>
+  </product>
+  <product>
+    <productID>RK-2006</productID>
+    <name>Xerjoff Naxos 100ml</name>
+    <price currency="GBP">198.00</price>
+    <URL>https://shop.example-parfumerie.test/p/2006</URL>
+  </product>
+</productFeed>

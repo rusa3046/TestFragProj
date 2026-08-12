@@ -1,0 +1,86 @@
+-- Where a bottle can be bought, kept strictly apart from what people said.
+--
+-- A fragrance is a thing people talk about. A product is a specific bottle a
+-- specific shop is selling today, at a price, in a size, under whatever name
+-- that shop's feed happens to use. Merging the two is the obvious-looking
+-- move and it breaks the one number this product sells:
+--
+--   * One fragrance has many products — 100ml at one retailer, 50ml at
+--     another, an extrait at a third. Folding products into `fragrances`
+--     means either a row per bottle size, which splits "31 people called
+--     this a dupe of BR540" into 12 + 9 + 10 across three near-identical
+--     rows, or one product per fragrance, which throws away every retailer
+--     but the first one imported.
+--   * Feed rows churn. Prices move daily and listings disappear. Anything
+--     that lives in `fragrances` is curated by a human once and is expected
+--     to stay true; a table rewritten by every import has no business
+--     sharing space with it.
+--
+-- The dependency therefore runs one way only: products point at fragrances,
+-- never the reverse. Nothing in `fragrances`, `claims` or `comments` gains a
+-- column here, so no query that ranks evidence can reach commerce even by
+-- accident — see `test_ranking_reads_only_claims_comments_and_fragrances`.
+
+CREATE TABLE IF NOT EXISTS retailers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The natural key. Ids are renumbered by a rebuilt database, so anything
+    -- crossing a file or table boundary — a feed import naming its retailer
+    -- on the command line, most of all — matches on this.
+    name TEXT NOT NULL UNIQUE,
+    -- The affiliate network the feed came from ("rakuten", "shareasale"),
+    -- kept because the same shop can be reachable through more than one and
+    -- the tracking link differs per network.
+    network TEXT NOT NULL,
+    affiliate_id TEXT NOT NULL,
+    -- Outbound links are built by substituting into this, never by
+    -- per-retailer code. A new retailer is a row, not a branch — see
+    -- commerce/links.py.
+    url_template TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Nullable on purpose. A feed row we cannot match to a curated bottle is
+    -- kept, not dropped: the fragrance may be curated next week, and a
+    -- stored row lights up on the next import with no re-download. This is
+    -- the same bargain `claims.subject_frag_id` makes, for the same reason.
+    -- ON DELETE SET NULL because retiring a fragrance from the dictionary
+    -- does not make the shop stop selling the bottle.
+    fragrance_id INTEGER REFERENCES fragrances (id) ON DELETE SET NULL,
+    -- CASCADE, unlike the above: if a retailer relationship ends, its
+    -- listings must stop being rendered, because every one of them carries
+    -- an affiliate link that is no longer ours to publish.
+    retailer_id INTEGER NOT NULL REFERENCES retailers (id) ON DELETE CASCADE,
+    -- The feed's own product name, verbatim. Size and concentration are
+    -- parsed out of it into the columns below, and the parse is a guess:
+    -- keeping the original is what lets a wrong guess be found later
+    -- instead of being the only surviving copy.
+    name TEXT NOT NULL,
+    size_ml REAL,
+    concentration TEXT,
+    -- The retailer's own id for the listing. Half of the idempotency key.
+    external_id TEXT NOT NULL,
+    -- Display only. Never summed, never compared, never an input to
+    -- ordering anything — the trust rule is that ranking cannot see
+    -- commerce at all — so REAL's rounding cannot reach a decision.
+    price REAL,
+    currency TEXT,
+    url TEXT NOT NULL,
+    -- Last import that still found this listing in the feed. A product that
+    -- vanishes is NOT deleted: deleting would make a page silently lose its
+    -- only buying link with nothing recording that it ever had one. A stale
+    -- last_seen is visible; an absent row is not.
+    last_seen TEXT NOT NULL,
+    -- Idempotency, the same shape every other writer in this repo uses.
+    -- Re-importing a feed updates rows in place instead of accumulating a
+    -- fresh copy of the catalogue on every run.
+    UNIQUE (retailer_id, external_id),
+    CHECK (size_ml IS NULL OR size_ml > 0)
+);
+
+-- The only read path a page has: "what can this fragrance be bought as".
+-- Also serves the unmatched report (`fragrance_id IS NULL`), which is how a
+-- feed's match rate stays inspectable rather than being a number in a log.
+CREATE INDEX IF NOT EXISTS idx_products_fragrance
+    ON products (fragrance_id);

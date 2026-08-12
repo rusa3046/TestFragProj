@@ -1,0 +1,837 @@
+"""Extraction parsing, malformed-output handling, and write behaviour.
+
+No live API calls: `extract` takes an injected client, so a fake one drives
+the whole run loop.
+"""
+
+import json
+
+import pytest
+
+from fragrance_graph.extract.llm import (
+    BatchParseError,
+    CostTracker,
+    call_model,
+    estimate_cost,
+    extract,
+    iter_batches,
+    main,
+    parse_response,
+    pending_comments,
+    render_batch,
+    write_claims,
+)
+from fragrance_graph.ingest.store import ingest
+from fragrance_graph.models import ClaimType, ObjectKind, Sentiment, SubjectKind
+from tests.conftest import make_comment
+
+BODY = "Delina smells just like Baccarat 540 honestly, great for weddings"
+
+
+def claim_json(**overrides):
+    base = {
+        "claim_type": "DUPE_OF",
+        "subject_kind": "FRAGRANCE",
+        "raw_subject_text": "Delina",
+        "object_kind": "FRAGRANCE",
+        "raw_object_text": "Baccarat 540",
+        "sentiment": "NEUTRAL",
+        "confidence": 0.9,
+        "evidence_span": "smells just like Baccarat 540",
+    }
+    return {**base, **overrides}
+
+
+def response_json(*, index=0, claims=None):
+    # `claims or [...]` would treat an intentional empty list as "use default".
+    if claims is None:
+        claims = [claim_json()]
+    return json.dumps({"results": [{"comment_index": index, "claims": claims}]})
+
+
+# --- parsing ---------------------------------------------------------------
+
+
+def test_parses_well_formed_response():
+    parsed = parse_response(response_json(), batch_size=1)
+    assert list(parsed) == [0]
+    assert parsed[0][0].claim_type is ClaimType.DUPE_OF
+
+
+def test_empty_claims_list_is_a_valid_result():
+    """Most comments assert nothing. That is a result, not a failure."""
+    parsed = parse_response(response_json(claims=[]), batch_size=1)
+    assert parsed[0] == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "not json at all",
+        "{{{",
+        '{"wrong_key": []}',
+        '{"results": "not a list"}',
+        "",
+    ],
+)
+def test_unusable_responses_raise_batch_parse_error(text):
+    with pytest.raises(BatchParseError):
+        parse_response(text, batch_size=1)
+
+
+def test_truncated_json_raises_rather_than_half_parsing():
+    truncated = response_json()[:-15]
+    with pytest.raises(BatchParseError):
+        parse_response(truncated, batch_size=1)
+
+
+def test_one_invalid_claim_does_not_discard_the_others():
+    """A single bad claim must not cost us the rest of the batch."""
+    text = json.dumps(
+        {
+            "results": [
+                {
+                    "comment_index": 0,
+                    "claims": [
+                        claim_json(),
+                        claim_json(confidence=42),  # out of range
+                        claim_json(claim_type="SIMILAR_TO"),
+                    ],
+                }
+            ]
+        }
+    )
+    parsed = parse_response(text, batch_size=1)
+    assert len(parsed[0]) == 2
+
+
+def test_claim_violating_object_invariant_is_dropped():
+    """Schema can't express 'LONGEVITY takes no object'; the validator can."""
+    text = json.dumps(
+        {
+            "results": [
+                {
+                    "comment_index": 0,
+                    "claims": [
+                        claim_json(
+                            claim_type="LONGEVITY",
+                            object_kind="TAG",
+                            raw_object_text="should not be here",
+                        )
+                    ],
+                }
+            ]
+        }
+    )
+    assert parse_response(text, batch_size=1)[0] == []
+
+
+def test_disallowed_object_kind_for_claim_type_is_dropped():
+    """DUPE_OF must not accept a house, even though SIMILAR_TO does."""
+    text = json.dumps(
+        {
+            "results": [
+                {
+                    "comment_index": 0,
+                    "claims": [
+                        claim_json(object_kind="HOUSE", raw_object_text="Serge Lutens")
+                    ],
+                }
+            ]
+        }
+    )
+    assert parse_response(text, batch_size=1)[0] == []
+
+
+@pytest.mark.parametrize("index", [-1, 5, 99, "zero", None])
+def test_out_of_range_comment_index_is_skipped(index):
+    text = json.dumps({"results": [{"comment_index": index, "claims": [claim_json()]}]})
+    assert parse_response(text, batch_size=3) == {}
+
+
+def test_non_object_entries_are_skipped():
+    text = json.dumps({"results": ["garbage", {"comment_index": 0, "claims": []}]})
+    assert list(parse_response(text, batch_size=1)) == [0]
+
+
+# --- API-call error surfaces ----------------------------------------------
+
+
+class FakeUsage:
+    def __init__(self, i=100, o=50):
+        self.input_tokens = i
+        self.output_tokens = o
+
+
+class FakeBlock:
+    type = "text"
+
+    def __init__(self, text):
+        self.text = text
+
+
+class FakeResponse:
+    def __init__(self, text="", stop_reason="end_turn", usage=None):
+        self.content = [FakeBlock(text)] if text is not None else []
+        self.stop_reason = stop_reason
+        self.usage = usage or FakeUsage()
+
+
+class FakeClient:
+    """Returns queued responses; records how many calls were made."""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = 0
+        self.messages = self
+
+    def create(self, **kwargs):
+        self.calls += 1
+        item = self._responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def test_refusal_is_reported_as_a_batch_error():
+    client = FakeClient([FakeResponse("", stop_reason="refusal")])
+    with pytest.raises(BatchParseError, match="refused"):
+        call_model(client, [{"body": "x"}])
+
+
+def test_truncation_is_reported_with_actionable_advice():
+    client = FakeClient([FakeResponse("{}", stop_reason="max_tokens")])
+    with pytest.raises(BatchParseError, match="batch-size"):
+        call_model(client, [{"body": "x"}])
+
+
+def test_response_with_no_text_block_is_a_batch_error():
+    client = FakeClient([FakeResponse(None)])
+    with pytest.raises(BatchParseError, match="no text block"):
+        call_model(client, [{"body": "x"}])
+
+
+# --- writing ---------------------------------------------------------------
+
+
+def seed(conn, n=1, body=BODY):
+    ingest(conn, [make_comment(i, body=body) for i in range(n)])
+    return [r["id"] for r in conn.execute("SELECT id FROM comments ORDER BY id")]
+
+
+def test_write_marks_extracted_and_stores_object_kind(conn):
+    (comment_id,) = seed(conn)
+    claims = parse_response(response_json(), batch_size=1)[0]
+    write_claims(conn, comment_id, BODY, claims)
+
+    row = conn.execute("SELECT * FROM claims").fetchone()
+    assert row["subject_kind"] == SubjectKind.FRAGRANCE.value
+    assert row["object_kind"] == ObjectKind.FRAGRANCE.value
+    assert row["sentiment"] == Sentiment.NEUTRAL.value
+    assert row["evidence_verified"] == 1
+    assert row["extraction_model"]
+
+    extracted = conn.execute(
+        "SELECT extracted_at FROM comments WHERE id = ?", (comment_id,)
+    ).fetchone()[0]
+    assert extracted is not None
+
+
+def test_zero_claim_comment_is_still_marked_extracted(conn):
+    """Otherwise we pay to re-ask the same question forever."""
+    (comment_id,) = seed(conn)
+    write_claims(conn, comment_id, BODY, [])
+
+    assert conn.execute("SELECT count(*) FROM claims").fetchone()[0] == 0
+    assert not pending_comments(conn, 10)
+
+
+def test_paraphrased_evidence_is_stored_but_flagged(conn):
+    (comment_id,) = seed(conn)
+    claims = parse_response(
+        response_json(claims=[claim_json(evidence_span="the user thinks it is a dupe")]),
+        batch_size=1,
+    )[0]
+    written, unverified = write_claims(conn, comment_id, BODY, claims)
+
+    assert (written, unverified) == (1, 1)
+    assert conn.execute("SELECT evidence_verified FROM claims").fetchone()[0] == 0
+
+
+# --- run loop --------------------------------------------------------------
+
+
+def test_extract_processes_and_marks_all_comments(conn):
+    seed(conn, n=3)
+    client = FakeClient([FakeResponse(response_json(index=i)) for i in range(1)])
+    cost = extract(conn, client, limit=10, batch_size=3)
+
+    assert cost.batches == 1
+    assert not pending_comments(conn, 10)
+
+
+def test_failed_batch_leaves_comments_pending_for_retry(conn):
+    seed(conn, n=2)
+    client = FakeClient([FakeResponse("total garbage")])
+    cost = extract(conn, client, limit=10, batch_size=2)
+
+    assert cost.failed_batches == 1
+    assert len(pending_comments(conn, 10)) == 2, "must be retried, not lost"
+
+
+def test_one_failed_batch_does_not_stop_the_run(conn):
+    """The spec's core requirement: malformed output can't kill the batch run."""
+    seed(conn, n=4)
+    client = FakeClient([FakeResponse("garbage"), FakeResponse(response_json())])
+    cost = extract(conn, client, limit=10, batch_size=2)
+
+    assert client.calls == 2, "second batch must still be attempted"
+    assert cost.failed_batches == 1
+    assert len(pending_comments(conn, 10)) == 2, "only the failed batch retries"
+
+
+def test_transport_exception_is_caught_and_batch_retried(conn):
+    seed(conn, n=2)
+    client = FakeClient([RuntimeError("connection reset")])
+    cost = extract(conn, client, limit=10, batch_size=2)
+
+    assert cost.failed_batches == 1
+    assert len(pending_comments(conn, 10)) == 2
+
+
+def test_already_extracted_comments_are_never_re_sent(conn):
+    seed(conn, n=2)
+    client = FakeClient([FakeResponse(response_json())])
+    extract(conn, client, limit=10, batch_size=2)
+
+    second = FakeClient([FakeResponse(response_json())])
+    cost = extract(conn, second, limit=10, batch_size=2)
+
+    assert second.calls == 0, "no pending comments means no API spend"
+    assert cost.comments == 0
+
+
+# --- cost accounting -------------------------------------------------------
+
+
+def test_cost_per_1k_uses_haiku_pricing():
+    cost = CostTracker()
+    cost.record(input_tokens=1_000_000, output_tokens=1_000_000, comments=1000)
+    assert cost.cost_usd == pytest.approx(6.00)  # $1 in + $5 out
+    assert cost.cost_per_1k_comments == pytest.approx(6.00)
+
+
+def test_cost_per_1k_scales_from_a_partial_run():
+    cost = CostTracker()
+    cost.record(input_tokens=140_000, output_tokens=100_000, comments=1000)
+    assert cost.cost_per_1k_comments == pytest.approx(0.64)
+
+
+def test_cost_per_1k_is_zero_before_any_comments():
+    assert CostTracker().cost_per_1k_comments == 0.0
+
+
+def test_summary_reports_cost_per_1k(conn):
+    seed(conn, n=2)
+    client = FakeClient([FakeResponse(response_json())])
+    cost = extract(conn, client, limit=10, batch_size=2)
+    assert "per 1k comments" in cost.summary()
+
+
+# --- batching --------------------------------------------------------------
+
+
+def test_iter_batches_covers_every_row_exactly_once():
+    rows = list(range(7))
+    batches = list(iter_batches(rows, 3))
+    assert [len(b) for b in batches] == [3, 3, 1]
+    assert [r for b in batches for r in b] == rows
+
+
+def test_render_batch_numbers_comments_from_zero():
+    rendered = render_batch([{"body": "first"}, {"body": "second"}])
+    assert rendered.startswith("[0] first")
+    assert "[1] second" in rendered
+
+
+# --- determinism ------------------------------------------------------------
+
+
+class RecordingClient(FakeClient):
+    """Captures the kwargs of each request."""
+
+    def __init__(self, responses):
+        super().__init__(responses)
+        self.kwargs = []
+
+    def create(self, **kwargs):
+        self.kwargs.append(kwargs)
+        return super().create(**kwargs)
+
+
+def test_requests_pin_temperature_for_reproducibility():
+    """Identical input returned 4 claims then 8 at default temperature."""
+    from fragrance_graph.extract.llm import TEMPERATURE
+
+    client = RecordingClient([FakeResponse(response_json())])
+    call_model(client, [{"body": "x"}])
+
+    assert client.kwargs[0]["temperature"] == TEMPERATURE == 0.0
+
+
+def test_schema_uses_no_unsupported_constraints():
+    """Structured outputs reject minLength/minimum/maximum.
+
+    Adding them made every batch fail with an empty result rather than an
+    obvious error, so this is a regression guard, not a style check.
+    """
+    from fragrance_graph.extract.llm import RESPONSE_SCHEMA
+
+    banned = {"minLength", "maxLength", "minimum", "maximum", "multipleOf", "pattern"}
+    found = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            found.update(banned & node.keys())
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(RESPONSE_SCHEMA)
+    assert not found, f"structured outputs reject these: {sorted(found)}"
+
+
+def test_total_failure_is_reported_as_an_error_not_a_result(conn, caplog):
+    """'0 claims written' must not read like a successful empty extraction."""
+    import logging
+
+    seed(conn, n=2)
+    client = FakeClient([FakeResponse("garbage")])
+    with caplog.at_level(logging.ERROR):
+        extract(conn, client, limit=10, batch_size=2)
+
+    assert any("ALL 1 batches failed" in r.message for r in caplog.records)
+
+
+def test_sentiment_round_trips_to_the_database(conn):
+    """Polarity must survive the write; v1 had nowhere to put it."""
+    (comment_id,) = seed(conn)
+    claims = parse_response(
+        response_json(
+            claims=[
+                claim_json(
+                    claim_type="LONGEVITY",
+                    object_kind="NONE",
+                    raw_object_text=None,
+                    sentiment="POSITIVE",
+                )
+            ]
+        ),
+        batch_size=1,
+    )[0]
+    write_claims(conn, comment_id, BODY, claims)
+
+    assert conn.execute("SELECT sentiment FROM claims").fetchone()[0] == "POSITIVE"
+
+
+def test_unverified_evidence_log_is_not_truncated(conn, caplog):
+    """A truncated diagnostic made a real paraphrase investigation impossible."""
+    import logging
+
+    long_span = "x" * 200
+    (comment_id,) = seed(conn, body="unrelated body text")
+    claims = parse_response(
+        response_json(claims=[claim_json(evidence_span=long_span)]), batch_size=1
+    )[0]
+
+    with caplog.at_level(logging.WARNING):
+        write_claims(conn, comment_id, "unrelated body text", claims)
+
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert long_span in logged, "full span needed to diagnose the mismatch"
+    assert "unrelated body text" in logged, "body needed for comparison"
+
+
+# --- cost estimation --------------------------------------------------------
+
+
+def test_estimate_charges_the_fixed_prompt_once_per_batch(conn):
+    """The whole argument for batching, expressed as a test."""
+    seed(conn, n=20)
+    rows = pending_comments(conn, 20)
+
+    one_call = estimate_cost(rows, batch_size=20)
+    twenty_calls = estimate_cost(rows, batch_size=1)
+
+    assert one_call.batches == 1
+    assert twenty_calls.batches == 20
+    assert twenty_calls.input_tokens > one_call.input_tokens * 5
+
+
+def test_estimate_output_scales_with_comment_count(conn):
+    seed(conn, n=10)
+    rows = pending_comments(conn, 10)
+
+    estimate = estimate_cost(rows, output_tokens_per_comment=100)
+    assert estimate.output_tokens == 1000
+
+
+def test_estimate_output_assumption_is_overridable(conn):
+    seed(conn, n=4)
+    rows = pending_comments(conn, 4)
+
+    low = estimate_cost(rows, output_tokens_per_comment=10)
+    high = estimate_cost(rows, output_tokens_per_comment=1000)
+
+    assert high.cost_usd > low.cost_usd
+
+
+def test_estimate_of_nothing_costs_nothing():
+    estimate = estimate_cost([])
+
+    assert (estimate.comments, estimate.batches, estimate.cost_usd) == (0, 0, 0.0)
+    assert estimate.cost_per_1k_comments == 0.0
+    assert "Nothing to estimate" in estimate.render()
+
+
+def test_estimate_longer_comments_cost_more(conn):
+    ingest(conn, [make_comment(1, body="short")])
+    short = estimate_cost(pending_comments(conn, 1))
+    ingest(conn, [make_comment(2, body="word " * 500)])
+    both = estimate_cost(pending_comments(conn, 2))
+
+    assert both.input_tokens > short.input_tokens
+
+
+def test_render_labels_itself_an_estimate_and_states_assumptions(conn):
+    """A projected number that reads like a measurement is a trap."""
+    seed(conn, n=3)
+    rendered = estimate_cost(pending_comments(conn, 3)).render()
+
+    assert "ESTIMATE" in rendered
+    assert "no API call was made" in rendered
+    assert "Assumptions:" in rendered
+    assert "per 1k comments" in rendered
+
+
+def test_dry_run_needs_no_api_key(conn, tmp_path, monkeypatch, capsys):
+    """The reason this path exists: cost before credentials."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    db = tmp_path / "dry.db"
+    conn.close()
+
+    from fragrance_graph.db import get_connection, migrate
+
+    fresh = get_connection(db)
+    migrate(fresh)
+    ingest(fresh, [make_comment(i, body=BODY) for i in range(3)])
+    fresh.close()
+
+    assert main(["--dry-run", "--db-path", str(db)]) == 0
+
+    out = capsys.readouterr().out
+    assert "ESTIMATE" in out
+    assert "comments pending        3" in out
+
+
+def test_dry_run_writes_nothing(conn, tmp_path):
+    db = tmp_path / "dry2.db"
+    conn.close()
+
+    from fragrance_graph.db import get_connection, migrate
+
+    fresh = get_connection(db)
+    migrate(fresh)
+    ingest(fresh, [make_comment(1, body=BODY)])
+    fresh.close()
+
+    main(["--dry-run", "--db-path", str(db)])
+
+    check = get_connection(db)
+    assert check.execute("SELECT count(*) FROM claims").fetchone()[0] == 0
+    assert check.execute(
+        "SELECT count(*) FROM comments WHERE extracted_at IS NOT NULL"
+    ).fetchone()[0] == 0
+    check.close()
+
+
+# --- drop accounting --------------------------------------------------------
+
+
+def test_drops_are_collected_with_their_payload():
+    """A drop rate nobody measures is a defect nobody fixes — and a reason
+    without the claim that caused it cannot be acted on."""
+    from fragrance_graph.extract.llm import Rejection
+
+    rejections: list[Rejection] = []
+    bad = claim_json(claim_type="NOTE_DESCRIPTOR", object_kind="NONE",
+                     raw_object_text=None)
+    parse_response(response_json(claims=[bad, bad]), batch_size=1, rejections=rejections)
+
+    assert len(rejections) == 2
+    assert "NOTE_DESCRIPTOR" in rejections[0].reason
+    assert rejections[0].raw["claim_type"] == "NOTE_DESCRIPTOR"
+    assert rejections[0].comment_index == 0
+
+
+def test_valid_claims_produce_no_drops():
+    rejections = []
+    parse_response(response_json(), batch_size=1, rejections=rejections)
+
+    assert rejections == []
+
+
+def test_rejection_collection_is_optional():
+    """Existing callers must keep working without passing a counter."""
+    bad = claim_json(claim_type="LONGEVITY", object_kind="TAG",
+                     raw_object_text="sweet")
+    result = parse_response(response_json(claims=[bad]), batch_size=1)
+
+    assert result[0] == []
+
+
+# --- re-measuring a prompt change -------------------------------------------
+
+
+def test_dupe_signal_words_appear_in_both_prompts():
+    """The extractor and the label drafter must encode the same boundary.
+
+    If only one is sharpened, every future draft disagrees with the human
+    on exactly the claims the change was meant to fix.
+    """
+    from fragrance_graph.evals.autolabel import build_prompt
+    from fragrance_graph.extract.llm import SYSTEM_PROMPT
+    from fragrance_graph.models import DUPE_SIGNAL_WORDS
+
+    labeller = build_prompt()
+    for word in DUPE_SIGNAL_WORDS:
+        assert word in SYSTEM_PROMPT, f"extractor prompt missing {word!r}"
+        assert word in labeller, f"labeller prompt missing {word!r}"
+
+
+def test_dupe_guidance_does_not_require_a_stated_price():
+    """The old definition made both models look for a price signal."""
+    from fragrance_graph.extract.llm import SYSTEM_PROMPT
+
+    assert "almost never stated" in SYSTEM_PROMPT
+    assert "cheaper substitute" not in SYSTEM_PROMPT
+
+
+def test_only_labelled_selects_just_the_labelled_comments(conn):
+    from fragrance_graph.evals.labels import export_template, import_labels
+
+    seed(conn, n=5)
+    entries = export_template(conn)
+    import_labels(conn, entries[:2], labeler="aanya")
+
+    assert len(pending_comments(conn, 100)) == 5
+    assert len(pending_comments(conn, 100, labelled_only=True)) == 2
+
+
+def test_reset_clears_claims_and_marks_comments_pending(conn):
+    from fragrance_graph.evals.labels import export_template, import_labels
+    from fragrance_graph.extract.llm import reset_extraction
+
+    (comment_id,) = seed(conn)
+    claims = parse_response(response_json(), batch_size=1)[0]
+    write_claims(conn, comment_id, BODY, claims)
+    import_labels(conn, export_template(conn), labeler="aanya")
+
+    assert conn.execute("SELECT count(*) FROM claims").fetchone()[0] == 1
+    assert pending_comments(conn, 10) == []
+
+    cleared = reset_extraction(conn, labelled_only=True)
+
+    assert cleared == 1
+    assert conn.execute("SELECT count(*) FROM claims").fetchone()[0] == 0
+    assert len(pending_comments(conn, 10)) == 1
+
+
+def test_reset_leaves_unlabelled_comments_alone(conn):
+    """A scratch re-run must not delete the rest of the corpus's claims."""
+    from fragrance_graph.evals.labels import export_template, import_labels
+    from fragrance_graph.extract.llm import reset_extraction
+
+    ids = seed(conn, n=2)
+    for comment_id in ids:
+        write_claims(
+            conn, comment_id, BODY, parse_response(response_json(), batch_size=1)[0]
+        )
+    entries = [e for e in export_template(conn)][:1]
+    import_labels(conn, entries, labeler="aanya")
+
+    reset_extraction(conn, labelled_only=True)
+
+    assert conn.execute("SELECT count(*) FROM claims").fetchone()[0] == 1
+    assert len(pending_comments(conn, 10)) == 1
+
+
+def test_only_labelled_says_so_when_there_are_no_labels(conn, tmp_path):
+    """"Reset 0 comments" is true and useless; the cause is usually a
+    scratch database rebuilt from a corpus export that predates labelling."""
+    from fragrance_graph.db import get_connection, migrate
+
+    db = tmp_path / "nolabels.db"
+    conn.close()
+    fresh = get_connection(db)
+    migrate(fresh)
+    ingest(fresh, [make_comment(1, body=BODY)])
+    fresh.close()
+
+    with pytest.raises(SystemExit, match="no eval labels"):
+        main(["--only-labelled", "--reset", "--db-path", str(db)])
+
+
+# --- persisting the rejections ----------------------------------------------
+
+
+def rejected_claim():
+    return claim_json(
+        claim_type="NOTE_DESCRIPTOR", object_kind="NONE", raw_object_text=None
+    )
+
+
+def test_rejections_are_persisted_with_the_payload(conn):
+    """The reason alone cannot tell you whether the model or the taxonomy
+    is wrong; the claim it emitted can."""
+    from fragrance_graph.extract.llm import write_rejections
+
+    (comment_id,) = seed(conn)
+    rejections = []
+    parse_response(
+        response_json(claims=[rejected_claim()]), batch_size=1, rejections=rejections
+    )
+    write_rejections(conn, comment_id, rejections)
+
+    row = conn.execute("SELECT * FROM rejected_claims").fetchone()
+    assert row["comment_id"] == comment_id
+    assert "NOTE_DESCRIPTOR" in row["reason"]
+    assert json.loads(row["raw_json"])["claim_type"] == "NOTE_DESCRIPTOR"
+    assert row["extraction_model"]
+
+
+def test_extract_persists_rejections_alongside_claims(conn):
+    """The whole run loop, with one good claim and one refused."""
+    text = json.dumps(
+        {
+            "results": [
+                {"comment_index": 0, "claims": [claim_json(), rejected_claim()]}
+            ]
+        }
+    )
+    seed(conn, n=1)
+    client = FakeClient([FakeResponse(text)])
+    extract(conn, client, limit=10, batch_size=20)
+
+    assert conn.execute("SELECT count(*) FROM claims").fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM rejected_claims").fetchone()[0] == 1
+
+
+def test_rejections_attach_to_the_right_comment(conn):
+    """Rejections are keyed by batch index; the write path must map them."""
+    text = json.dumps(
+        {
+            "results": [
+                {"comment_index": 0, "claims": []},
+                {"comment_index": 1, "claims": [rejected_claim()]},
+            ]
+        }
+    )
+    ids = seed(conn, n=2)
+    client = FakeClient([FakeResponse(text)])
+    extract(conn, client, limit=10, batch_size=20)
+
+    row = conn.execute("SELECT comment_id FROM rejected_claims").fetchone()
+    assert row["comment_id"] == ids[1]
+
+
+def test_reset_clears_rejections_too(conn):
+    """A before/after comparison must not accumulate the previous run's."""
+    from fragrance_graph.evals.labels import export_template, import_labels
+    from fragrance_graph.extract.llm import reset_extraction, write_rejections
+
+    (comment_id,) = seed(conn)
+    rejections = []
+    parse_response(
+        response_json(claims=[rejected_claim()]), batch_size=1, rejections=rejections
+    )
+    write_rejections(conn, comment_id, rejections)
+    import_labels(conn, export_template(conn), labeler="aanya")
+
+    reset_extraction(conn, labelled_only=True)
+
+    assert conn.execute("SELECT count(*) FROM rejected_claims").fetchone()[0] == 0
+
+
+# --- the schema does not enforce the object rule, on purpose ----------------
+
+
+def test_raw_object_text_stays_nullable_for_every_claim_type():
+    """A reverted experiment, kept as a test so it is not re-applied blind.
+
+    Splitting this into two `anyOf` variants — `{"type": "null"}` for the
+    objectless types — made the objectless NOTE_DESCRIPTOR unrepresentable.
+    It worked: validation drops fell from 20.7% to under 4% and the model
+    invented nothing to fill the gap. Every eval metric that moved still
+    moved down. SPEC.md has the numbers.
+
+    Forcing a valid shape does not create knowledge. It converts a drop the
+    rejects table can show you into a wrong claim stored as fact, which for
+    a product whose whole pitch is "here is what people said" is the worse
+    of the two failures.
+    """
+    from fragrance_graph.extract.llm import RESPONSE_SCHEMA
+
+    item = RESPONSE_SCHEMA["properties"]["results"]["items"]["properties"][
+        "claims"
+    ]["items"]
+    assert "anyOf" not in item
+    assert item["properties"]["raw_object_text"] == {"type": ["string", "null"]}
+
+
+def test_pydantic_is_the_only_thing_enforcing_per_type_object_kinds():
+    """Which is why the rejects table exists: the schema lets these through
+    so the validator can refuse them somewhere a curator can read."""
+    text = json.dumps(
+        {
+            "results": [
+                {
+                    "comment_index": 0,
+                    "claims": [
+                        claim_json(object_kind="TAG", raw_object_text="barbershop")
+                    ],
+                }
+            ]
+        }
+    )
+    assert parse_response(text, batch_size=1)[0] == [], "DUPE_OF must refuse TAG"
+
+
+def test_dry_run_prices_a_reset_without_performing_it(conn, capsys):
+    """--dry-run says it makes no API call, which reads as "changes
+    nothing". It used to run the reset anyway and return before
+    re-extracting, so the safe-looking flag was the destructive one.
+
+    It must still price the run — otherwise a re-extraction cannot be
+    costed at all, since --reset has to happen before the comments look
+    pending."""
+    from fragrance_graph.extract.llm import main, pending_comments
+
+    (comment_id,) = seed(conn)
+    conn.execute("UPDATE comments SET extracted_at = '2026-01-01'")
+    conn.commit()
+    db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+    conn.commit()
+
+    assert pending_comments(conn, 100) == [], "already extracted"
+    assert len(pending_comments(conn, 100, as_if_reset=True)) == 1
+
+    main(["--dry-run", "--reset", "--db-path", db_path])
+
+    out = capsys.readouterr().out
+    assert "comments pending" in out and " 1\n" in out
+    assert conn.execute("SELECT extracted_at FROM comments").fetchone()[0], (
+        "--dry-run must not clear extracted_at"
+    )
