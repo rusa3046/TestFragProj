@@ -82,62 +82,42 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.gate import (
+    MIN_COMMENTERS,
+    MIN_FLANKER_COMMENTERS,
+    MIN_FLANKER_SOURCES,
+    MIN_QUERIES,
+    MIN_SOURCES,
+)
 from fragrance_graph.query import Related, pair_stats, similar_to
 from fragrance_graph.resolve.enrich import debranded
 
+#: Re-exported so `from fragrance_graph.pages import MIN_COMMENTERS` keeps
+#: working; `gate.py` is where they are defined and explained.
+__all__ = [
+    "MIN_COMMENTERS",
+    "MIN_FLANKER_COMMENTERS",
+    "MIN_FLANKER_SOURCES",
+    "MIN_QUERIES",
+    "MIN_SOURCES",
+    "Bottle",
+    "Pair",
+    "Statement",
+    "build",
+    "held_as_flankers",
+    "qualifying_pairs",
+    "render_index",
+    "render_pair",
+    "verdict",
+]
+
 log = logging.getLogger("fragrance_graph.pages")
 
-#: Distinct people who must connect a pair before it gets a page. Below
-#: this, "people say this" is one person and an echo.
-MIN_COMMENTERS = 3
-
-#: Distinct *creators* those people must span — `source_channel` is the
-#: uploading channel, so every video by one YouTuber counts once. Three
-#: commenters in one comment section is one conversation, not three
-#: observations, and three comment sections belonging to one channel are
-#: one audience.
-MIN_SOURCES = 2
-
-#: The same two bars, raised, for a house compared against its own line —
-#: Layton vs Layton Exclusif, Amber Oud Ruby vs Amber Oud Black Edition.
-#:
-#: Two bottles from one house whose names overlap are the case entity
-#: resolution gets wrong most often, and the failure is silent: the names
-#: differ by one word, so a comment about the flanker resolves to the
-#: parent about as easily as to the flanker, and the resulting page reads
-#: as a house duping itself. `docs/CURATION.md` is largely about not making
-#: that merge, and `mention_only_words` exists because it was made once.
-#:
-#: The evidence is also weaker than it looks. "The Exclusif is better" is
-#: the single most common sentence under a flanker video, and it is an
-#: opinion about two bottles the same house sells — nobody is choosing
-#: between houses, and no shopper is being warned off a fake.
-#:
-#: So these pairs need five people across three creators rather than three
-#: across two. It is a deliberately steep bar for a category that is cheap
-#: to produce and easy to get wrong.
-MIN_FLANKER_COMMENTERS = 5
-MIN_FLANKER_SOURCES = 3
-
-#: Distinct *search queries* those videos must span. Deliberately 1 — i.e.
-#: off — because raising it is a product decision that should be made
-#: against the measured damage rather than on the argument alone.
-#:
-#: The argument is good: three `parfums de marly layton dupe` videos
-#: satisfy MIN_SOURCES while being three rooms in which the same question
-#: was asked of an audience assembled for that question. On the committed
-#: corpus, setting this to 2 removes four of the six pairs that publish
-#: today. That may mean the edges are weak; it may equally mean the eight
-#: seed queries were too narrow. Those call for opposite fixes, and the
-#: number cannot tell them apart on its own — so it is measured and shown
-#: first, and enforced only once the discovery seeds are broader.
-MIN_QUERIES = 1
-
-#: How the claim types read in a sentence, and which direction they run.
-#: DUPE_OF and SIMILAR_TO are symmetric — "B is a dupe of A" is the same
-#: fact whichever bottle you arrived at — so a page states them once.
-#: BETTER_THAN is not, and its direction is preserved in the wording.
 #: How the claim types read in a sentence, with both bottles named.
+#:
+#: DUPE_OF and SIMILAR_TO are symmetric as facts — "B is a dupe of A" is
+#: the same claim whichever bottle you arrived at — so a page states them
+#: once. They are not symmetric as English, which is what these are for.
 #:
 #: These said "called **it** a dupe of X" until 2026-08-12, leaving "it" to
 #: be inferred from the page title. That is fine directly under a title and

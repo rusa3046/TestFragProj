@@ -10,6 +10,7 @@ import json
 import pytest
 
 from fragrance_graph.extract.llm import write_claims
+from fragrance_graph.gate import MIN_COMMENTERS, MIN_SOURCES
 from fragrance_graph.ingest.store import ingest
 from fragrance_graph.models import Claim
 from fragrance_graph.resolve.entities import (
@@ -327,3 +328,134 @@ def test_aliases_are_stored_as_readable_json(conn):
     ).fetchone()[0]
 
     assert json.loads(raw) == ["540 MFK", "BR540"]
+
+
+# --- what naming a mention would publish ------------------------------------
+
+
+def seed_edge(conn, i, *, mention, other_id, author, channel,
+              claim_type="DUPE_OF"):
+    """One unresolved mention sitting opposite an already-curated bottle."""
+    body = f"{mention} is a dupe of something"
+    ingest(conn, [make_comment(
+        i, body=body, source_channel=channel,
+        raw_json=json.dumps({"author": author, "videoId": f"vid-{channel}"}),
+    )])
+    comment_id = conn.execute(
+        "SELECT id FROM comments WHERE source_id = ?", (f"t1_fake{i:05d}",)
+    ).fetchone()[0]
+    conn.execute(
+        """
+        INSERT INTO claims
+            (comment_id, claim_type, subject_kind, raw_subject_text,
+             subject_frag_id, object_kind, raw_object_text, object_frag_id,
+             sentiment, confidence, evidence_span, evidence_verified,
+             polarity, extraction_model, created_at)
+        VALUES (?, ?, 'FRAGRANCE', ?, NULL, 'FRAGRANCE', 'other', ?,
+                'POSITIVE', 0.9, ?, 1, 'ASSERTED', 'test', '2026-01-01')
+        """,
+        (comment_id, claim_type, mention, other_id, body),
+    )
+    conn.commit()
+    return comment_id
+
+
+class TestMentionValue:
+    """Curation time is the scarce resource, so the queue has to be ordered
+    by what naming something *publishes* rather than by how often it was
+    typed. On the committed corpus those two orders barely overlap: "this"
+    is written 138 times and unlocks nothing, "liquid brun" 11 times and
+    unlocks a page.
+    """
+
+    def test_frequency_alone_does_not_win(self, conn):
+        from fragrance_graph.resolve.entities import mention_values
+
+        aventus = add_fragrance(conn, "Creed Aventus")
+        layton = add_fragrance(conn, "Parfums de Marly Layton")
+        # Written far more often, always against the same bottle.
+        for i in range(6):
+            seed_edge(conn, i, mention="loud one", other_id=aventus,
+                      author=f"p{i}", channel="UC-a")
+        # Written twice, but across two different bottles.
+        seed_edge(conn, 20, mention="quiet one", other_id=aventus,
+                  author="q1", channel="UC-a")
+        seed_edge(conn, 21, mention="quiet one", other_id=layton,
+                  author="q2", channel="UC-b")
+
+        values = {v.text: v for v in mention_values(conn)}
+        assert values["loud one"].occurrences == 6
+        assert values["loud one"].pairs == 1
+        assert values["quiet one"].pairs == 2
+        assert [v.text for v in mention_values(conn)][0] == "quiet one"
+
+    def test_it_counts_pairs_that_would_actually_publish(self, conn):
+        from fragrance_graph.resolve.entities import mention_values
+
+        aventus = add_fragrance(conn, "Creed Aventus")
+        for i in range(MIN_COMMENTERS):
+            seed_edge(conn, i, mention="mystery juice", other_id=aventus,
+                      author=f"person-{i}", channel=f"UC-{i % MIN_SOURCES}")
+
+        (value,) = [v for v in mention_values(conn) if v.text == "mystery juice"]
+        assert value.publishable == 1
+
+    def test_one_comment_section_does_not_count_as_publishable(self, conn):
+        """The same bar a page clears: three people in one room are one room."""
+        from fragrance_graph.resolve.entities import mention_values
+
+        aventus = add_fragrance(conn, "Creed Aventus")
+        for i in range(MIN_COMMENTERS + 2):
+            seed_edge(conn, i, mention="mystery juice", other_id=aventus,
+                      author=f"person-{i}", channel="UC-one")
+
+        (value,) = [v for v in mention_values(conn) if v.text == "mystery juice"]
+        assert value.pairs == 1 and value.publishable == 0
+
+    def test_spellings_of_one_bottle_are_one_row(self, conn):
+        """A curator names a bottle, not a string, and `backfill` resolves
+        every spelling of it at once."""
+        from fragrance_graph.resolve.entities import mention_values
+
+        aventus = add_fragrance(conn, "Creed Aventus")
+        seed_edge(conn, 1, mention="Liquid Brun", other_id=aventus,
+                  author="a", channel="UC-a")
+        seed_edge(conn, 2, mention="liquid brun", other_id=aventus,
+                  author="b", channel="UC-b")
+        seed_edge(conn, 3, mention="liquid  brun", other_id=aventus,
+                  author="c", channel="UC-c")
+
+        (value,) = [v for v in mention_values(conn)
+                    if v.text.lower().startswith("liquid")]
+        assert value.occurrences == 3
+        assert len(value.variants) == 3
+        assert value.publishable == 1, "three people, three creators"
+
+    def test_a_mention_with_no_curated_neighbour_is_absent(self, conn):
+        """Naming it publishes nothing today: both ends are unknown."""
+        from fragrance_graph.resolve.entities import mention_values
+
+        seed_claim(conn, subject="Unknown A", obj="Unknown B")
+        assert mention_values(conn) == []
+
+    def test_claims_that_can_never_be_a_page_are_ignored(self, conn):
+        """A NOTE_DESCRIPTOR unlocks nothing, however often it is written."""
+        from fragrance_graph.resolve.entities import mention_values
+
+        aventus = add_fragrance(conn, "Creed Aventus")
+        for i in range(4):
+            seed_edge(conn, i, mention="smells woody", other_id=aventus,
+                      author=f"p{i}", channel=f"UC-{i}",
+                      claim_type="NOTE_DESCRIPTOR")
+        assert mention_values(conn) == []
+
+    def test_the_order_is_stable(self, conn):
+        from fragrance_graph.resolve.entities import mention_values
+
+        aventus = add_fragrance(conn, "Creed Aventus")
+        for i in range(6):
+            seed_edge(conn, i, mention=f"bottle {i}", other_id=aventus,
+                      author=f"p{i}", channel=f"UC-{i}")
+        assert [v.text for v in mention_values(conn)] == [
+            v.text for v in mention_values(conn)
+        ]
