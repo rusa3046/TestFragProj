@@ -799,6 +799,15 @@ Cost is about $0.20 a run, inside the $1/day cap — which now holds, since
 the ledger is committed and read from the repository root rather than the
 working directory.
 
+The same run publishes `site/` to GitHub Pages, so the comparisons are a
+URL rather than files on one laptop. Publishing is a separate job gated on
+`needs: run`, which is the guarantee that matters: a run whose export was
+refused never reaches it, so a broken run cannot replace the live site.
+
+Pages stay gitignored. They cost no quota, no money and no judgement, so
+they are rebuilt from the database rather than stored — which makes an
+artifact exactly the right shape for them.
+
 ### Setup
 
 Add three repository secrets under **Settings → Secrets and variables →
@@ -809,6 +818,10 @@ Actions**:
 | `YOUTUBE_API_KEY` | collecting comments |
 | `FRAGRANCE_ANTHROPIC_API_KEY` | extraction. **Not** `ANTHROPIC_API_KEY` — some runners reserve that name and decline to pass a user-supplied one through |
 | `FRAGELLA_API_KEY` | optional; unused by the schedule, since lookups are manual |
+
+Then, under **Settings → Pages**, set **Source** to **GitHub Actions**.
+Without that, the publish job fails with a permissions error however
+correct the workflow is.
 
 Then run it once by hand from the **Actions** tab to confirm it works
 before trusting the schedule.

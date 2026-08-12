@@ -27,6 +27,8 @@ on:
 permissions:
   contents: write           # commits the corpus back
   issues: write             # opens the one issue that asks for a decision
+  pages: write              # publishes the built pages
+  id-token: write           # required by deploy-pages
 
 concurrency:
   # Two runs at once would both rebuild from the corpus, both extract, and
@@ -124,6 +126,22 @@ jobs:
             git push
           fi
 
+      - name: Build the pages
+        # Explicit rather than relying on the loop having reached its own
+        # build step: `run` returns early when the day's cap is already
+        # spent, and the published site should still reflect the corpus
+        # even on a run that did no new work. Costs nothing — pages are
+        # pure derivation from the database.
+        run: uv run python -m fragrance_graph.pages build --out site
+
+      - name: Package the pages
+        # `site/` is gitignored on purpose — pages cost no quota, no money
+        # and no judgement, so they are rebuilt rather than stored. Which
+        # makes an artifact exactly right: published, never committed.
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
       - name: Ask for a decision, only if one is needed
         if: always()
         uses: actions/github-script@v7
@@ -165,3 +183,16 @@ jobs:
                 title, body, labels: ['loop'],
               });
             }
+
+  publish:
+    # Separate job because `needs` gives the guarantee that matters: a run
+    # that failed — or one whose export was refused — never reaches this,
+    # so the live site cannot be replaced by the output of a broken run.
+    needs: run
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
