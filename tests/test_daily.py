@@ -426,3 +426,77 @@ class TestFreeResolutionComesBeforePaidLookups:
             "dictionary already holds is pure waste"
         )
         assert "curate" in calls
+
+
+class TestQuotaDoesNotDiscardWhatWasPaidFor:
+    """A 429 arrives as SystemExit, and that path used to return early.
+
+    `propose` writes what it gathered in a `finally`, so the lookups
+    already billed were on disk. Measured 2026-08-12: a run bought 59
+    names, hit the catalogue's quota on the 60th, applied none of them,
+    and cost $3.00 for nothing.
+    """
+
+    def test_the_rows_bought_before_the_quota_stop_are_curated(
+        self, conn, tmp_path, monkeypatch
+    ):
+        import fragrance_graph.resolve.enrich as enrich
+        from fragrance_graph.resolve.enrich import Proposal, write_review
+
+        review = tmp_path / "auto-review.json"
+        write_review(review, [Proposal(
+            mention="liquid brun", count=5,
+            canonical_name="Maison Alhambra Liquid Brun",
+            brand="Maison Alhambra", confident=True, corpus_mentions=-1,
+        )])
+
+        def quota_stop(*args, **kwargs):
+            raise SystemExit("Catalogue quota exhausted.")
+
+        monkeypatch.setenv("FRAGELLA_API_KEY", "k")
+        monkeypatch.setattr(enrich, "propose", quota_stop)
+        monkeypatch.setattr("fragrance_graph.daily.Path", lambda *a: review)
+        monkeypatch.setattr(
+            "fragrance_graph.daily.newly_frequent",
+            lambda conn, *, limit, min_count: [("liquid brun", 5)],
+        )
+        monkeypatch.setattr("fragrance_graph.daily._collect", _noop)
+        monkeypatch.setattr("fragrance_graph.daily._extract", _noop)
+
+        report = run(
+            conn, queries=[],
+            budget=Budget(cap_usd=5.0, ledger=tmp_path / "spend.jsonl"),
+            out_dir=tmp_path / "site", dry_run=False,
+        )
+        assert any("quota" in e.lower() for e in report.errors)
+        assert report.auto_approved, "paid-for rows must still be curated"
+        assert conn.execute(
+            "SELECT count(*) FROM fragrances"
+        ).fetchone()[0] == 1
+
+    def test_nothing_on_disk_still_returns_cleanly(
+        self, conn, tmp_path, monkeypatch
+    ):
+        import fragrance_graph.resolve.enrich as enrich
+
+        monkeypatch.setenv("FRAGELLA_API_KEY", "k")
+        monkeypatch.setattr(
+            enrich, "propose",
+            lambda *a, **k: (_ for _ in ()).throw(SystemExit("rejected key")),
+        )
+        monkeypatch.setattr("fragrance_graph.daily.Path",
+                            lambda *a: tmp_path / "missing.json")
+        monkeypatch.setattr(
+            "fragrance_graph.daily.newly_frequent",
+            lambda conn, *, limit, min_count: [("x", 5)],
+        )
+        monkeypatch.setattr("fragrance_graph.daily._collect", _noop)
+        monkeypatch.setattr("fragrance_graph.daily._extract", _noop)
+
+        report = run(
+            conn, queries=[],
+            budget=Budget(cap_usd=5.0, ledger=tmp_path / "spend.jsonl"),
+            out_dir=tmp_path / "site", dry_run=False,
+        )
+        assert any("rejected key" in e for e in report.errors)
+        assert not report.auto_approved

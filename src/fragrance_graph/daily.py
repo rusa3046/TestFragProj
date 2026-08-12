@@ -429,8 +429,14 @@ def _curate(conn, budget: Budget, lookup_limit: int, report: RunReport, *,
         log.warning("%s", exc)
         proposals = read_review(review) if review.exists() else []
     except SystemExit as exc:
+        # Quota exhausted, or a rejected key. `propose` writes what it
+        # gathered in a `finally`, so the lookups already paid for are on
+        # disk — returning here threw them away. Measured: a run bought 59
+        # names, hit 429 on the 60th, and applied none of them, for $3.
         report.errors.append(f"catalogue lookup failed: {exc}")
-        return
+        proposals = read_review(review) if review.exists() else []
+        if not proposals:
+            return
     except Exception as exc:
         # Transport, DNS, TLS, an egress policy denying the host. `propose`
         # raises SystemExit only for the failures it anticipated (quota, a
@@ -489,10 +495,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Report what would happen. No API key needed, nothing spent.",
     )
 
+    cur = sub.add_parser(
+        "curate",
+        help="Apply an existing review file — no lookups, no spend",
+    )
+    cur.add_argument(
+        "review", type=Path, nargs="?",
+        default=Path("data/curation/auto-review.json"),
+        help="A review file written by an earlier run. "
+             "Default: data/curation/auto-review.json",
+    )
+    cur.add_argument("--out", default="site", type=Path)
+
     s = sub.add_parser("spend", help="Recent daily spend")
     s.add_argument("--days", type=int, default=7)
 
-    for p in (r, s):
+    for p in (r, s, cur):
         p.add_argument("--db-path", default=DEFAULT_DB_PATH)
 
     args = parser.parse_args(argv)
@@ -508,6 +526,44 @@ def main(argv: list[str] | None = None) -> int:
         load_dotenv()
     except ImportError:
         pass
+
+    if args.command == "curate":
+        # The lookups are already bought and on disk. A run that stopped on
+        # quota used to discard them, and even with that fixed, re-running
+        # `run` would query the catalogue again and bill again. This applies
+        # what is already paid for and spends nothing.
+        from fragrance_graph.pages import build, qualifying_pairs
+        from fragrance_graph.resolve.enrich import apply_review, read_review
+        from fragrance_graph.resolve.entities import backfill
+
+        conn = get_connection(args.db_path)
+        migrate(conn)
+        try:
+            proposals = read_review(args.review)
+            report = RunReport()
+            report.pages_before = len(qualifying_pairs(conn))
+            for proposal in proposals:
+                if auto_approvable(proposal):
+                    proposal.approved = True
+                    report.auto_approved.append(
+                        f"{proposal.mention} -> {proposal.canonical_name} "
+                        f"[{proposal.brand}]"
+                    )
+                else:
+                    report.held_for_review.append(
+                        (proposal.mention, proposal.note or "no catalogue match")
+                    )
+            stats = apply_review(conn, proposals)
+            conn.commit()
+            log.info("Curation from %s: %s", args.review, stats)
+            back = backfill(conn)
+            report.mentions_resolved = back.subjects_resolved + back.objects_resolved
+            report.pages_after = len(qualifying_pairs(conn))
+            build(conn, args.out)
+            print(report.render())
+        finally:
+            conn.close()
+        return 0
 
     if args.command == "spend":
         from fragrance_graph.budget import summary
