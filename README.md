@@ -90,8 +90,8 @@ Corpus as of 2026-08-11 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANC
 | Claims | 2,118 |
 | Extraction cost | $0.3656-$0.4410 per 1k comments, and it moves with the query |
 | Fragrances curated | 56 — 41 of them answer a query |
-| Labelled comments | 50 drafted, **15 verified by hand** (13 in train) |
-| Extractor score | `SIMILARITY EDGES` F1 **0.89**; OVERALL F1 0.50 |
+| Labelled comments | **65 verified by hand** (46 in train), plus 50 drafted |
+| Extractor score | `SIMILARITY EDGES` F1 **0.57** (P 0.60, R 0.55); OVERALL F1 0.40 |
 | Denials caught | 35 of 38 flagged (92%), plus 32 the pattern missed |
 | Spent to date | $3.11 — [a $1/day cap that leaked, since fixed](./SPEC.md) |
 
@@ -781,3 +781,34 @@ scraping this project refuses), and computed similarity from notes.
 uv run ruff check .
 uv run pytest
 ```
+
+### The score dropped because the measurement got honest
+
+Until 2026-08-11 this table published `SIMILARITY EDGES` F1 **0.89** and
+overall **0.50**. Against 46 hand-verified train comments the same
+extractor scores **0.57** and **0.40**.
+
+Nothing regressed. The old figures came from **13** labelled comments, few
+enough that a single claim moved F1 by more than a tenth, and they were
+computed against a mixture of human and model labels — `load_labels` keyed
+results by comment, so with three labelers per comment every row but the
+last silently vanished and which one survived depended on the order SQLite
+returned rows. The same corpus scored 0.41 and 0.38 on two machines the
+day this was found. `score` now refuses to run without `--labeler` when
+labelers collide, and the numbers above are `--labeler aanya-verified`.
+
+What the honest numbers say, in product terms:
+
+- **Precision 0.60** — when the extractor says two fragrances smell alike,
+  it is right about six times in ten.
+- **Recall 0.55** — of the comparisons people actually made, it finds
+  about half. **The rest are missed silently**, and until the eval set
+  included comments the extractor had said *nothing* about, those misses
+  could not be counted at all.
+
+Three claim types score **0.00**: `NOTE_DESCRIPTOR`, `LONGEVITY` and
+`PROJECTION`. The first is diagnosed in SPEC as a magnet type and is the
+next thing to fix.
+
+The sample is still small — 46 comments yielding 18 label claims — so read
+these as "roughly six in ten", not as three significant figures.

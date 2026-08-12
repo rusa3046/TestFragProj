@@ -1460,3 +1460,62 @@ by measurement, not by reading the prompt. It needs §2 finished first.
   OAuth and is already wired in.
 - **Computed similarity from notes or accords.** The thing this document
   exists to refuse.
+
+### Plan: fix `NOTE_DESCRIPTOR`, measurably (2026-08-11, not yet done)
+
+Now costed against a real eval. `NOTE_DESCRIPTOR` scores **0.00** on 46
+hand-verified train comments — 0 correct, 3 emitted that should not exist,
+2 missed that should. It is the worst type in the taxonomy and the only
+one with a diagnosis already written down.
+
+**What is wrong.** It is a magnet, the same failure v1 had with
+`LONGEVITY_COMPLAINT`. Measured from `rejected_claims`, it collects:
+
+| the comment says | what it actually is |
+|---|---|
+| "layton is **soft asf**" | projection — and `PROJECTION` takes no object |
+| "I rather not smell like **every guy on the party**" | ubiquity — no slot exists |
+| "smells like **fruity pebbles & Vicks vapor rub**" | the descriptors were present and dropped |
+| "bought Layton… maybe it's fake… I love it" | no descriptor at all; invented |
+
+The tell is `object_kind`. For "layton is soft" the model emitted `NONE` —
+invalid for `NOTE_DESCRIPTOR`, *valid for `PROJECTION`*. It picked the
+wrong type while emitting the object kind the right type requires, so this
+is type selection failing, not field filling.
+
+**The change.** Name the misclassified quotes in the extraction prompt,
+exactly as the v1 `LONGEVITY_COMPLAINT` fix did — that is the one prompt
+change in this project's history with a measured before and after. Add,
+against the `NOTE_DESCRIPTOR` entry:
+
+- a note is a *smell*: sweet, smoky, rose, vanilla, leather
+- **not** strength or throw — "soft", "beast mode" are `PROJECTION`
+- **not** how common it is — "smells like every guy" is `AESTHETIC`
+- **not** a purchase story, however enthusiastic
+- if the comment names no descriptor, emit nothing
+
+**How it gets judged.** Re-extract only the labelled comments, which is
+~$0.02 rather than ~$2 for the corpus:
+
+    python -m fragrance_graph.extract.llm --db-path /tmp/scratch.db \
+      --only-labelled --reset
+    python -m fragrance_graph.evals.score --db-path /tmp/scratch.db \
+      --labeler aanya-verified
+
+Three runs, because `temperature = 0.0` still leaves ±1 claim of jitter and
+a single claim moves F1 by a tenth at this sample size. Accept only if:
+
+1. `NOTE_DESCRIPTOR` F1 rises above 0.00 in all three runs, **and**
+2. `SIMILARITY EDGES` F1 does not fall — edges are the product; a note
+   type is not worth trading an edge for, and the last prompt change cost
+   one real edge for ~63 wrong ones, which was the right trade only
+   because it was measured.
+
+**Holdout stays shut.** 19 holdout comments are not consulted while
+tuning. If several prompt variants get tried, the winner is confirmed on
+the holdout once, at the end, and that number is the one published.
+
+**Known limit.** 46 train comments yielding 18 label claims cannot resolve
+a small change. This fix is worth attempting because 0.00 is not a small
+change; anything subtler needs the eval nearer 150 comments, which the
+`sample plan` strata make cheap to grow.

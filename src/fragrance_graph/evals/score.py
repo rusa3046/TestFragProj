@@ -19,7 +19,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
-from fragrance_graph.evals.labels import HOLDOUT, TRAIN, load_labels
+from fragrance_graph.evals.labels import (
+    HOLDOUT,
+    TRAIN,
+    AmbiguousLabels,
+    load_labels,
+)
 from fragrance_graph.models import normalize_for_match
 
 log = logging.getLogger("fragrance_graph.evals.score")
@@ -244,11 +249,14 @@ def main(argv: list[str] | None = None) -> int:
     conn = get_connection(args.db_path)
     migrate(conn)
     try:
-        labels = load_labels(
-            conn,
-            labeler=args.labeler,
-            split=None if args.split == "all" else args.split,
-        )
+        try:
+            labels = load_labels(
+                conn,
+                labeler=args.labeler,
+                split=None if args.split == "all" else args.split,
+            )
+        except AmbiguousLabels as exc:
+            raise SystemExit(str(exc)) from None
         if not labels:
             raise SystemExit(
                 f"No labels found for split={args.split}. "

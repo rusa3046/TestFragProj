@@ -529,3 +529,58 @@ class TestImportRefusesToDestroyGroundTruth:
                  "raw_object_text": "b"}])],
             labeler="aanya-verified",
         )
+
+
+class TestScoreRefusesToGuessGroundTruth:
+    """The headline number must not silently mix humans and a model.
+
+    `load_labels` keys by comment, so with several labelers per comment
+    every row but the last vanished — and which survived depended on the
+    order SQLite returned rows. The same corpus scored F1 0.41 and 0.38 on
+    two machines on 2026-08-11 for exactly that reason, with `opus5-draft`
+    rows standing in for a human on whichever comments they won.
+    """
+
+    def _two_labelers(self, conn):
+        from tests.test_query import add_comment
+
+        add_comment(conn, 1, body="khamrah is a dupe of angels share",
+                    author="u1")
+        entry = {"source": "reddit", "source_id": "t1_fake00001",
+                 "claims": [{"claim_type": "DUPE_OF",
+                             "raw_subject_text": "khamrah",
+                             "raw_object_text": "angels share"}]}
+        import_labels(conn, [entry], labeler="a-human")
+        import_labels(conn, [entry], labeler="opus5-draft")
+        conn.commit()
+
+    def test_it_refuses_when_labelers_collide(self, conn):
+        from fragrance_graph.evals.labels import AmbiguousLabels
+
+        self._two_labelers(conn)
+        with pytest.raises(AmbiguousLabels) as exc:
+            load_labels(conn)
+        assert "more than one labeler" in str(exc.value)
+        # It names the choices rather than making the operator guess.
+        assert "--labeler a-human" in str(exc.value)
+        assert "--labeler opus5-draft" in str(exc.value)
+
+    def test_naming_a_labeler_is_unambiguous(self, conn):
+        self._two_labelers(conn)
+        labels = load_labels(conn, labeler="a-human")
+        assert len(labels) == 1
+
+    def test_one_labeler_needs_no_choice(self, conn):
+        """The common case must not become annoying."""
+        from tests.test_query import add_comment
+
+        add_comment(conn, 1, body="khamrah is a dupe", author="u1")
+        import_labels(conn, [{"source": "reddit",
+                              "source_id": "t1_fake00001", "claims": []}],
+                      labeler="only-me")
+        conn.commit()
+        assert load_labels(conn) == {1: []}
+
+    def test_strict_can_be_waived(self, conn):
+        self._two_labelers(conn)
+        assert load_labels(conn, strict=False)

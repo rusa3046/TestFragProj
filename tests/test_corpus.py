@@ -7,6 +7,8 @@ between claims, comments, and fragrances.
 
 import json
 
+import pytest
+
 from fragrance_graph.corpus import (
     CLAIMS_FILE,
     COMMENTS_FILE,
@@ -503,3 +505,68 @@ def test_a_claim_naming_a_missing_fragrance_is_reported(conn, tmp_path):
     assert stats.dangling_fragrances == {"Armaf Club De Nuit": 1}
     # The claim is still imported — it is real, it just is not an edge.
     assert stats.claims == 1
+
+
+class TestExportWillNotSilentlyShrink:
+    """Export writes the database over the corpus, so a stale database
+    reverts committed work. That happened three times on 2026-08-11: a
+    wrong curation entry returned after removal, 45 corrupted eval labels
+    overwrote a restored file, and 24 discovery records were deleted twice.
+    """
+
+    def _corpus(self, tmp_path, discoveries=2):
+        import json
+
+        d = tmp_path / "corpus"
+        d.mkdir(exist_ok=True)
+        (d / "video_discoveries.jsonl").write_text(
+            "".join(
+                json.dumps({"source": "youtube", "video_id": f"v{i}",
+                            "retrieval_query": "q", "retrieved_at": "2026-01-01",
+                            "discovery_run": "r"}) + "\n"
+                for i in range(discoveries)
+            ),
+            encoding="utf-8",
+        )
+        return d
+
+    def test_it_refuses_to_delete_committed_rows(self, conn, tmp_path):
+        from fragrance_graph.corpus import WouldLoseRows, export_corpus
+
+        d = self._corpus(tmp_path, discoveries=24)
+        with pytest.raises(WouldLoseRows) as exc:
+            export_corpus(conn, d)          # empty database
+        assert "24 committed -> 0" in str(exc.value)
+        assert "rebuild" in str(exc.value).lower()
+        # And the file is untouched.
+        assert len((d / "video_discoveries.jsonl").read_text().splitlines()) == 24
+
+    def test_force_writes_anyway(self, conn, tmp_path):
+        from fragrance_graph.corpus import export_corpus
+
+        d = self._corpus(tmp_path, discoveries=24)
+        export_corpus(conn, d, force=True)
+        assert (d / "video_discoveries.jsonl").read_text().strip() == ""
+
+    def test_growing_is_never_blocked(self, conn, tmp_path):
+        """The ordinary case — new work — must not need a flag."""
+        from fragrance_graph.corpus import export_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        d = self._corpus(tmp_path, discoveries=0)
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        conn.commit()
+        stats = export_corpus(conn, d)
+        assert stats.fragrances == 1
+
+    def test_comments_and_claims_are_not_guarded(self, conn, tmp_path):
+        """A re-extraction legitimately shrinks claims; that is not loss."""
+        import json
+
+        from fragrance_graph.corpus import export_corpus
+
+        d = self._corpus(tmp_path, discoveries=0)
+        (d / "claims.jsonl").write_text(
+            json.dumps({"claim_type": "DUPE_OF"}) + "\n", encoding="utf-8")
+        export_corpus(conn, d)      # no raise
+        assert (d / "claims.jsonl").read_text().strip() == ""

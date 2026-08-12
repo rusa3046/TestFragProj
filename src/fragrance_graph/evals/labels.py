@@ -114,6 +114,10 @@ class UnknownComment(LookupError):
     """A label refers to a comment this database does not contain."""
 
 
+class AmbiguousLabels(ValueError):
+    """More than one labeler covers a comment, and none was chosen."""
+
+
 class UnreviewedDraft(ValueError):
     """A drafted file was about to be imported as human judgement."""
 
@@ -241,14 +245,56 @@ def import_labels(
 
 
 def load_labels(
-    conn: sqlite3.Connection, *, labeler: str | None = None, split: str | None = None
+    conn: sqlite3.Connection,
+    *,
+    labeler: str | None = None,
+    split: str | None = None,
+    strict: bool = True,
 ) -> dict[int, list[dict]]:
-    """Labelled claims keyed by comment_id, optionally filtered by split."""
-    sql = "SELECT comment_id, labeled_json FROM eval_labels"
+    """Labelled claims keyed by comment_id, optionally filtered by split.
+
+    **Refuses to guess whose labels these are.** The result is keyed by
+    comment, so when several labelers have covered the same comment and
+    none is named, every row but the last silently disappears — and which
+    one survives depends on the order SQLite returns rows, which changes
+    when the database is rebuilt.
+
+    That is not a tidiness problem. `opus5-draft` rows are model output;
+    letting them stand in for a human turns the extractor's headline score
+    into a mixture of "how often is it right" and "how often does it agree
+    with another model", with no way to tell from the number which it is.
+    Measured on 2026-08-11: 50 comments carried labels from more than one
+    labeler, and the same corpus scored F1 0.41 and 0.38 on two machines
+    for exactly this reason.
+
+    `strict=False` keeps the old behaviour for callers that genuinely want
+    everything and accept the collision.
+    """
+    sql = "SELECT comment_id, labeler, labeled_json FROM eval_labels"
     params: list = []
     if labeler:
         sql += " WHERE labeler = ?"
         params.append(labeler)
+
+    if strict and not labeler:
+        clash = conn.execute(
+            "SELECT count(*) FROM (SELECT comment_id FROM eval_labels "
+            " GROUP BY comment_id HAVING count(DISTINCT labeler) > 1)"
+        ).fetchone()[0]
+        if clash:
+            names = [
+                r["labeler"]
+                for r in conn.execute(
+                    "SELECT DISTINCT labeler FROM eval_labels ORDER BY labeler"
+                )
+            ]
+            raise AmbiguousLabels(
+                f"{clash} comment(s) carry labels from more than one "
+                f"labeler ({', '.join(names)}), so keeping one per comment "
+                "would silently pick whichever the database returned last.\n\n"
+                "Name the ground truth you mean:\n"
+                + "".join(f"  --labeler {n}\n" for n in names)
+            )
 
     out: dict[int, list[dict]] = {}
     for row in conn.execute(sql, params):

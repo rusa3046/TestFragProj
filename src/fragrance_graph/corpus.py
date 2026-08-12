@@ -210,8 +210,45 @@ class CorpusStats:
         )
 
 
-def export_corpus(conn: sqlite3.Connection, directory: Path) -> CorpusStats:
-    """Write the corpus to `directory` as three JSONL files."""
+class WouldLoseRows(RuntimeError):
+    """An export was about to shrink a committed corpus file."""
+
+
+#: Files an export may shrink only on purpose. Comments and claims can
+#: legitimately fall (a reset, a re-extraction); these four are records of
+#: something unrepeatable, so losing rows means the database is stale.
+GUARDED_FILES = (FRAGRANCES_FILE, LABELS_FILE, REJECTS_FILE, DISCOVERIES_FILE)
+
+
+def shrinking(directory: Path, counts: dict[str, int]) -> dict[str, tuple[int, int]]:
+    """Guarded files the database has fewer rows for than the corpus does.
+
+    Export writes the database over the corpus, so a database built before
+    a corpus file changed silently reverts it. That has now happened three
+    times in one day: a wrong curation entry came back after removal, 45
+    corrupted eval labels overwrote a restored file, and 24 retrieval
+    discovery records were deleted twice — once by the operator and once
+    by me, both from a database rebuilt before the file existed.
+
+    Rebuilding first is the fix, and "remember to rebuild" is not a
+    mechanism. This is.
+    """
+    out: dict[str, tuple[int, int]] = {}
+    for name in GUARDED_FILES:
+        on_disk = len(_read_jsonl(Path(directory) / name))
+        in_db = counts.get(name, 0)
+        if on_disk > in_db:
+            out[name] = (on_disk, in_db)
+    return out
+
+
+def export_corpus(
+    conn: sqlite3.Connection, directory: Path, *, force: bool = False
+) -> CorpusStats:
+    """Write the corpus to `directory` as JSONL files.
+
+    Refuses to shrink a guarded file unless `force`. See `shrinking`.
+    """
     directory = Path(directory)
 
     comments = [
@@ -262,6 +299,29 @@ def export_corpus(conn: sqlite3.Connection, directory: Path) -> CorpusStats:
             "ORDER BY source, video_id, retrieval_query, discovery_run"
         )
     ]
+
+    if not force:
+        loss = shrinking(directory, {
+            FRAGRANCES_FILE: len(fragrances),
+            LABELS_FILE: len(labels),
+            REJECTS_FILE: len(rejects),
+            DISCOVERIES_FILE: len(discoveries),
+        })
+        if loss:
+            detail = "\n".join(
+                f"  {name}: {was} committed -> {now} in this database"
+                for name, (was, now) in sorted(loss.items())
+            )
+            raise WouldLoseRows(
+                "This export would delete rows that are committed:\n\n"
+                f"{detail}\n\n"
+                "Almost always this means the database was built before "
+                "those rows were, so exporting reverts them. Rebuild first:\n\n"
+                "  rm data/fragrance_graph.db\n"
+                "  python -m fragrance_graph.db init\n"
+                "  python -m fragrance_graph.corpus import\n\n"
+                "If the rows really should go, pass --force."
+            )
 
     stats = CorpusStats(
         comments=_write_jsonl(directory / COMMENTS_FILE, comments),
@@ -580,7 +640,12 @@ def main(argv: list[str] | None = None) -> int:
         description="Export the corpus to JSONL, or rebuild a database from it."
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("export", help="Write the database out to JSONL")
+    exp = sub.add_parser("export", help="Write the database out to JSONL")
+    exp.add_argument(
+        "--force", action="store_true",
+        help="Write even if it deletes committed rows. Usually means the "
+             "database is stale — rebuild instead.",
+    )
     imp = sub.add_parser("import", help="Rebuild a database from JSONL")
     imp.add_argument(
         "--prune", action="store_true",
@@ -600,7 +665,10 @@ def main(argv: list[str] | None = None) -> int:
     migrate(conn)
     try:
         if args.command == "export":
-            export_corpus(conn, args.dir)
+            try:
+                export_corpus(conn, args.dir, force=args.force)
+            except WouldLoseRows as exc:
+                raise SystemExit(f"Refusing to export.\n\n{exc}") from None
         else:
             import_corpus(conn, args.dir, prune=args.prune)
     finally:
