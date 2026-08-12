@@ -504,6 +504,49 @@ keeps products out of the corpus. `site/` is gitignored; rebuilding an
 unchanged corpus rewrites identical bytes, so a diff there would only ever
 mean the corpus moved.
 
+### Where the site lives, and who may watch it
+
+Three files decide, none of them code:
+
+```bash
+uv run python -m fragrance_graph.pages build --out site/ \
+  --base-url https://rusa3046.github.io/TestFragProj/
+```
+
+- **`--base-url`** is what canonical tags and `sitemap.xml` are built
+  from. Without it — and without a `CNAME` — both are skipped and the
+  build says so. A guessed domain is worse than none: a canonical tag
+  pointing at the wrong host tells a search engine to index somebody
+  else's copy of the page. The scheduled workflow passes the Pages URL
+  GitHub derives from the repository, so a rename cannot break it.
+
+- **`CNAME`** in the repository root turns on a custom domain. One line,
+  the bare domain, no scheme:
+
+  ```
+  dupes.example.com
+  ```
+
+  Then point a DNS `CNAME` record for that name at
+  `rusa3046.github.io.` and set the domain in the repository's Pages
+  settings. `build` copies the file into `site/` on every build, which is
+  the part that is easy to miss — GitHub Pages reads `CNAME` from the
+  published root, so a build that does not carry it forward silently
+  drops the custom domain on the next deploy. A `CNAME` also **overrides
+  `--base-url`**, because it is the file the host itself obeys.
+
+- **`data/analytics.html`** is injected verbatim into the `<head>` of
+  every page, and ships empty. Paste a provider's snippet there and
+  rebuild to turn analytics on; delete it to turn them off. It is a file
+  rather than a flag so the tag is reviewable in a diff — a script on
+  these pages can see every visitor, and *which script, added when, by
+  whom* should be answerable from git alone. Nothing in it is validated
+  or escaped, unlike comment text, so paste only what the provider gave
+  you.
+
+`robots.txt` is always written and always allows everything; it names the
+sitemap when there is one.
+
 ## Buying links
 
 Where a bottle can be bought, from affiliate-network product feeds. **This

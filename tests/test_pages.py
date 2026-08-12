@@ -1377,3 +1377,102 @@ class TestLanguageFilter:
     def test_an_empty_blocklist_hides_nothing(self, conn):
         pair = self.crude_pair(conn)
         assert "performance is shit" in render_pair(pair, blocklist=frozenset())
+
+
+class TestSiteWiring:
+    """Canonical tags, a sitemap, robots.txt, a custom domain, and an
+    analytics hook that is off.
+
+    All five are about how the site is *found* rather than what it says,
+    and each of them is a way to be wrong quietly: a canonical tag on the
+    wrong domain tells a search engine to index someone else's copy, and a
+    CNAME that is not copied into the artifact drops a custom domain back
+    to the default one on the next deploy.
+    """
+
+    def built(self, conn, tmp_path, **kwargs):
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        build(conn, tmp_path, **kwargs)
+        return tmp_path
+
+    def test_a_known_base_url_reaches_every_page(self, conn, tmp_path):
+        out = self.built(conn, tmp_path, base_url="https://example.test/site")
+        for page in out.glob("*.html"):
+            text = page.read_text(encoding="utf-8")
+            assert f'rel="canonical" href="https://example.test/site/{page.name}"' \
+                in text, page.name
+
+    def test_an_unknown_base_url_writes_no_canonical_and_no_sitemap(
+        self, conn, tmp_path, caplog
+    ):
+        """A guessed domain is worse than none."""
+        with caplog.at_level("WARNING"):
+            out = self.built(conn, tmp_path)
+        assert not (out / "sitemap.xml").exists()
+        assert "canonical" not in (out / "index.html").read_text(encoding="utf-8")
+        assert "skipping sitemap" in caplog.text
+
+    def test_the_sitemap_lists_every_page_it_wrote(self, conn, tmp_path):
+        out = self.built(conn, tmp_path, base_url="https://example.test/")
+        sitemap = (out / "sitemap.xml").read_text(encoding="utf-8")
+        for page in out.glob("*.html"):
+            assert f"https://example.test/{page.name}" in sitemap, page.name
+
+    def test_the_sitemap_carries_no_timestamp(self, conn, tmp_path):
+        """Output is byte-stable; a lastmod would make every build a diff."""
+        out = self.built(conn, tmp_path, base_url="https://example.test/")
+        assert "lastmod" not in (out / "sitemap.xml").read_text(encoding="utf-8")
+
+    def test_robots_points_at_the_sitemap(self, conn, tmp_path):
+        out = self.built(conn, tmp_path, base_url="https://example.test/")
+        assert "Sitemap: https://example.test/sitemap.xml" in (
+            out / "robots.txt"
+        ).read_text(encoding="utf-8")
+
+    def test_a_cname_beats_the_base_url(self, conn, tmp_path):
+        """GitHub obeys the file, so a disagreement would point canonical
+        tags at a domain that redirects to the other one."""
+        from fragrance_graph.pages import site_base
+
+        cname = tmp_path / "CNAME"
+        cname.write_text("dupes.example\n", encoding="utf-8")
+        assert site_base("https://other.test/", cname) == "https://dupes.example/"
+
+    def test_a_missing_cname_falls_back(self, tmp_path):
+        from fragrance_graph.pages import site_base
+
+        assert site_base("https://other.test", tmp_path / "nope") == \
+            "https://other.test/"
+
+    def test_analytics_is_off_in_the_committed_file(self):
+        """It ships off, and "off" is a property of the file's content."""
+        from fragrance_graph.pages import load_analytics
+
+        assert load_analytics() == ""
+
+    def test_no_page_carries_a_script_by_default(self, conn, tmp_path):
+        out = self.built(conn, tmp_path, base_url="https://example.test/")
+        for page in out.glob("*.html"):
+            assert "<script" not in page.read_text(encoding="utf-8"), page.name
+
+    def test_a_snippet_reaches_the_head_of_every_page(self, conn, tmp_path):
+        from fragrance_graph.pages import load_analytics, render_pair
+
+        snippet = tmp_path / "analytics.html"
+        snippet.write_text(
+            "<!-- explanation -->\n<script src='https://x.test/a.js'></script>",
+            encoding="utf-8",
+        )
+        loaded = load_analytics(snippet)
+        assert loaded == "<script src='https://x.test/a.js'></script>"
+
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        html = render_pair(qualifying_pairs(conn)[0], analytics=loaded)
+        assert html.index(loaded) < html.index("<body>")
+
+    def test_a_file_of_only_comments_counts_as_off(self, tmp_path):
+        from fragrance_graph.pages import load_analytics
+
+        path = tmp_path / "analytics.html"
+        path.write_text("<!--\n  nothing here yet\n-->\n", encoding="utf-8")
+        assert load_analytics(path) == ""

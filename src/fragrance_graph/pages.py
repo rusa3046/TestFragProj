@@ -426,6 +426,107 @@ def hidden_quotes(
     ]
 
 
+#: A snippet injected into every page's <head>, or nothing. See the file.
+ANALYTICS_PATH = Path(__file__).resolve().parents[2] / "data" / "analytics.html"
+
+#: The custom domain, if the site has one. GitHub Pages reads this file
+#: from the published root, so `build` copies it into the output.
+CNAME_PATH = Path(__file__).resolve().parents[2] / "CNAME"
+
+
+def load_analytics(path: Path | None = None) -> str:
+    """The analytics snippet, or an empty string.
+
+    Comments are stripped, so a file containing only the explanation at
+    the top of `data/analytics.html` counts as off. That is the shipped
+    state, and it means "off" is a property of the file's content rather
+    than of a flag somebody has to remember not to pass.
+    """
+    path = ANALYTICS_PATH if path is None else path
+    if not path.exists():
+        return ""
+    text = re.sub(r"<!--.*?-->", "", path.read_text(encoding="utf-8"), flags=re.S)
+    return text.strip()
+
+
+def custom_domain(path: Path | None = None) -> str:
+    """The domain in CNAME, or "" — the same file GitHub Pages reads."""
+    path = CNAME_PATH if path is None else path
+    if not path.exists():
+        return ""
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            return line
+    return ""
+
+
+def site_base(base_url: str = "", cname: Path | None = None) -> str:
+    """Where these pages will live, with a trailing slash, or "".
+
+    A CNAME wins over `--base-url`: it is the file the host itself obeys,
+    so if the two disagree the canonical tags would point at a domain that
+    redirects to the other one. Empty means unknown, and unknown means no
+    canonical tags and no sitemap rather than a guessed absolute URL —
+    a wrong canonical tag tells a search engine to index someone else's
+    copy of the page.
+    """
+    domain = custom_domain(cname)
+    if domain:
+        return f"https://{domain}/"
+    return f"{base_url.rstrip('/')}/" if base_url else ""
+
+
+def _head(
+    title: str,
+    *,
+    canonical: str = "",
+    analytics: str = "",
+) -> list[str]:
+    """The <head> every page shares."""
+    out = [
+        "<!doctype html>",
+        '<html lang="en">',
+        "<head>",
+        '<meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        f"<title>{html.escape(title)}</title>",
+    ]
+    if canonical:
+        out.append(f'<link rel="canonical" href="{html.escape(canonical)}">')
+    if analytics:
+        out.append(analytics)
+    out.append("</head>")
+    return out
+
+
+def render_sitemap(base: str, slugs: list[str]) -> str:
+    """A sitemap of every page, in a stable order.
+
+    No `lastmod`. The build is a pure function of the corpus and rewrites
+    identical bytes when nothing changed; stamping a date in would make
+    every rebuild a diff and turn "the corpus moved" into a signal nobody
+    trusts.
+    """
+    e = html.escape
+    out = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    for slug in sorted(slugs):
+        out.append(f"  <url><loc>{e(base + slug)}</loc></url>")
+    out.append("</urlset>")
+    return "\n".join(out) + "\n"
+
+
+def render_robots(base: str) -> str:
+    """Everything is crawlable; the sitemap is named when we know where it is."""
+    lines = ["User-agent: *", "Allow: /"]
+    if base:
+        lines.append(f"Sitemap: {base}sitemap.xml")
+    return "\n".join(lines) + "\n"
+
+
 #: Pairs a bottle must have before it gets a page of its own. One pair is
 #: a page that exists to link to a single other page, which is a worse
 #: version of the pair page and a page a search engine has no reason to
@@ -861,6 +962,8 @@ def render_pair(
     facts: dict[str, Bottle] | None = None,
     indexes: dict[str, ReverseIndex] | None = None,
     blocklist: frozenset[str] | None = None,
+    base: str = "",
+    analytics: str = "",
 ) -> str:
     """One page, as a complete HTML document.
 
@@ -875,13 +978,11 @@ def render_pair(
     e = html.escape
     blocklist = load_blocklist() if blocklist is None else blocklist
     out: list[str] = [
-        "<!doctype html>",
-        '<html lang="en">',
-        "<head>",
-        '<meta charset="utf-8">',
-        '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        f"<title>{e(pair.title)}</title>",
-        "</head>",
+        *_head(
+            pair.title,
+            canonical=f"{base}{pair.slug}.html" if base else "",
+            analytics=analytics,
+        ),
         "<body>",
         f"<h1>{e(pair.title)}</h1>",
         # The answer first, then how it was counted. A reader who stops
@@ -974,18 +1075,21 @@ def render_pair(
     return "\n".join(out) + "\n"
 
 
-def render_reverse(index: ReverseIndex, facts: dict[str, Bottle] | None = None) -> str:
+def render_reverse(
+    index: ReverseIndex,
+    facts: dict[str, Bottle] | None = None,
+    base: str = "",
+    analytics: str = "",
+) -> str:
     """One bottle, everything the community compares to it."""
     e = html.escape
     described = (facts or {}).get(index.bottle, Bottle(index.bottle)).described
     out: list[str] = [
-        "<!doctype html>",
-        '<html lang="en">',
-        "<head>",
-        '<meta charset="utf-8">',
-        '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        f"<title>{e(index.title)}</title>",
-        "</head>",
+        *_head(
+            index.title,
+            canonical=f"{base}{index.slug}.html" if base else "",
+            analytics=analytics,
+        ),
         "<body>",
         f"<h1>{e(index.title)}</h1>",
         # No total across the list. People appear in more than one
@@ -1015,17 +1119,20 @@ def render_reverse(index: ReverseIndex, facts: dict[str, Bottle] | None = None) 
     return "\n".join(out) + "\n"
 
 
-def render_index(pairs: list[Pair], indexes: list[ReverseIndex] | None = None) -> str:
+def render_index(
+    pairs: list[Pair],
+    indexes: list[ReverseIndex] | None = None,
+    base: str = "",
+    analytics: str = "",
+) -> str:
     """The list of pages, in the order the pages themselves are ranked."""
     e = html.escape
     out = [
-        "<!doctype html>",
-        '<html lang="en">',
-        "<head>",
-        '<meta charset="utf-8">',
-        '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        "<title>Fragrance comparisons</title>",
-        "</head>",
+        *_head(
+            "Fragrance comparisons",
+            canonical=f"{base}index.html" if base else "",
+            analytics=analytics,
+        ),
         "<body>",
         "<h1>Fragrance comparisons</h1>",
         WHAT_THIS_IS,
@@ -1060,8 +1167,14 @@ def build(
     *,
     min_commenters: int = MIN_COMMENTERS,
     min_sources: int = MIN_SOURCES,
+    base_url: str = "",
 ) -> list[Pair]:
-    """Write a page per qualifying pair, plus an index. Returns what it wrote."""
+    """Write a page per qualifying pair, plus an index. Returns what it wrote.
+
+    `base_url` is where the pages will be served from. It is needed for
+    canonical tags and a sitemap, and a CNAME file overrides it — see
+    `site_base`. Without either, both are skipped rather than guessed.
+    """
     pairs = qualifying_pairs(
         conn, min_commenters=min_commenters, min_sources=min_sources
     )
@@ -1069,18 +1182,44 @@ def build(
     indexes = reverse_indexes(pairs)
     linked = {i.bottle: i for i in indexes}
     blocklist = load_blocklist()
+    base = site_base(base_url)
+    analytics = load_analytics()
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    slugs = ["index.html"]
     for pair in pairs:
         (out_dir / f"{pair.slug}.html").write_text(
-            render_pair(pair, facts, linked, blocklist), encoding="utf-8"
+            render_pair(pair, facts, linked, blocklist, base, analytics),
+            encoding="utf-8",
         )
+        slugs.append(f"{pair.slug}.html")
     for index in indexes:
         (out_dir / f"{index.slug}.html").write_text(
-            render_reverse(index, facts), encoding="utf-8"
+            render_reverse(index, facts, base, analytics), encoding="utf-8"
         )
+        slugs.append(f"{index.slug}.html")
     (out_dir / "index.html").write_text(
-        render_index(pairs, indexes), encoding="utf-8"
+        render_index(pairs, indexes, base, analytics), encoding="utf-8"
     )
+
+    (out_dir / "robots.txt").write_text(render_robots(base), encoding="utf-8")
+    if base:
+        (out_dir / "sitemap.xml").write_text(
+            render_sitemap(base, slugs), encoding="utf-8"
+        )
+    else:
+        # A sitemap of relative paths is not a sitemap, and one built on a
+        # guessed domain points crawlers at somebody else's copy.
+        log.warning(
+            "No base URL and no CNAME — skipping sitemap.xml and canonical tags"
+        )
+
+    # GitHub Pages reads CNAME from the published root, so it has to be
+    # copied into the artifact on every build; a custom domain silently
+    # reverts to the default one the first time it is missing.
+    domain = custom_domain()
+    if domain:
+        (out_dir / "CNAME").write_text(f"{domain}\n", encoding="utf-8")
     return pairs
 
 
@@ -1112,6 +1251,12 @@ def main(argv: list[str] | None = None) -> int:
 
     b = sub.add_parser("build", help="Write one page per qualifying pair")
     b.add_argument("--out", default="site", type=Path)
+    b.add_argument(
+        "--base-url", default="",
+        help="Where the pages will be served from, e.g. "
+             "https://example.github.io/repo/. Needed for canonical tags "
+             "and sitemap.xml; a CNAME file overrides it.",
+    )
     b.add_argument("--min-commenters", type=int, default=MIN_COMMENTERS)
     b.add_argument("--min-sources", type=int, default=MIN_SOURCES)
     b.add_argument(
@@ -1182,6 +1327,7 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.out),
             min_commenters=args.min_commenters,
             min_sources=args.min_sources,
+            base_url=args.base_url,
         )
         for pair in pairs:
             print(f"  {pair.slug}.html  ({pair.commenters} people, {pair.sources} sources)")
