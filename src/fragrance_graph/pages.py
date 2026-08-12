@@ -146,6 +146,63 @@ VERDICT_MIN_COMMENTERS = 2
 
 
 @dataclass(frozen=True)
+class Bottle:
+    """A fragrance as a page introduces it: what it is called, by whom, when.
+
+    A stranger arriving from a search engine may not know that Detour Noir
+    is an Al Haramain, or that Layton is nine years old. Both are facts
+    about the bottle rather than about its smell, which is the line SPEC
+    draws: notes and accords stay off these pages because we have no
+    evidence for them, and a house and a year are catalogue records.
+
+    Everything here is optional, and a missing field is simply not shown.
+    `house_year` is null for all 56 curated fragrances today — nothing in
+    the pipeline collects it — so no page renders a year yet. Inventing one
+    would be the fabrication this project refuses everywhere else; the
+    field is filled by hand during curation, and the pages take it the day
+    it exists.
+    """
+
+    name: str
+    brand: str | None = None
+    year: int | None = None
+
+    @property
+    def described(self) -> str:
+        """"Atomic Rose (Initio Parfums Prives, 2020)", minus what we lack.
+
+        The brand is dropped when the name already carries it, which is 54
+        of the 56 curated fragrances — "Parfums de Marly Layton (Parfums de
+        Marly)" reads like a rendering bug, and it is one.
+        """
+        facts = []
+        if self.brand and self.brand.lower() not in self.name.lower():
+            facts.append(self.brand)
+        if self.year:
+            facts.append(str(self.year))
+        return f"{self.name} ({', '.join(facts)})" if facts else self.name
+
+
+def bottle_facts(
+    conn: sqlite3.Connection, casing: dict[str, str] | None = None
+) -> dict[str, Bottle]:
+    """Every curated fragrance, keyed by the name a page will display."""
+    casing = brand_casing(conn) if casing is None else casing
+    out: dict[str, Bottle] = {}
+    for row in conn.execute(
+        "SELECT canonical_name, brand, house_year FROM fragrances"
+    ):
+        name = with_canonical_casing(row["canonical_name"], casing)
+        brand = row["brand"]
+        out[name] = Bottle(
+            name=name,
+            brand=with_canonical_casing(brand, casing) if brand else None,
+            year=row["house_year"],
+        )
+    return out
+
+
+@dataclass(frozen=True)
 class Statement:
     """One claim type connecting the pair, pointed the way people said it.
 
@@ -575,7 +632,7 @@ def _absent(pair: Pair, top: Statement) -> str:
     return "Nothing here describes what either one smells like on its own."
 
 
-def render_pair(pair: Pair) -> str:
+def render_pair(pair: Pair, facts: dict[str, Bottle] | None = None) -> str:
     """One page, as a complete HTML document.
 
     Every interpolated value goes through `html.escape`, including the
@@ -600,6 +657,16 @@ def render_pair(pair: Pair) -> str:
         f"fragrances, across {e(_sources(pair.sources))}. Every line below is "
         f"quoted from a comment, and links back to it.</p>",
     ]
+
+    # Who makes each one, and when it came out. Omitted entirely when we
+    # know neither, rather than printing a bottle's own name back at it.
+    known = [(facts or {}).get(n, Bottle(n)) for n in (pair.left, pair.right)]
+    if any(b.described != b.name for b in known):
+        out.append(
+            "<ul>"
+            + "".join(f"<li>{e(b.described)}</li>" for b in known)
+            + "</ul>"
+        )
 
     for stmt in pair.statements:
         row = stmt.row
@@ -680,9 +747,12 @@ def build(
     pairs = qualifying_pairs(
         conn, min_commenters=min_commenters, min_sources=min_sources
     )
+    facts = bottle_facts(conn)
     out_dir.mkdir(parents=True, exist_ok=True)
     for pair in pairs:
-        (out_dir / f"{pair.slug}.html").write_text(render_pair(pair), encoding="utf-8")
+        (out_dir / f"{pair.slug}.html").write_text(
+            render_pair(pair, facts), encoding="utf-8"
+        )
     (out_dir / "index.html").write_text(render_index(pairs), encoding="utf-8")
     return pairs
 

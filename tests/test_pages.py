@@ -918,3 +918,72 @@ class TestReadsLikeEnglish:
             text = page.read_text(encoding="utf-8")
             assert not re.search(r"1 person (call|say) ", text), page.name
             assert not re.search(r"\d\d* people (calls|says) ", text), page.name
+
+
+class TestBottleFacts:
+    """Who makes it and when it came out — the two things a stranger needs
+    that are not opinions.
+
+    Notes and accords stay off these pages because nothing in the corpus
+    evidences them. A house and a release year are catalogue records, not
+    claims about smell, so they are allowed — and shown only when someone
+    has actually curated them.
+    """
+
+    def test_a_name_that_already_carries_its_brand_is_left_alone(self):
+        from fragrance_graph.pages import Bottle
+
+        b = Bottle("Parfums de Marly Layton", brand="Parfums de Marly")
+        assert b.described == "Parfums de Marly Layton"
+
+    def test_a_brand_the_name_hides_is_shown(self):
+        from fragrance_graph.pages import Bottle
+
+        b = Bottle("Atomic Rose", brand="Initio Parfums Prives")
+        assert b.described == "Atomic Rose (Initio Parfums Prives)"
+
+    def test_a_year_is_shown_when_it_exists(self):
+        from fragrance_graph.pages import Bottle
+
+        assert Bottle("Atomic Rose", brand="Initio", year=2020).described == \
+            "Atomic Rose (Initio, 2020)"
+        # The redundant brand still drops out; the year is the whole point.
+        assert Bottle("Parfums de Marly Layton", brand="Parfums de Marly",
+                      year=2016).described == \
+            "Parfums de Marly Layton (2016)"
+
+    def test_nothing_known_means_nothing_added(self):
+        from fragrance_graph.pages import Bottle
+
+        assert Bottle("Mystery Juice").described == "Mystery Juice"
+
+    def test_a_page_shows_them_when_they_exist(self, conn, tmp_path):
+        from fragrance_graph.pages import bottle_facts, qualifying_pairs
+
+        pair_of(conn, people=3, videos=2)
+        conn.execute(
+            "UPDATE fragrances SET brand = 'By Kilian', house_year = 2020"
+            " WHERE canonical_name = 'Aventus'"
+        )
+        conn.commit()
+        (pair,) = qualifying_pairs(conn)
+        html = render_pair(pair, bottle_facts(conn))
+        assert "<li>Aventus (By Kilian, 2020)</li>" in html
+
+    def test_a_page_stays_silent_when_they_do_not(self, conn):
+        """Today's corpus: 0 of 56 fragrances have a year."""
+        from fragrance_graph.pages import bottle_facts, qualifying_pairs
+
+        pair_of(conn, people=3, videos=2)
+        (pair,) = qualifying_pairs(conn)
+        html = render_pair(pair, bottle_facts(conn))
+        assert "<li>Aventus</li>" not in html, "no bare restatement of the name"
+
+    def test_a_year_survives_curation(self, conn):
+        """The field has to be writable, or the display path is decorative."""
+        from fragrance_graph.pages import bottle_facts
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Atomic Rose", brand="Initio Parfums Prives",
+                      house_year=2020)
+        assert bottle_facts(conn)["Atomic Rose"].year == 2020

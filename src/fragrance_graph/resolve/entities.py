@@ -50,11 +50,23 @@ def add_fragrance(
     *,
     brand: str | None = None,
     aliases: list[str] | None = None,
+    house_year: int | None = None,
 ) -> int:
-    """Create a canonical fragrance. Returns its id."""
+    """Create a canonical fragrance. Returns its id.
+
+    `house_year` is the release year the house gives. Nothing in the
+    pipeline collects it — it is null for every curated fragrance today —
+    and pages show it only when a curator has supplied one.
+    """
     cur = conn.execute(
-        "INSERT INTO fragrances (canonical_name, brand, aliases) VALUES (?, ?, ?)",
-        (canonical_name, brand, json.dumps(sorted(set(aliases or [])))),
+        "INSERT INTO fragrances (canonical_name, brand, house_year, aliases)"
+        " VALUES (?, ?, ?, ?)",
+        (
+            canonical_name,
+            brand,
+            house_year,
+            json.dumps(sorted(set(aliases or []))),
+        ),
     )
     conn.commit()
     return cur.lastrowid
