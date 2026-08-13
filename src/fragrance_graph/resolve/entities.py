@@ -382,6 +382,23 @@ class BatchRow:
     skip: bool = False
     note: str = ""
 
+    #: Set when the decision fields above were filled in by anything other
+    #: than a person — a model drafting the file ahead of review, most
+    #: likely. Empty means a human typed them.
+    #:
+    #: A draft is worth having: most rows are unambiguous, and reading
+    #: fifteen filled rows is a different evening from typing fifteen
+    #: blank ones. What a draft must never be is *mistaken* for a review.
+    #: On 2026-08-11 a drafted label file was imported as ground truth and
+    #: overwrote two hand-made labels, one of them with its subject and
+    #: object the wrong way round. That was a naming mistake at a
+    #: keyboard, not a bug, which is exactly why the guard belongs here
+    #: rather than in someone's memory.
+    drafted_by: str = ""
+    #: A person has read this drafted row and stands behind it. Required
+    #: before a drafted row may write anything; see `apply_batch`.
+    confirmed: bool = False
+
 
 def batch_rows(
     conn: sqlite3.Connection,
@@ -461,6 +478,16 @@ class UnreviewedRows(Exception):
     """
 
 
+class UnconfirmedDraft(Exception):
+    """Raised when a drafted row would write without a person confirming it.
+
+    The narrow rule: a row whose `drafted_by` is set and whose
+    `confirmed` is false may not create a fragrance or an alias. A
+    drafted *skip* is exempt — it writes nothing, so there is nothing to
+    stand behind.
+    """
+
+
 @dataclass
 class BatchApplyStats:
     added: int = 0
@@ -500,6 +527,18 @@ def apply_batch(
             f"{len(unreviewed)} row(s) have no canonical_name and are not "
             f"skipped: {', '.join(unreviewed[:5])}"
             + (" ..." if len(unreviewed) > 5 else "")
+        )
+
+    unconfirmed = [
+        r.mention
+        for r in rows
+        if r.canonical_name and r.drafted_by and not r.confirmed
+    ]
+    if unconfirmed:
+        raise UnconfirmedDraft(
+            f"{len(unconfirmed)} drafted row(s) have not been confirmed by a "
+            f"person: {', '.join(unconfirmed[:5])}"
+            + (" ..." if len(unconfirmed) > 5 else "")
         )
 
     stats = BatchApplyStats()
@@ -826,6 +865,15 @@ def main(argv: list[str] | None = None) -> int:
                 print(
                     "Nothing was written. Every row needs either a "
                     "canonical_name or skip: true."
+                )
+                return 1
+            except UnconfirmedDraft as exc:
+                print(f"Refusing to apply {args.file}: {exc}")
+                print(
+                    "Nothing was written. Those rows were filled in by a "
+                    "draft, not by you. Read each one and set "
+                    '"confirmed": true — or change the name, or set '
+                    '"skip": true.'
                 )
                 return 1
             after = published_pages(conn)

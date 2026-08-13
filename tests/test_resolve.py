@@ -729,3 +729,85 @@ class TestApplyBatch:
         assert conn.execute(
             "SELECT house_year FROM fragrances WHERE canonical_name = 'Mystery Juice'"
         ).fetchone()[0] == 2021
+
+
+class TestDraftGuard:
+    """A draft is worth having. What it must never be is mistaken for a
+    review.
+
+    On 2026-08-11 a drafted label file was imported as ground truth and
+    overwrote two hand-made labels, one with its subject and object the
+    wrong way round. That was a person mistyping a command, not a bug,
+    which is why the guard lives in the data rather than in a habit.
+    """
+
+    def drafted(self, conn, **overrides):
+        from fragrance_graph.resolve.entities import batch_rows
+
+        other = add_fragrance(conn, "Creed Aventus")
+        for i in range(3):
+            seed_edge(conn, i, mention="mystery juice", other_id=other,
+                      author=f"p{i}", channel=f"UC-{i % 2}")
+        rows = batch_rows(conn)
+        for row in rows:
+            row.canonical_name = "Armaf Club de Nuit Intense Man"
+            row.drafted_by = "model"
+            for key, value in overrides.items():
+                setattr(row, key, value)
+        return rows
+
+    def test_an_unconfirmed_draft_writes_nothing(self, conn):
+        import pytest
+
+        from fragrance_graph.resolve.entities import UnconfirmedDraft, apply_batch
+
+        rows = self.drafted(conn)
+        before = conn.execute("SELECT count(*) FROM fragrances").fetchone()[0]
+        with pytest.raises(UnconfirmedDraft):
+            apply_batch(conn, rows)
+        assert conn.execute(
+            "SELECT count(*) FROM fragrances"
+        ).fetchone()[0] == before
+
+    def test_the_refusal_names_the_rows(self, conn):
+        import pytest
+
+        from fragrance_graph.resolve.entities import UnconfirmedDraft, apply_batch
+
+        with pytest.raises(UnconfirmedDraft, match="mystery juice"):
+            apply_batch(conn, self.drafted(conn))
+
+    def test_a_confirmed_draft_applies(self, conn):
+        from fragrance_graph.resolve.entities import apply_batch
+
+        stats = apply_batch(conn, self.drafted(conn, confirmed=True))
+        assert stats.added == 1
+
+    def test_a_row_a_person_typed_needs_no_confirmation(self, conn):
+        """`drafted_by` empty means a human filled it in; that *is* the
+        confirmation."""
+        from fragrance_graph.resolve.entities import apply_batch
+
+        stats = apply_batch(conn, self.drafted(conn, drafted_by=""))
+        assert stats.added == 1
+
+    def test_a_drafted_skip_needs_no_confirmation(self, conn):
+        """It writes nothing, so there is nothing to stand behind."""
+        from fragrance_graph.resolve.entities import apply_batch
+
+        stats = apply_batch(
+            conn, self.drafted(conn, canonical_name="", skip=True)
+        )
+        assert stats.skipped == 1 and stats.added == 0
+
+    def test_the_flag_survives_the_round_trip(self, conn, tmp_path):
+        """A draft written to disk must still be a draft when read back."""
+        from fragrance_graph.resolve.entities import (
+            read_batch,
+            write_batch,
+        )
+
+        path = tmp_path / "curate.json"
+        write_batch(path, self.drafted(conn))
+        (row,) = read_batch(path)
+        assert row.drafted_by == "model" and row.confirmed is False
