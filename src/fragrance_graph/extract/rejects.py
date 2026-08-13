@@ -26,10 +26,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sqlite3
 from dataclasses import dataclass
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 
 log = logging.getLogger("fragrance_graph.extract.rejects")
 
@@ -56,7 +57,7 @@ class ReasonCount:
     comments: int
 
 
-def report(conn: sqlite3.Connection) -> list[ReasonCount]:
+def report(conn: psycopg.Connection) -> list[ReasonCount]:
     """Rejections grouped by validator message, most frequent first."""
     return [
         ReasonCount(row["reason"], row["n"], row["comments"])
@@ -65,7 +66,7 @@ def report(conn: sqlite3.Connection) -> list[ReasonCount]:
 
 
 def rejected(
-    conn: sqlite3.Connection, *, reason_like: str | None = None, limit: int = 20
+    conn: psycopg.Connection, *, reason_like: str | None = None, limit: int = 20
 ) -> list[dict]:
     """Individual rejections with the comment that produced them.
 
@@ -184,7 +185,7 @@ def classify(entry: dict) -> tuple[str, str | None]:
     return COERCIBLE, determined
 
 
-def recoverable(conn: sqlite3.Connection) -> dict:
+def recoverable(conn: psycopg.Connection) -> dict:
     """How much of the rejected pile a deterministic fix would return.
 
     Answers the question that decides whether the extraction prompt needs
@@ -294,12 +295,12 @@ def main(argv: list[str] | None = None) -> int:
     show.add_argument("--limit", type=int, default=20)
 
     for p in (rep, show, rec):
-        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        p.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         if args.command == "report":

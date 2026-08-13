@@ -220,8 +220,8 @@ def test_candidates_skip_pronouns_and_one_offs(conn):
                     object_kind, raw_object_text, object_frag_id, sentiment,
                     confidence, evidence_span, evidence_verified,
                     extraction_model, created_at)
-                   VALUES (?, 'DUPE_OF', 'FRAGRANCE', ?, 'FRAGRANCE',
-                           'Aventus', ?, 'POSITIVE', 0.9, 'e', 1, 't', 'd')""",
+                   VALUES (%s, 'DUPE_OF', 'FRAGRANCE', %s, 'FRAGRANCE',
+                           'Aventus', %s, 'POSITIVE', 0.9, 'e', 1, 't', 'd')""",
                 (cid, subject, target),
             )
     conn.commit()
@@ -244,8 +244,8 @@ def test_candidates_are_ordered_by_frequency(conn):
                     object_kind, raw_object_text, object_frag_id, sentiment,
                     confidence, evidence_span, evidence_verified,
                     extraction_model, created_at)
-                   VALUES (?, 'DUPE_OF', 'FRAGRANCE', ?, 'FRAGRANCE',
-                           'Aventus', ?, 'POSITIVE', 0.9, 'e', 1, 't', 'd')""",
+                   VALUES (%s, 'DUPE_OF', 'FRAGRANCE', %s, 'FRAGRANCE',
+                           'Aventus', %s, 'POSITIVE', 0.9, 'e', 1, 't', 'd')""",
                 (cid, subject, target),
             )
     conn.commit()
@@ -280,7 +280,7 @@ def test_apply_says_why_nothing_happened(conn, tmp_path, capsys):
     from fragrance_graph.db import get_connection, migrate
     from fragrance_graph.resolve.enrich import main
 
-    db = tmp_path / "e.db"
+    db = conn.info.dsn
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)
@@ -289,7 +289,7 @@ def test_apply_says_why_nothing_happened(conn, tmp_path, capsys):
     review = tmp_path / "r.json"
     write_review(review, [propose_for("Khamrah", 9, [catalogue_row("Lattafa Khamrah")])])
 
-    main(["apply", str(review), "--db-path", str(db)])
+    main(["apply", str(review), "--db-url", db])
     assert "nothing is approved" in capsys.readouterr().out
 
 
@@ -332,8 +332,8 @@ def test_corpus_support_counts_who_actually_wrote_the_word(conn):
                 object_kind, raw_object_text, object_frag_id, sentiment,
                 confidence, evidence_span, evidence_verified,
                 extraction_model, created_at)
-               VALUES (?, 'DUPE_OF', 'FRAGRANCE', ?, 'FRAGRANCE', 'Aventus',
-                       ?, 'POSITIVE', 0.9, 'e', 1, 't', 'd')""",
+               VALUES (%s, 'DUPE_OF', 'FRAGRANCE', %s, 'FRAGRANCE', 'Aventus',
+                       %s, 'POSITIVE', 0.9, 'e', 1, 't', 'd')""",
             (cid, subject, target),
         )
     conn.commit()
@@ -481,8 +481,8 @@ class TestLookupsAreNotWasted:
             " raw_subject_text, object_kind, confidence, polarity,"
             " evidence_span, evidence_verified, extraction_model,"
             " created_at)"
-            " VALUES (?, 'SIMILAR_TO', 'FRAGRANCE', ?, 'NONE', 0.9,"
-            " 'ASSERTED', ?, 1, 'test', '2026-01-01')",
+            " VALUES (%s, 'SIMILAR_TO', 'FRAGRANCE', %s, 'NONE', 0.9,"
+            " 'ASSERTED', %s, 1, 'test', '2026-01-01')",
             (cid, text, f"{text} is nice"),
         )
 

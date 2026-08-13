@@ -47,7 +47,7 @@ def add_comment(conn, i, *, body, author, video, channel=None):
         ],
     )
     return conn.execute(
-        "SELECT id FROM comments WHERE source_id = ?", (f"t1_fake{i:05d}",)
+        "SELECT id FROM comments WHERE source_id = %s", (f"t1_fake{i:05d}",)
     ).fetchone()[0]
 
 
@@ -69,8 +69,8 @@ def add_claim(
              subject_frag_id, object_kind, raw_object_text, object_frag_id,
              sentiment, confidence, evidence_span, evidence_verified,
              polarity, extraction_model, created_at)
-        VALUES (?, ?, 'FRAGRANCE', 'subject', ?, 'FRAGRANCE', 'object', ?,
-                'POSITIVE', 0.9, ?, ?, ?, 'test', '2026-01-01')
+        VALUES (%s, %s, 'FRAGRANCE', 'subject', %s, 'FRAGRANCE', 'object', %s,
+                'POSITIVE', 0.9, %s, %s, %s, 'test', '2026-01-01')
         """,
         (comment_id, claim_type, subject, obj, evidence, verified, polarity),
     )
@@ -261,10 +261,22 @@ def test_pages_never_read_the_commerce_tables(conn, tmp_path):
     pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
     before = render_pair(qualifying_pairs(conn)[0])
 
-    conn.executescript("DROP TABLE IF EXISTS products; DROP TABLE IF EXISTS retailers;")
-    conn.commit()
+    # Dropped and rolled back. Postgres has transactional DDL, so the
+    # tables are gone for the length of this transaction and back
+    # afterwards — which matters now that every test shares one database
+    # rather than getting its own file. Committing the drop took the
+    # commerce tables away from all 24 tests that ran after it.
+    conn.execute("DROP TABLE IF EXISTS products")
+    conn.execute("DROP TABLE IF EXISTS retailers")
+    try:
+        assert render_pair(qualifying_pairs(conn)[0]) == before
+    finally:
+        conn.rollback()
 
-    assert render_pair(qualifying_pairs(conn)[0]) == before
+    assert conn.execute(
+        "SELECT count(*) FROM information_schema.tables"
+        " WHERE table_name IN ('products', 'retailers')"
+    ).fetchone()[0] == 2, "the rollback has to put them back"
 
 
 # --- output stability ------------------------------------------------------
@@ -319,13 +331,14 @@ def discover(conn, video, query, *, run="test-run"):
     queries rather than an error.
     """
     conn.execute(
-        "INSERT OR IGNORE INTO videos (source, video_id) VALUES (?, ?)",
+        "INSERT INTO videos (source, video_id) VALUES (%s, %s)"
+        " ON CONFLICT DO NOTHING",
         (INGEST_SOURCE, video),
     )
     conn.execute(
-        "INSERT OR IGNORE INTO video_discoveries "
+        "INSERT INTO video_discoveries "
         "(source, video_id, retrieval_query, retrieved_at, discovery_run) "
-        "VALUES (?, ?, ?, '2026-08-11', ?)",
+        "VALUES (%s, %s, %s, '2026-08-11', %s) ON CONFLICT DO NOTHING",
         (INGEST_SOURCE, video, query, run),
     )
     conn.commit()
@@ -453,7 +466,7 @@ def test_two_videos_by_one_creator_are_one_source(conn):
             ],
         )
         cid = conn.execute(
-            "SELECT id FROM comments WHERE source_id = ?", (f"t1_fake{i:05d}",)
+            "SELECT id FROM comments WHERE source_id = %s", (f"t1_fake{i:05d}",)
         ).fetchone()[0]
         add_claim(conn, cid, subject=b, obj=a, evidence=f"person {i} wrote this")
 

@@ -87,14 +87,15 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+import psycopg
+
 from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.resolve.enrich import Proposal, names_agree
 
 log = logging.getLogger("fragrance_graph.daily")
@@ -322,7 +323,7 @@ class RunReport:
         return "\n".join(lines)
 
 
-def newly_frequent(conn: sqlite3.Connection, *, limit: int, min_count: int):
+def newly_frequent(conn: psycopg.Connection, *, limit: int, min_count: int):
     """The detector: unresolved mentions people have started writing.
 
     Thin wrapper over `enrich.candidates` so the loop reads in the order
@@ -334,7 +335,7 @@ def newly_frequent(conn: sqlite3.Connection, *, limit: int, min_count: int):
 
 
 def run(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     queries: list[str],
     budget: Budget,
@@ -628,7 +629,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     for p in (r, s, cur, sd):
-        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        p.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -653,7 +654,7 @@ def main(argv: list[str] | None = None) -> int:
         from fragrance_graph.resolve.enrich import apply_review, read_review
         from fragrance_graph.resolve.entities import backfill
 
-        conn = get_connection(args.db_path)
+        conn = get_connection(args.db_url)
         migrate(conn)
         try:
             proposals = read_review(args.review)
@@ -689,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "seeds":
-        conn = get_connection(args.db_path)
+        conn = get_connection(args.db_url)
         migrate(conn)
         try:
             print(render_seed_diversity(conn))
@@ -697,7 +698,7 @@ def main(argv: list[str] | None = None) -> int:
             conn.close()
         return 0
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         report = run(

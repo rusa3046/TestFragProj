@@ -290,7 +290,7 @@ def test_edges_exclude_unverified_evidence(conn):
     add_fragrance(conn, "Baccarat Rouge 540", aliases=["BR540"])
     add_fragrance(conn, "Zara Red Temptation")
     comment_id = seed_claim(conn, subject="Zara Red Temptation", obj="BR540")
-    conn.execute("UPDATE claims SET evidence_verified = 0 WHERE comment_id = ?",
+    conn.execute("UPDATE claims SET evidence_verified = 0 WHERE comment_id = %s",
                  (comment_id,))
     conn.commit()
 
@@ -324,7 +324,7 @@ def test_aliases_are_stored_as_readable_json(conn):
     """A curator must be able to inspect and correct these by hand."""
     frag_id = add_fragrance(conn, "Baccarat Rouge 540", aliases=["BR540", "540 MFK"])
     raw = conn.execute(
-        "SELECT aliases FROM fragrances WHERE id = ?", (frag_id,)
+        "SELECT aliases FROM fragrances WHERE id = %s", (frag_id,)
     ).fetchone()[0]
 
     assert json.loads(raw) == ["540 MFK", "BR540"]
@@ -342,7 +342,7 @@ def seed_edge(conn, i, *, mention, other_id, author, channel,
         raw_json=json.dumps({"author": author, "videoId": f"vid-{channel}"}),
     )])
     comment_id = conn.execute(
-        "SELECT id FROM comments WHERE source_id = ?", (f"t1_fake{i:05d}",)
+        "SELECT id FROM comments WHERE source_id = %s", (f"t1_fake{i:05d}",)
     ).fetchone()[0]
     conn.execute(
         """
@@ -351,8 +351,8 @@ def seed_edge(conn, i, *, mention, other_id, author, channel,
              subject_frag_id, object_kind, raw_object_text, object_frag_id,
              sentiment, confidence, evidence_span, evidence_verified,
              polarity, extraction_model, created_at)
-        VALUES (?, ?, 'FRAGRANCE', ?, NULL, 'FRAGRANCE', 'other', ?,
-                'POSITIVE', 0.9, ?, 1, 'ASSERTED', 'test', '2026-01-01')
+        VALUES (%s, %s, 'FRAGRANCE', %s, NULL, 'FRAGRANCE', 'other', %s,
+                'POSITIVE', 0.9, %s, 1, 'ASSERTED', 'test', '2026-01-01')
         """,
         (comment_id, claim_type, mention, other_id, body),
     )
@@ -633,7 +633,7 @@ class TestApplyBatch:
         assert stats.added == 0 and stats.aliased == 1
         assert conn.execute("SELECT count(*) FROM fragrances").fetchone()[0] == 2
         aliases = json.loads(conn.execute(
-            "SELECT aliases FROM fragrances WHERE id = ?", (existing,)
+            "SELECT aliases FROM fragrances WHERE id = %s", (existing,)
         ).fetchone()[0])
         assert "Detour" in aliases
 
@@ -710,7 +710,7 @@ class TestApplyBatch:
             brand="Fragrance World",
         ))
         aliases = json.loads(conn.execute(
-            "SELECT aliases FROM fragrances WHERE canonical_name = ?",
+            "SELECT aliases FROM fragrances WHERE canonical_name = %s",
             ("Fragrance World Liquid Brun",),
         ).fetchone()[0])
         assert "liquid brun" in aliases and "LIQUID BRUN" in aliases

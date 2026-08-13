@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sqlite3
 from dataclasses import dataclass
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.models import evidence_is_quoted
 
 log = logging.getLogger("fragrance_graph.extract.verify")
@@ -63,7 +64,7 @@ class VerifyStats:
         )
 
 
-def reverify(conn: sqlite3.Connection, *, dry_run: bool = False) -> VerifyStats:
+def reverify(conn: psycopg.Connection, *, dry_run: bool = False) -> VerifyStats:
     """Recompute `evidence_verified` for every stored claim.
 
     Reports promotions and demotions separately. A demotion is the
@@ -91,8 +92,8 @@ def reverify(conn: sqlite3.Connection, *, dry_run: bool = False) -> VerifyStats:
         updates.append((int(after), row["id"]))
 
     if updates and not dry_run:
-        conn.executemany(
-            "UPDATE claims SET evidence_verified = ? WHERE id = ?", updates
+        conn.cursor().executemany(
+            "UPDATE claims SET evidence_verified = %s WHERE id = %s", updates
         )
         conn.commit()
 
@@ -103,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Re-check stored evidence spans against their comment bodies."
     )
-    parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL)
     parser.add_argument(
         "--dry-run", action="store_true", help="Report without writing changes"
     )
@@ -115,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s %(message)s",
     )
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         stats = reverify(conn, dry_run=args.dry_run)

@@ -41,14 +41,15 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import sys
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+import psycopg
+
 from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.resolve.entities import add_fragrance, unresolved_mentions
 from fragrance_graph.resolve.names import debranded, normalize_name, similarity
 
@@ -121,7 +122,7 @@ def is_unnameable(text: str) -> bool:
     return bool(words) and all(w in GENERIC_WORDS for w in words)
 
 
-def house_names(conn: sqlite3.Connection) -> set[str]:
+def house_names(conn: psycopg.Connection) -> set[str]:
     """Normalised brand names, and the distinctive tail of each.
 
     A bare house is not a bottle. Searching one returns whichever of its
@@ -258,7 +259,7 @@ def names_agree(mention: str, candidate: str, brand: str = "") -> bool:
 
 
 def corpus_support(
-    conn: sqlite3.Connection, words: list[str], *, mention: str = ""
+    conn: psycopg.Connection, words: list[str], *, mention: str = ""
 ) -> int:
     """Mentions containing the distinguishing words **and the mention**.
 
@@ -299,13 +300,13 @@ def corpus_support(
 EXAMPLES_SQL = """
 SELECT DISTINCT c.evidence_span AS span
   FROM claims c
- WHERE c.raw_subject_text = :mention OR c.raw_object_text = :mention
+ WHERE c.raw_subject_text = %(mention)s OR c.raw_object_text = %(mention)s
  ORDER BY length(c.evidence_span) DESC
  LIMIT 2
 """
 
 
-def examples_for(conn: sqlite3.Connection, mention: str) -> list[str]:
+def examples_for(conn: psycopg.Connection, mention: str) -> list[str]:
     """Real spans using this mention, longest first.
 
     Longest rather than most recent: a longer span carries more context,
@@ -376,7 +377,7 @@ def propose_for(
 
 
 def candidates(
-    conn: sqlite3.Connection, limit: int, *, min_count: int = 2
+    conn: psycopg.Connection, limit: int, *, min_count: int = 2
 ) -> list[tuple[str, int]]:
     """Unresolved mentions worth spending a lookup on, most frequent first.
 
@@ -460,7 +461,7 @@ LOOKUP_COST_USD = 0.05
 
 
 def propose(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     out_path: Path,
     *,
     limit: int,
@@ -545,7 +546,7 @@ class ApplyStats:
         )
 
 
-def claimed_names(conn: sqlite3.Connection) -> set[str]:
+def claimed_names(conn: psycopg.Connection) -> set[str]:
     """Every name an existing fragrance already answers to, de-branded.
 
     Checking canonical names alone was not enough, and the gap wrote a
@@ -580,7 +581,7 @@ def claimed_names(conn: sqlite3.Connection) -> set[str]:
     return names
 
 
-def apply_review(conn: sqlite3.Connection, proposals: list[Proposal]) -> ApplyStats:
+def apply_review(conn: psycopg.Connection, proposals: list[Proposal]) -> ApplyStats:
     """Add the approved proposals as fragrances.
 
     `approved` starts as null and nothing is written until a human sets it.
@@ -644,12 +645,12 @@ def main(argv: list[str] | None = None) -> int:
     app.add_argument("review", type=Path)
 
     for p in (prop, app):
-        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        p.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         if args.command == "propose":

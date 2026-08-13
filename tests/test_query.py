@@ -35,7 +35,7 @@ def add_comment(conn, i, *, body, author):
         ],
     )
     return conn.execute(
-        "SELECT id FROM comments WHERE source_id = ?", (f"t1_fake{i:05d}",)
+        "SELECT id FROM comments WHERE source_id = %s", (f"t1_fake{i:05d}",)
     ).fetchone()[0]
 
 
@@ -58,8 +58,8 @@ def add_claim(
              subject_frag_id, object_kind, raw_object_text, object_frag_id,
              sentiment, confidence, evidence_span, evidence_verified,
              extraction_model, created_at)
-        VALUES (?, ?, 'FRAGRANCE', 'subject', ?, 'FRAGRANCE', 'object', ?,
-                ?, ?, ?, ?, 'test', '2026-01-01')
+        VALUES (%s, %s, 'FRAGRANCE', 'subject', %s, 'FRAGRANCE', 'object', %s,
+                %s, %s, %s, %s, 'test', '2026-01-01')
         """,
         (comment_id, claim_type, subject, obj, sentiment, confidence,
          evidence, verified),
@@ -120,7 +120,7 @@ def test_unknown_authors_count_as_separate_people(conn):
     for i in range(3):
         ingest(conn, [make_comment(i, body="x", raw_json="{}")])
         cid = conn.execute(
-            "SELECT id FROM comments WHERE source_id = ?", (f"t1_fake{i:05d}",)
+            "SELECT id FROM comments WHERE source_id = %s", (f"t1_fake{i:05d}",)
         ).fetchone()[0]
         add_claim(conn, cid, subject=other, obj=target)
 
@@ -238,8 +238,8 @@ def test_unresolved_edges_are_not_answers(conn):
              subject_frag_id, object_kind, raw_object_text, object_frag_id,
              sentiment, confidence, evidence_span, evidence_verified,
              extraction_model, created_at)
-        VALUES (?, 'SIMILAR_TO', 'FRAGRANCE', 'some unresolved thing', NULL,
-                'FRAGRANCE', 'Oud Wood', ?, 'POSITIVE', 0.9, 'e', 1,
+        VALUES (%s, 'SIMILAR_TO', 'FRAGRANCE', 'some unresolved thing', NULL,
+                'FRAGRANCE', 'Oud Wood', %s, 'POSITIVE', 0.9, 'e', 1,
                 'test', '2026-01-01')
         """,
         (cid, target),
@@ -333,8 +333,8 @@ def test_rollup_reports_per_type_as_well_as_overall(conn):
                  subject_frag_id, object_kind, raw_object_text, object_frag_id,
                  sentiment, confidence, evidence_span, evidence_verified,
                  extraction_model, created_at)
-            VALUES (?, ?, 'FRAGRANCE', 'Delina', ?, 'NONE', NULL, NULL,
-                    ?, 0.9, 'e', 1, 'test', '2026-01-01')
+            VALUES (%s, %s, 'FRAGRANCE', 'Delina', %s, 'NONE', NULL, NULL,
+                    %s, 0.9, 'e', 1, 'test', '2026-01-01')
             """,
             (cid, ct, frag, s),
         )
@@ -503,7 +503,7 @@ def ranked_corpus(conn):
     i = 0
     for name, authors in support.items():
         other = conn.execute(
-            "SELECT id FROM fragrances WHERE canonical_name = ?", (name,)
+            "SELECT id FROM fragrances WHERE canonical_name = %s", (name,)
         ).fetchone()["id"]
         for author in authors:
             cid = add_comment(conn, i, body="x", author=author)
@@ -570,7 +570,7 @@ def test_a_fragrance_with_no_buying_link_ranks_as_high_as_one_with_three(conn):
          ("Zara Vibrant Leather", "dave")]
     ):
         other = conn.execute(
-            "SELECT id FROM fragrances WHERE canonical_name = ?", (name,)
+            "SELECT id FROM fragrances WHERE canonical_name = %s", (name,)
         ).fetchone()["id"]
         cid = add_comment(conn, i, body="x", author=author)
         add_claim(conn, cid, subject=other, obj=target)
@@ -676,13 +676,13 @@ def test_cli_reports_an_unknown_fragrance(conn, tmp_path, capsys):
     from fragrance_graph.db import get_connection, migrate
     from fragrance_graph.query import main
 
-    db = tmp_path / "cli.db"
+    db = conn.info.dsn
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)
     fresh.close()
 
-    assert main(["Nonexistent", "--db-path", str(db)]) == 1
+    assert main(["Nonexistent", "--db-url", db]) == 1
     assert "No fragrance matches" in capsys.readouterr().out
 
 
@@ -720,7 +720,7 @@ def test_sources_counts_distinct_threads(conn):
         ingest(conn, [make_comment(i, body="x", permalink=f"https://e.test/{i}",
                                    raw_json=json.dumps({"author": author,
                                                         "videoId": video}))])
-        cid = conn.execute("SELECT id FROM comments WHERE source_id = ?",
+        cid = conn.execute("SELECT id FROM comments WHERE source_id = %s",
                            (f"t1_fake{i:05d}",)).fetchone()[0]
         add_claim(conn, cid, subject=other, obj=target)
 
@@ -739,7 +739,7 @@ def test_min_sources_hides_single_thread_consensus(conn):
         ingest(conn, [make_comment(i, body="x", permalink=f"https://e.test/{i}",
                                    raw_json=json.dumps({"author": author,
                                                         "videoId": "one"}))])
-        cid = conn.execute("SELECT id FROM comments WHERE source_id = ?",
+        cid = conn.execute("SELECT id FROM comments WHERE source_id = %s",
                            (f"t1_fake{i:05d}",)).fetchone()[0]
         add_claim(conn, cid, subject=echo, obj=target)
 
@@ -747,7 +747,7 @@ def test_min_sources_hides_single_thread_consensus(conn):
         ingest(conn, [make_comment(i, body="x", permalink=f"https://e.test/{i}",
                                    raw_json=json.dumps({"author": author,
                                                         "videoId": vid}))])
-        cid = conn.execute("SELECT id FROM comments WHERE source_id = ?",
+        cid = conn.execute("SELECT id FROM comments WHERE source_id = %s",
                            (f"t1_fake{i:05d}",)).fetchone()[0]
         add_claim(conn, cid, subject=spread, obj=target)
 
@@ -764,7 +764,7 @@ def test_evidence_carries_its_source(conn):
     ingest(conn, [make_comment(1, body="x", permalink="https://e.test/1",
                                raw_json=json.dumps({"author": "a",
                                                     "videoId": "abc123"}))])
-    cid = conn.execute("SELECT id FROM comments WHERE source_id = ?",
+    cid = conn.execute("SELECT id FROM comments WHERE source_id = %s",
                        ("t1_fake00001",)).fetchone()[0]
     add_claim(conn, cid, subject=other, obj=target)
 

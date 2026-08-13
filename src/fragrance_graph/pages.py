@@ -76,12 +76,13 @@ import argparse
 import html
 import logging
 import re
-import sqlite3
 from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.gate import (
     MIN_COMMENTERS,
     MIN_FLANKER_COMMENTERS,
@@ -213,7 +214,7 @@ class Bottle:
 
 
 def bottle_facts(
-    conn: sqlite3.Connection, casing: dict[str, str] | None = None
+    conn: psycopg.Connection, casing: dict[str, str] | None = None
 ) -> dict[str, Bottle]:
     """Every curated fragrance, keyed by the name a page will display."""
     casing = brand_casing(conn) if casing is None else casing
@@ -615,7 +616,7 @@ def reverse_indexes(
     )
 
 
-def brand_casing(conn: sqlite3.Connection) -> dict[str, str]:
+def brand_casing(conn: psycopg.Connection) -> dict[str, str]:
     """The casing each brand is written in, by majority of curated rows.
 
     Curation is many sessions by hand and by catalogue, so a house arrives
@@ -670,7 +671,7 @@ def slugify(name: str) -> str:
 
 
 def qualifying_pairs(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     min_commenters: int = MIN_COMMENTERS,
     min_sources: int = MIN_SOURCES,
@@ -774,7 +775,7 @@ def qualifying_pairs(
     return sorted(found.values(), key=lambda p: (-p.commenters, -p.sources, p.slug))
 
 
-def held_as_flankers(conn: sqlite3.Connection, **kwargs) -> list[Pair]:
+def held_as_flankers(conn: psycopg.Connection, **kwargs) -> list[Pair]:
     """Pairs the general gate would publish and the flanker bar holds back.
 
     Raising a bar is a decision about which pages stop existing, and that
@@ -789,7 +790,7 @@ def held_as_flankers(conn: sqlite3.Connection, **kwargs) -> list[Pair]:
 
 
 def _rows_between(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     casing: dict[str, str],
     asked_id: int,
     other_id: int,
@@ -814,7 +815,7 @@ def _rows_between(
     )
 
 
-def queries_behind(conn: sqlite3.Connection, pair: Pair) -> list[str]:
+def queries_behind(conn: psycopg.Connection, pair: Pair) -> list[str]:
     """The searches that retrieved the videos backing a pair.
 
     Reporting only. The count is what a gate would read; the names are what
@@ -828,8 +829,8 @@ def queries_behind(conn: sqlite3.Connection, pair: Pair) -> list[str]:
           JOIN video_discoveries d
             ON d.source = co.source AND d.video_id = co.video_id
          WHERE c.evidence_verified = 1 AND c.polarity = 'ASSERTED'
-           AND ((c.subject_frag_id = :a AND c.object_frag_id = :b)
-             OR (c.subject_frag_id = :b AND c.object_frag_id = :a))
+           AND ((c.subject_frag_id = %(a)s AND c.object_frag_id = %(b)s)
+             OR (c.subject_frag_id = %(b)s AND c.object_frag_id = %(a)s))
          ORDER BY d.retrieval_query
         """,
         {"a": pair.left_id, "b": pair.right_id},
@@ -1162,7 +1163,7 @@ def render_index(
 
 
 def build(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     out_dir: Path,
     *,
     min_commenters: int = MIN_COMMENTERS,
@@ -1223,7 +1224,7 @@ def build(
     return pairs
 
 
-def _report_flanker_holds(conn: sqlite3.Connection, **kwargs) -> None:
+def _report_flanker_holds(conn: psycopg.Connection, **kwargs) -> None:
     """Name every page the flanker bar is keeping off the site.
 
     Printed on every run rather than kept in a report someone has to think
@@ -1275,12 +1276,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     for parser_ in (b, p):
-        parser_.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        parser_.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         if args.command == "pairs":

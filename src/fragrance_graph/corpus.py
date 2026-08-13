@@ -27,11 +27,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.models import author_from_payload, video_from_payload
 
 log = logging.getLogger("fragrance_graph.corpus")
@@ -243,7 +244,7 @@ def shrinking(directory: Path, counts: dict[str, int]) -> dict[str, tuple[int, i
 
 
 def export_corpus(
-    conn: sqlite3.Connection, directory: Path, *, force: bool = False
+    conn: psycopg.Connection, directory: Path, *, force: bool = False
 ) -> CorpusStats:
     """Write the corpus to `directory` as JSONL files.
 
@@ -336,7 +337,7 @@ def export_corpus(
     return stats
 
 
-def extra_fragrances(conn: sqlite3.Connection, directory: Path) -> list[str]:
+def extra_fragrances(conn: psycopg.Connection, directory: Path) -> list[str]:
     """Fragrances in the database that the committed corpus does not have.
 
     Import upserts and never deletes, so a row removed from the corpus
@@ -364,7 +365,7 @@ def extra_fragrances(conn: sqlite3.Connection, directory: Path) -> list[str]:
 
 
 def import_corpus(
-    conn: sqlite3.Connection, directory: Path, *, prune: bool = False
+    conn: psycopg.Connection, directory: Path, *, prune: bool = False
 ) -> CorpusStats:
     """Rebuild the corpus from `directory`. Safe to re-run.
 
@@ -390,7 +391,7 @@ def import_corpus(
             # back to being an unresolved mention, which is where a name
             # the corpus no longer recognises belongs. The claim itself is
             # never deleted — it was paid for.
-            placeholders = ",".join("?" * len(extras))
+            placeholders = ",".join("%s" for _ in extras)
             ids = [
                 row["id"]
                 for row in conn.execute(
@@ -400,15 +401,15 @@ def import_corpus(
                 )
             ]
             if ids:
-                marks = ",".join("?" * len(ids))
+                marks = ",".join("%s" for _ in ids)
                 for column in ("subject_frag_id", "object_frag_id"):
                     conn.execute(
                         f"UPDATE claims SET {column} = NULL "
                         f"WHERE {column} IN ({marks})",
                         ids,
                     )
-            conn.executemany(
-                "DELETE FROM fragrances WHERE canonical_name = ?",
+            conn.cursor().executemany(
+                "DELETE FROM fragrances WHERE canonical_name = %s",
                 [(name,) for name in extras],
             )
             log.warning(
@@ -427,19 +428,19 @@ def import_corpus(
     for record in _read_jsonl(directory / FRAGRANCES_FILE):
         aliases = json.dumps(sorted(set(record.get("aliases") or [])))
         existing = conn.execute(
-            "SELECT id FROM fragrances WHERE canonical_name = ?",
+            "SELECT id FROM fragrances WHERE canonical_name = %s",
             (record["canonical_name"],),
         ).fetchone()
         if existing:
             conn.execute(
-                "UPDATE fragrances SET brand = ?, house_year = ?, aliases = ? "
-                "WHERE id = ?",
+                "UPDATE fragrances SET brand = %s, house_year = %s, aliases = %s "
+                "WHERE id = %s",
                 (record.get("brand"), record.get("house_year"), aliases, existing["id"]),
             )
         else:
             conn.execute(
                 "INSERT INTO fragrances (canonical_name, brand, house_year, aliases) "
-                "VALUES (?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s)",
                 (
                     record["canonical_name"],
                     record.get("brand"),
@@ -458,7 +459,7 @@ def import_corpus(
     # to add a field already present in one of them.
     columns = (*COMMENT_FIELDS, "author_id", "video_id")
     for record in _read_jsonl(directory / COMMENTS_FILE):
-        placeholders = ", ".join("?" for _ in columns)
+        placeholders = ", ".join("%s" for _ in columns)
         payload = json.loads(record["raw_json"] or "{}")
         author = author_from_payload(payload)
         video = video_from_payload(payload)
@@ -477,15 +478,16 @@ def import_corpus(
     # ingest would. Rows in videos.jsonl below overwrite these with real
     # metadata where we have it.
     conn.execute(
-        "INSERT OR IGNORE INTO videos (source, video_id) "
+        "INSERT INTO videos (source, video_id) "
         "SELECT DISTINCT source, video_id FROM comments "
-        "WHERE video_id IS NOT NULL AND video_id <> ''"
+        "WHERE video_id IS NOT NULL AND video_id <> '' "
+        "ON CONFLICT DO NOTHING"
     )
 
     for record in _read_jsonl(directory / VIDEOS_FILE):
         conn.execute(
             f"INSERT INTO videos ({', '.join(VIDEO_FIELDS)}) "
-            f"VALUES ({', '.join('?' for _ in VIDEO_FIELDS)}) "
+            f"VALUES ({', '.join('%s' for _ in VIDEO_FIELDS)}) "
             "ON CONFLICT (source, video_id) DO UPDATE SET "
             "title = excluded.title, channel_id = excluded.channel_id, "
             "channel_title = excluded.channel_title, "
@@ -497,9 +499,10 @@ def import_corpus(
 
     for record in _read_jsonl(directory / DISCOVERIES_FILE):
         conn.execute(
-            f"INSERT OR IGNORE INTO video_discoveries "
+            f"INSERT INTO video_discoveries "
             f"({', '.join(DISCOVERY_FIELDS)}) "
-            f"VALUES ({', '.join('?' for _ in DISCOVERY_FIELDS)})",
+            f"VALUES ({', '.join('%s' for _ in DISCOVERY_FIELDS)}) "
+            f"ON CONFLICT DO NOTHING",
             tuple(record[field] for field in DISCOVERY_FIELDS),
         )
         stats.discoveries += 1
@@ -521,7 +524,7 @@ def import_corpus(
         )
         if key in comment_ids
     }:
-        conn.execute("DELETE FROM claims WHERE comment_id = ?", (comment_id,))
+        conn.execute("DELETE FROM claims WHERE comment_id = %s", (comment_id,))
 
     skipped = 0
     for record in claims:
@@ -559,7 +562,7 @@ def import_corpus(
         ]
         conn.execute(
             f"INSERT INTO claims ({', '.join(columns)}) "
-            f"VALUES ({', '.join('?' for _ in columns)})",
+            f"VALUES ({', '.join('%s' for _ in columns)})",
             values,
         )
         stats.claims += 1
@@ -576,7 +579,7 @@ def import_corpus(
         if key in comment_ids
     }:
         conn.execute(
-            "DELETE FROM rejected_claims WHERE comment_id = ?", (comment_id,)
+            "DELETE FROM rejected_claims WHERE comment_id = %s", (comment_id,)
         )
 
     for record in rejects:
@@ -588,7 +591,7 @@ def import_corpus(
         columns = ["comment_id", *REJECT_FIELDS]
         conn.execute(
             f"INSERT INTO rejected_claims ({', '.join(columns)}) "
-            f"VALUES ({', '.join('?' for _ in columns)})",
+            f"VALUES ({', '.join('%s' for _ in columns)})",
             [comment_id, *(record.get(f) for f in REJECT_FIELDS)],
         )
         stats.rejects += 1
@@ -601,7 +604,7 @@ def import_corpus(
             continue
         conn.execute(
             "INSERT INTO eval_labels (comment_id, labeled_json, labeler, created_at) "
-            "VALUES (?, ?, ?, ?) "
+            "VALUES (%s, %s, %s, %s) "
             "ON CONFLICT (comment_id, labeler) DO UPDATE SET "
             "labeled_json = excluded.labeled_json, created_at = excluded.created_at",
             (
@@ -655,13 +658,13 @@ def main(argv: list[str] | None = None) -> int:
 
     for name in ("export", "import"):
         p = sub.choices[name]
-        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        p.add_argument("--db-url", default=DEFAULT_DB_URL)
         p.add_argument("--dir", type=Path, default=DEFAULT_CORPUS_DIR)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         if args.command == "export":

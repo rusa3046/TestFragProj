@@ -28,9 +28,10 @@ from __future__ import annotations
 import argparse
 import logging
 import re
-import sqlite3
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, Row, get_connection, migrate
 
 log = logging.getLogger("fragrance_graph.extract.polarity")
 
@@ -65,7 +66,7 @@ SELECT c.id, c.claim_type, c.polarity, c.sentiment, c.evidence_span,
 """
 
 
-def suspects(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def suspects(conn: psycopg.Connection) -> list[Row]:
     """Comparison claims whose evidence reads like a denial."""
     return [
         row
@@ -74,7 +75,7 @@ def suspects(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ]
 
 
-def audit(conn: sqlite3.Connection) -> dict[str, list[sqlite3.Row]]:
+def audit(conn: psycopg.Connection) -> dict[str, list[Row]]:
     """Split flagged rows by whether the extractor already caught them.
 
     `missed` is the list that matters: evidence that reads as a denial but
@@ -88,7 +89,7 @@ def audit(conn: sqlite3.Connection) -> dict[str, list[sqlite3.Row]]:
     }
 
 
-def denied_without_flag(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def denied_without_flag(conn: psycopg.Connection) -> list[Row]:
     """Claims the model called denials that the regex did not flag.
 
     These are the interesting ones in the other direction: either the model
@@ -104,7 +105,7 @@ def denied_without_flag(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ]
 
 
-def render(row: sqlite3.Row) -> str:
+def render(row: Row) -> str:
     return "\n".join(
         [
             f"  [{row['claim_type']}/{row['polarity']}/{row['sentiment']}] "
@@ -120,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Check whether the extractor is recording denials as denials."
     )
     parser.add_argument("command", choices=["audit"], nargs="?", default="audit")
-    parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL)
     parser.add_argument(
         "--show-caught",
         action="store_true",
@@ -129,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         result = audit(conn)

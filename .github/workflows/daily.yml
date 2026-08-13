@@ -43,14 +43,35 @@ jobs:
     timeout-minutes: 30
     # Job-level, so every step reads and writes the *same* database.
     # Setting it only on the step that runs the loop meant the rebuild
-    # populated the default path while the loop used data/, so the loop
-    # ran against an empty database: no fragrances, nothing resolvable,
-    # and an export that would have committed a corpus with 65 hand
-    # labels and 56 curated bottles deleted. The export guard refused it,
-    # which is the only reason this was a wasted run rather than a
-    # destroyed corpus.
+    # populated one database while the loop read another, so the loop ran
+    # against an empty one: no fragrances, nothing resolvable, and an
+    # export that would have committed a corpus with 65 hand labels and
+    # 56 curated bottles deleted. The export guard refused it, which is
+    # the only reason that was a wasted run rather than a destroyed
+    # corpus.
     env:
-      FRAGRANCE_DB_PATH: data/fragrance_graph.db
+      FRAGRANCE_DB_URL: postgresql://postgres:postgres@localhost:5432/fragrance_graph
+    # A throwaway server for the length of the run. The database is
+    # derived: `corpus import` rebuilds it from the committed JSONL in
+    # seconds, and nothing in it outlives the job. Which is why no volume
+    # is mounted and no backup exists — the corpus *is* the backup.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fragrance_graph
+        ports:
+          - 5432:5432
+        # Without this the first step races the server's startup and
+        # fails with "connection refused" perhaps one run in five, which
+        # is the worst possible failure rate: too rare to fix, too common
+        # to trust.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -67,21 +88,24 @@ jobs:
           uv run python -m fragrance_graph.corpus import
 
       - name: Check the rebuild actually landed
-        # A database on the wrong path imports fine and reports success,
-        # so "import succeeded" is not evidence the loop will see the
-        # data. This asserts the corpus is present where the loop reads.
+        # An import into the wrong database reports success just as
+        # cheerfully, so "import succeeded" is not evidence the loop will
+        # see the data. This asserts the corpus is where the loop reads.
         run: |
           uv run python -c "
-          import sqlite3, sys
+          import sys
+
+          import psycopg
+
           from fragrance_graph.db import get_connection
           try:
-              c = get_connection('data/fragrance_graph.db')
+              c = get_connection()
               n = c.execute('select count(*) from fragrances').fetchone()[0]
               labels = c.execute('select count(*) from eval_labels').fetchone()[0]
-          except sqlite3.OperationalError as exc:
-              sys.exit(f'Rebuild did not land at data/fragrance_graph.db ({exc}). '
+          except (psycopg.OperationalError, psycopg.errors.UndefinedTable) as exc:
+              sys.exit(f'Rebuild did not land ({exc}). '
                        'The import step wrote somewhere else — check '
-                       'FRAGRANCE_DB_PATH is set for every step.')
+                       'FRAGRANCE_DB_URL is set for every step.')
           print(f'{n} fragrances, {labels} eval labels')
           if not n:
               sys.exit('Rebuild did not land: no fragrances. Refusing to run '

@@ -58,11 +58,12 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, Row, get_connection, migrate
 
 log = logging.getLogger("fragrance_graph.query")
 
@@ -203,11 +204,11 @@ SELECT c.id            AS claim_id,
   FROM claims c
   JOIN comments   co ON co.id = c.comment_id
   JOIN fragrances f  ON f.id = c.object_frag_id
- WHERE c.subject_frag_id = :fragrance_id
+ WHERE c.subject_frag_id = %(fragrance_id)s
    AND c.evidence_verified = 1
    AND c.polarity = 'ASSERTED'
    AND c.claim_type IN ({_sql_list(RELATED_TYPES)})
-   AND f.id <> :fragrance_id
+   AND f.id <> %(fragrance_id)s
 
 UNION ALL
 
@@ -220,11 +221,11 @@ SELECT c.id, c.claim_type, c.sentiment, c.evidence_span, c.confidence,
   FROM claims c
   JOIN comments   co ON co.id = c.comment_id
   JOIN fragrances f  ON f.id = c.subject_frag_id
- WHERE c.object_frag_id = :fragrance_id
+ WHERE c.object_frag_id = %(fragrance_id)s
    AND c.evidence_verified = 1
    AND c.polarity = 'ASSERTED'
    AND c.claim_type IN ({_sql_list(SYMMETRIC_TYPES)})
-   AND f.id <> :fragrance_id
+   AND f.id <> %(fragrance_id)s
 """
 
 
@@ -256,8 +257,8 @@ SELECT co.author_id AS author_id,
    AND c.polarity = 'ASSERTED'
    AND c.claim_type IN ({_sql_list(RELATED_TYPES)})
    AND (
-        (c.subject_frag_id = :a AND c.object_frag_id  = :b)
-     OR (c.subject_frag_id = :b AND c.object_frag_id  = :a)
+        (c.subject_frag_id = %(a)s AND c.object_frag_id  = %(b)s)
+     OR (c.subject_frag_id = %(b)s AND c.object_frag_id  = %(a)s)
    )
 """
 
@@ -308,7 +309,7 @@ class PairEvidence:
     videos_without_provenance: int
 
 
-def pair_stats(conn: sqlite3.Connection, a_id: int, b_id: int) -> PairEvidence:
+def pair_stats(conn: psycopg.Connection, a_id: int, b_id: int) -> PairEvidence:
     """How many people, places and searches connect two bottles.
 
     Direction-blind and claim-type-blind, because the question a page asks
@@ -328,7 +329,7 @@ def pair_stats(conn: sqlite3.Connection, a_id: int, b_id: int) -> PairEvidence:
             r["retrieval_query"]
             for r in conn.execute(
                 "SELECT DISTINCT retrieval_query FROM video_discoveries "
-                "WHERE source = ? AND video_id = ?",
+                "WHERE source = %s AND video_id = %s",
                 (source, video_id),
             )
         }
@@ -340,7 +341,7 @@ def pair_stats(conn: sqlite3.Connection, a_id: int, b_id: int) -> PairEvidence:
     )
 
 
-def _commenter_key(row: sqlite3.Row) -> str:
+def _commenter_key(row: Row) -> str:
     """Who wrote this, for distinct-person counting.
 
     An empty author falls back to the comment id, so unknown authors are
@@ -350,7 +351,7 @@ def _commenter_key(row: sqlite3.Row) -> str:
 
 
 def similar_to(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     fragrance_id: int,
     *,
     limit: int = 20,
@@ -376,7 +377,7 @@ def similar_to(
     """
     rows = conn.execute(EDGES_SQL, {"fragrance_id": fragrance_id}).fetchall()
 
-    grouped: dict[tuple[int, str], list[sqlite3.Row]] = {}
+    grouped: dict[tuple[int, str], list[Row]] = {}
     # Distinct people per *pair*, ignoring claim type, so a page can state
     # how many humans connected two bottles without adding up rows that
     # share people.
@@ -423,7 +424,7 @@ def similar_to(
     return results[:limit]
 
 
-def _pick_evidence(rows: list[sqlite3.Row], quotes: int) -> list[Evidence]:
+def _pick_evidence(rows: list[Row], quotes: int) -> list[Evidence]:
     """Up to `quotes` spans, each from a different person where possible.
 
     One commenter's three sentences look like three people agreeing to a
@@ -459,7 +460,7 @@ SELECT c.claim_type AS claim_type, c.sentiment AS sentiment,
                            ELSE 'comment:' || co.id END) AS commenters
   FROM claims c
   JOIN comments co ON co.id = c.comment_id
- WHERE c.subject_frag_id = :fragrance_id
+ WHERE c.subject_frag_id = %(fragrance_id)s
    AND c.evidence_verified = 1
    AND c.polarity = 'ASSERTED'
  GROUP BY c.claim_type, c.sentiment
@@ -482,7 +483,7 @@ class SentimentRollup:
 
 
 def sentiment_rollup(
-    conn: sqlite3.Connection, fragrance_id: int
+    conn: psycopg.Connection, fragrance_id: int
 ) -> SentimentRollup | None:
     """Roll every verified claim about a fragrance up to the bottle.
 
@@ -496,7 +497,7 @@ def sentiment_rollup(
     fragrance's rivals colour its own summary.
     """
     row = conn.execute(
-        "SELECT id, canonical_name FROM fragrances WHERE id = ?", (fragrance_id,)
+        "SELECT id, canonical_name FROM fragrances WHERE id = %s", (fragrance_id,)
     ).fetchone()
     if row is None:
         return None
@@ -519,11 +520,11 @@ def sentiment_rollup(
     )
 
 
-def find_fragrance(conn: sqlite3.Connection, needle: str) -> sqlite3.Row | None:
+def find_fragrance(conn: psycopg.Connection, needle: str) -> Row | None:
     """Look up a fragrance by id, exact name, or curated alias."""
     if needle.isdigit():
         row = conn.execute(
-            "SELECT id, canonical_name FROM fragrances WHERE id = ?", (int(needle),)
+            "SELECT id, canonical_name FROM fragrances WHERE id = %s", (int(needle),)
         ).fetchone()
         if row:
             return row
@@ -535,7 +536,7 @@ def find_fragrance(conn: sqlite3.Connection, needle: str) -> sqlite3.Row | None:
     if match is None:
         return None
     return conn.execute(
-        "SELECT id, canonical_name FROM fragrances WHERE id = ?",
+        "SELECT id, canonical_name FROM fragrances WHERE id = %s",
         (match.fragrance_id,),
     ).fetchone()
 
@@ -585,11 +586,11 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
         help="Hide results backed by fewer than N distinct creators/channels",
     )
-    parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         row = find_fragrance(conn, args.fragrance)

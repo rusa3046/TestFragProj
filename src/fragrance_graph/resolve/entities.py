@@ -27,12 +27,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sqlite3
 from collections import Counter
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, Row, get_connection, migrate
 from fragrance_graph.gate import MIN_COMMENTERS, MIN_SOURCES
 from fragrance_graph.resolve.names import (
     Candidate,
@@ -46,7 +47,7 @@ from fragrance_graph.resolve.names import (
 log = logging.getLogger("fragrance_graph.resolve.entities")
 
 
-def load_candidates(conn: sqlite3.Connection) -> list[Candidate]:
+def load_candidates(conn: psycopg.Connection) -> list[Candidate]:
     """Every canonical fragrance, with the names it answers to."""
     candidates = []
     for row in conn.execute("SELECT id, canonical_name, aliases FROM fragrances"):
@@ -60,7 +61,7 @@ def load_candidates(conn: sqlite3.Connection) -> list[Candidate]:
 
 
 def add_fragrance(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     canonical_name: str,
     *,
     brand: str | None = None,
@@ -75,7 +76,7 @@ def add_fragrance(
     """
     cur = conn.execute(
         "INSERT INTO fragrances (canonical_name, brand, house_year, aliases)"
-        " VALUES (?, ?, ?, ?)",
+        " VALUES (%s, %s, %s, %s) RETURNING id",
         (
             canonical_name,
             brand,
@@ -83,11 +84,12 @@ def add_fragrance(
             json.dumps(sorted(set(aliases or []))),
         ),
     )
+    new_id = cur.fetchone()[0]
     conn.commit()
-    return cur.lastrowid
+    return new_id
 
 
-def add_alias(conn: sqlite3.Connection, fragrance_id: int, alias: str) -> list[str]:
+def add_alias(conn: psycopg.Connection, fragrance_id: int, alias: str) -> list[str]:
     """Teach an existing fragrance another name it answers to.
 
     This is where abbreviations live. No amount of string comparison
@@ -95,14 +97,14 @@ def add_alias(conn: sqlite3.Connection, fragrance_id: int, alias: str) -> list[s
     resolves every future mention.
     """
     row = conn.execute(
-        "SELECT aliases FROM fragrances WHERE id = ?", (fragrance_id,)
+        "SELECT aliases FROM fragrances WHERE id = %s", (fragrance_id,)
     ).fetchone()
     if row is None:
         raise KeyError(f"No fragrance with id {fragrance_id}")
 
     aliases = sorted(set(json.loads(row["aliases"] or "[]")) | {alias})
     conn.execute(
-        "UPDATE fragrances SET aliases = ? WHERE id = ?",
+        "UPDATE fragrances SET aliases = %s WHERE id = %s",
         (json.dumps(aliases), fragrance_id),
     )
     conn.commit()
@@ -132,7 +134,7 @@ GROUP BY text ORDER BY n DESC, text
 
 
 def unresolved_mentions(
-    conn: sqlite3.Connection, *, include_junk: bool = False
+    conn: psycopg.Connection, *, include_junk: bool = False
 ) -> list[Mention]:
     """Unresolved fragrance mentions, most frequent first.
 
@@ -249,7 +251,7 @@ class MentionValue:
 
 
 def mention_values(
-    conn: sqlite3.Connection, *, include_junk: bool = False
+    conn: psycopg.Connection, *, include_junk: bool = False
 ) -> list[MentionValue]:
     """Unresolved mentions, most pages-unlocked first."""
     names = {
@@ -351,17 +353,23 @@ def is_pronoun(text: str) -> bool:
 #: piece: a mention under "3 Amazing PDM Layton Alternatives" is being
 #: compared to Layton whatever it turns out to be called.
 EXAMPLES_SQL = f"""
-SELECT DISTINCT c.evidence_span AS span, v.title AS title
+-- `length(span)` is selected, not just ordered by: Postgres requires
+-- every ORDER BY expression to appear in the select list of a SELECT
+-- DISTINCT, because otherwise the sort key is not a property of the rows
+-- being de-duplicated. SQLite allowed it and meant the same thing here,
+-- since the length is a function of the span.
+SELECT DISTINCT c.evidence_span AS span, v.title AS title,
+       length(c.evidence_span) AS span_length
   FROM claims c
   JOIN comments co ON co.id = c.comment_id
   LEFT JOIN videos v ON v.source = co.source AND v.video_id = co.video_id
  WHERE c.evidence_verified = 1
    AND c.claim_type IN ({", ".join(f"'{t}'" for t in EDGE_TYPES)})
    AND ((c.subject_kind = 'FRAGRANCE' AND c.subject_frag_id IS NULL
-         AND c.raw_subject_text = :mention)
+         AND c.raw_subject_text = %(mention)s)
      OR (c.object_kind = 'FRAGRANCE' AND c.object_frag_id IS NULL
-         AND c.raw_object_text = :mention))
- ORDER BY length(c.evidence_span) DESC, c.evidence_span
+         AND c.raw_object_text = %(mention)s))
+ ORDER BY span_length DESC, span
 """
 
 
@@ -422,7 +430,7 @@ class BatchRow:
 
 
 def batch_rows(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     limit: int = 40,
     examples: int = 2,
@@ -527,7 +535,7 @@ class BatchApplyStats:
 
 
 def apply_batch(
-    conn: sqlite3.Connection, rows: list[BatchRow]
+    conn: psycopg.Connection, rows: list[BatchRow]
 ) -> BatchApplyStats:
     """Write the reviewed names, then resolve every mention they unlock.
 
@@ -599,7 +607,7 @@ def apply_batch(
     return stats
 
 
-def published_pages(conn: sqlite3.Connection) -> set[str]:
+def published_pages(conn: psycopg.Connection) -> set[str]:
     """The pages that exist right now, by title.
 
     Imported inside the function on purpose: `pages` imports `enrich`,
@@ -613,7 +621,7 @@ def published_pages(conn: sqlite3.Connection) -> set[str]:
     return {p.title for p in qualifying_pairs(conn)}
 
 
-def _answers_to(conn: sqlite3.Connection, fragrance_id: int) -> set[str]:
+def _answers_to(conn: psycopg.Connection, fragrance_id: int) -> set[str]:
     """Every normalised form a bottle already responds to.
 
     Canonical name and aliases, each also de-branded: "Armaf Club de Nuit"
@@ -621,7 +629,7 @@ def _answers_to(conn: sqlite3.Connection, fragrance_id: int) -> set[str]:
     as two is how the corpus grew a duplicate node in August.
     """
     row = conn.execute(
-        "SELECT canonical_name, brand, aliases FROM fragrances WHERE id = ?",
+        "SELECT canonical_name, brand, aliases FROM fragrances WHERE id = %s",
         (fragrance_id,),
     ).fetchone()
     if row is None:
@@ -638,7 +646,7 @@ def _answers_to(conn: sqlite3.Connection, fragrance_id: int) -> set[str]:
 
 
 def _existing_fragrance(
-    conn: sqlite3.Connection, row: BatchRow
+    conn: psycopg.Connection, row: BatchRow
 ) -> int | None:
     """The bottle this row is already curated as, if any."""
     wanted = {
@@ -674,7 +682,7 @@ class BackfillStats:
         )
 
 
-def backfill(conn: sqlite3.Connection, *, dry_run: bool = False) -> BackfillStats:
+def backfill(conn: psycopg.Connection, *, dry_run: bool = False) -> BackfillStats:
     """Resolve every unresolved FRAGRANCE mention that matches a candidate.
 
     Idempotent: rows already carrying an id are skipped, so this can be
@@ -706,7 +714,7 @@ def backfill(conn: sqlite3.Connection, *, dry_run: bool = False) -> BackfillStat
             if match:
                 if not dry_run:
                     conn.execute(
-                        "UPDATE claims SET subject_frag_id = ? WHERE id = ?",
+                        "UPDATE claims SET subject_frag_id = %s WHERE id = %s",
                         (match.fragrance_id, row["id"]),
                     )
                 stats.subjects_resolved += 1
@@ -717,7 +725,7 @@ def backfill(conn: sqlite3.Connection, *, dry_run: bool = False) -> BackfillStat
             if match:
                 if not dry_run:
                     conn.execute(
-                        "UPDATE claims SET object_frag_id = ? WHERE id = ?",
+                        "UPDATE claims SET object_frag_id = %s WHERE id = %s",
                         (match.fragrance_id, row["id"]),
                     )
                 stats.objects_resolved += 1
@@ -741,7 +749,7 @@ ORDER BY mentions DESC, subject
 """
 
 
-def resolved_edges(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def resolved_edges(conn: psycopg.Connection) -> list[Row]:
     """Fragrance-to-fragrance edges, grouped and counted.
 
     This is the first query in the project that answers the original
@@ -809,12 +817,12 @@ def main(argv: list[str] | None = None) -> int:
     # the hand-written one silently omitted `edges`, so the subcommand
     # rejected --db-path.
     for p in (rep, val, bat, app, add, alias, fill, edges):
-        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        p.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(getattr(args, "db_path", DEFAULT_DB_PATH))
+    conn = get_connection(getattr(args, "db_url", DEFAULT_DB_URL))
     migrate(conn)
     try:
         if args.command == "report":

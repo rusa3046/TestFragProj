@@ -29,11 +29,12 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
+
+import psycopg
 
 from fragrance_graph.models import author_from_payload, video_from_payload
 
@@ -50,8 +51,8 @@ INSERT INTO comments
     (source, source_id, body, permalink, created_utc, source_channel, score,
      author_id, video_id, raw_json)
 VALUES
-    (:source, :source_id, :body, :permalink, :created_utc, :source_channel, :score,
-     :author_id, :video_id, :raw_json)
+    (%(source)s, %(source_id)s, %(body)s, %(permalink)s, %(created_utc)s,
+     %(source_channel)s, %(score)s, %(author_id)s, %(video_id)s, %(raw_json)s)
 ON CONFLICT (source, source_id) DO NOTHING
 """
 
@@ -72,7 +73,7 @@ class IngestStats:
 
 
 def ingest(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     comments: Iterable[dict[str, Any]],
     *,
     source: str = SOURCE,
@@ -115,8 +116,8 @@ def ingest(
             video_id = video_from_payload(payload)
             if video_id:
                 conn.execute(
-                    "INSERT OR IGNORE INTO videos (source, video_id, channel_id) "
-                    "VALUES (?, ?, ?)",
+                    "INSERT INTO videos (source, video_id, channel_id) "
+                    "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                     (source, video_id, payload.get("channelId")),
                 )
 

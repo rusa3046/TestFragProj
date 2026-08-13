@@ -27,10 +27,14 @@ ALTER TABLE comments ADD COLUMN author_id TEXT NOT NULL DEFAULT '';
 -- Backfill from the payload already on disk. Both paths are checked for
 -- every row regardless of source: the corpus predates this column and a
 -- re-import of an old export must land the same way as a fresh ingest.
+-- SQLite spelled these `json_extract(raw_json, '$.path')`. Postgres
+-- reads the same paths through jsonb: `->` walks in, `->>` comes out as
+-- text. A missing key is NULL either way, which is what `coalesce` is
+-- here for.
 UPDATE comments
    SET author_id = coalesce(
-           json_extract(raw_json, '$.authorChannelId.value'),  -- YouTube
-           json_extract(raw_json, '$.author'),                 -- Reddit
+           raw_json::jsonb -> 'authorChannelId' ->> 'value',  -- YouTube
+           raw_json::jsonb ->> 'author',                      -- Reddit
            ''
        )
  WHERE author_id = '';

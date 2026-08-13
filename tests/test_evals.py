@@ -273,7 +273,7 @@ def test_importing_a_foreign_template_raises_rather_than_mislabelling(conn):
         import_labels(conn, foreign, labeler="aanya")
 
 
-def test_labels_attach_to_the_right_comment_after_renumbering(conn, tmp_path):
+def test_labels_attach_to_the_right_comment_after_renumbering(conn, tmp_path, second_db):
     """Export from one database, import into another where ids differ."""
     from fragrance_graph.db import get_connection, migrate
     from fragrance_graph.evals.labels import export_template, import_labels
@@ -283,7 +283,7 @@ def test_labels_attach_to_the_right_comment_after_renumbering(conn, tmp_path):
     template[0]["claims"] = [{"claim_type": "DUPE_OF", "raw_subject_text": "X",
                               "raw_object_text": "Y", "sentiment": "NEUTRAL"}]
 
-    other = get_connection(tmp_path / "other.db")
+    other = get_connection(second_db)
     migrate(other)
     ingest(other, [make_comment(i, body="filler") for i in range(20, 30)])
     ingest(other, [make_comment(7, body="the labelled one")])

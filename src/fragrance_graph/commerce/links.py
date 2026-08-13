@@ -38,12 +38,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sqlite3
 from dataclasses import dataclass
 from string import Formatter
 from urllib.parse import quote
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 
 log = logging.getLogger("fragrance_graph.commerce.links")
 
@@ -141,7 +142,7 @@ def build_url(retailer: Retailer, product_url: str, external_id: str = "") -> st
 
 
 def add_retailer(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     name: str,
     *,
     network: str,
@@ -152,18 +153,19 @@ def add_retailer(
     validate_template(url_template)
     cur = conn.execute(
         "INSERT INTO retailers (name, network, affiliate_id, url_template) "
-        "VALUES (?, ?, ?, ?)",
+        "VALUES (%s, %s, %s, %s) RETURNING id",
         (name, network, affiliate_id, url_template),
     )
+    new_id = cur.fetchone()[0]
     conn.commit()
-    return cur.lastrowid
+    return new_id
 
 
-def load_retailer(conn: sqlite3.Connection, name: str) -> Retailer | None:
+def load_retailer(conn: psycopg.Connection, name: str) -> Retailer | None:
     """By name, because a rebuilt database renumbers ids."""
     row = conn.execute(
         "SELECT id, name, network, affiliate_id, url_template FROM retailers "
-        "WHERE name = ?",
+        "WHERE name = %s",
         (name,),
     ).fetchone()
     return None if row is None else Retailer(**dict(row))
@@ -180,12 +182,12 @@ SELECT p.name AS product_name, p.size_ml, p.concentration, p.price,
        r.id AS id, r.name AS name, r.network, r.affiliate_id, r.url_template
   FROM products p
   JOIN retailers r ON r.id = p.retailer_id
- WHERE p.fragrance_id = :fragrance_id
+ WHERE p.fragrance_id = %(fragrance_id)s
  ORDER BY p.price IS NULL, p.price, r.name, p.external_id
 """
 
 
-def buying_links(conn: sqlite3.Connection, fragrance_id: int) -> list[Link]:
+def buying_links(conn: psycopg.Connection, fragrance_id: int) -> list[Link]:
     """Where this fragrance can be bought, cheapest first.
 
     Note what this function is not: it is never consulted by ranking, and
@@ -264,12 +266,12 @@ def main(argv: list[str] | None = None) -> int:
     links.add_argument("fragrance", help="Canonical name or alias")
 
     for p in (add, listing, links):
-        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        p.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         if args.command == "retailer" and args.retailer_command == "add":

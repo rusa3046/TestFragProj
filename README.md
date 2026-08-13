@@ -29,8 +29,8 @@ YouTube comments → claim extraction → entity resolution → ranked answers
                                    (names and brands only)
 ```
 
-1. **Ingest.** Official platform APIs only. Comments land in SQLite, idempotent
-   on `(source, source_id)`, resumable mid-run.
+1. **Ingest.** Official platform APIs only. Comments land in PostgreSQL,
+   idempotent on `(source, source_id)`, resumable mid-run.
 2. **Extract.** Claude reads batched comments and returns typed claims —
    `DUPE_OF`, `SIMILAR_TO`, `NOTE_DESCRIPTOR`, `LONGEVITY`, and seven more.
    Every claim carries an `evidence_span` quoted from the comment, verified
@@ -185,6 +185,30 @@ uv sync --extra dev          # --extra dev is required; plain `uv sync` omits py
 cp .env.example .env         # fill in the keys below
 ```
 
+### PostgreSQL
+
+Every command needs a running server. On macOS:
+
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+createdb fragrance_graph
+createdb fragrance_graph_test
+```
+
+Or with Docker, if you would rather not install a server:
+
+```bash
+docker run -d --name fragrance-pg -p 5432:5432 \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=fragrance_graph postgres:16
+docker exec fragrance-pg createdb -U postgres fragrance_graph_test
+```
+
+**The database is disposable and there is no backup, by design.** It is
+rebuilt from `data/corpus/*.jsonl` in seconds. Drop it, bloat it, lock it
+up — nothing of value is in there. That is also why it is a good place to
+practise the operational side of Postgres against real data.
+
 | variable | needed for | notes |
 |---|---|---|
 | `YOUTUBE_API_KEY` | ingest | Google Cloud console, issued instantly. 10,000 units/day |
@@ -203,13 +227,17 @@ Initialize the database:
 uv run python -m fragrance_graph.db init
 ```
 
-The database path comes from `FRAGRANCE_DB_PATH` (default
-`fragrance_graph.db` in the repo root), or `--db-path` on any command. The
-working corpus lives at **`data/fragrance_graph.db`**:
+The connection string comes from `FRAGRANCE_DB_URL`, or `--db-url` on any
+command. The default is:
 
 ```bash
-export FRAGRANCE_DB_PATH=data/fragrance_graph.db
+export FRAGRANCE_DB_URL=postgresql://postgres@localhost:5432/fragrance_graph
 ```
+
+The test suite uses a **separate** database, `FRAGRANCE_TEST_DB_URL`
+(default `.../fragrance_graph_test`). It is deliberately not the same one:
+the suite drops and rebuilds the schema at the start of every session, and
+truncates every table between tests.
 
 ### The database is disposable; the corpus is not
 
@@ -226,7 +254,7 @@ uv run python -m fragrance_graph.corpus import    # db  ← data/corpus/*.jsonl
 
 Four files: `comments.jsonl`, `claims.jsonl`, `fragrances.jsonl`, and
 `eval_labels.jsonl`. They diff line by line in review, are readable without
-SQLite, and round-trip losslessly
+a database at all, and round-trip losslessly
 — rows link by natural keys (`source` + `source_id`, and `canonical_name`),
 never by autoincrement id, so a rebuilt database re-numbering its rows cannot
 silently reattach a claim to the wrong comment. Export is byte-stable, so an
@@ -813,8 +841,8 @@ argument for each; this is the short form.
    correctly — turning curation from human decisions with automation help
    into automatic resolution with human exception handling.
 
-Deliberately not planned: Postgres or Neo4j (SQLite is nowhere near the
-constraint), a new-release crawler (a bottle launched yesterday has no
+Deliberately not planned: Neo4j (the graph is not the constraint; curation
+is), a new-release crawler (a bottle launched yesterday has no
 discussion), video transcripts (owner-gated, and every workaround is the
 scraping this project refuses), and computed similarity from notes.
 
@@ -886,8 +914,8 @@ Nothing regressed. The old figures came from **13** labelled comments, few
 enough that a single claim moved F1 by more than a tenth, and they were
 computed against a mixture of human and model labels — `load_labels` keyed
 results by comment, so with three labelers per comment every row but the
-last silently vanished and which one survived depended on the order SQLite
-returned rows. The same corpus scored 0.41 and 0.38 on two machines the
+last silently vanished and which one survived depended on the order the
+database returned rows. The same corpus scored 0.41 and 0.38 on two machines the
 day this was found. `score` now refuses to run without `--labeler` when
 labelers collide, and the numbers above are `--labeler aanya-verified`.
 

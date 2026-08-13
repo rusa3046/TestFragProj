@@ -97,7 +97,7 @@ def store_claim(conn, *, span, body, verified):
         ],
     )
     conn.execute(
-        "UPDATE claims SET evidence_verified = ? WHERE comment_id = ?",
+        "UPDATE claims SET evidence_verified = %s WHERE comment_id = %s",
         (verified, comment_id),
     )
     conn.commit()

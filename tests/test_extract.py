@@ -232,7 +232,7 @@ def test_write_marks_extracted_and_stores_object_kind(conn):
     assert row["extraction_model"]
 
     extracted = conn.execute(
-        "SELECT extracted_at FROM comments WHERE id = ?", (comment_id,)
+        "SELECT extracted_at FROM comments WHERE id = %s", (comment_id,)
     ).fetchone()[0]
     assert extracted is not None
 
@@ -519,7 +519,7 @@ def test_render_labels_itself_an_estimate_and_states_assumptions(conn):
 def test_dry_run_needs_no_api_key(conn, tmp_path, monkeypatch, capsys):
     """The reason this path exists: cost before credentials."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    db = tmp_path / "dry.db"
+    db = conn.info.dsn
     conn.close()
 
     from fragrance_graph.db import get_connection, migrate
@@ -529,7 +529,7 @@ def test_dry_run_needs_no_api_key(conn, tmp_path, monkeypatch, capsys):
     ingest(fresh, [make_comment(i, body=BODY) for i in range(3)])
     fresh.close()
 
-    assert main(["--dry-run", "--db-path", str(db)]) == 0
+    assert main(["--dry-run", "--db-url", db]) == 0
 
     out = capsys.readouterr().out
     assert "ESTIMATE" in out
@@ -537,7 +537,7 @@ def test_dry_run_needs_no_api_key(conn, tmp_path, monkeypatch, capsys):
 
 
 def test_dry_run_writes_nothing(conn, tmp_path):
-    db = tmp_path / "dry2.db"
+    db = conn.info.dsn
     conn.close()
 
     from fragrance_graph.db import get_connection, migrate
@@ -547,7 +547,7 @@ def test_dry_run_writes_nothing(conn, tmp_path):
     ingest(fresh, [make_comment(1, body=BODY)])
     fresh.close()
 
-    main(["--dry-run", "--db-path", str(db)])
+    main(["--dry-run", "--db-url", db])
 
     check = get_connection(db)
     assert check.execute("SELECT count(*) FROM claims").fetchone()[0] == 0
@@ -673,7 +673,7 @@ def test_only_labelled_says_so_when_there_are_no_labels(conn, tmp_path):
     scratch database rebuilt from a corpus export that predates labelling."""
     from fragrance_graph.db import get_connection, migrate
 
-    db = tmp_path / "nolabels.db"
+    db = conn.info.dsn
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)
@@ -681,7 +681,7 @@ def test_only_labelled_says_so_when_there_are_no_labels(conn, tmp_path):
     fresh.close()
 
     with pytest.raises(SystemExit, match="no eval labels"):
-        main(["--only-labelled", "--reset", "--db-path", str(db)])
+        main(["--only-labelled", "--reset", "--db-url", db])
 
 
 # --- persisting the rejections ----------------------------------------------
@@ -822,13 +822,13 @@ def test_dry_run_prices_a_reset_without_performing_it(conn, capsys):
     (comment_id,) = seed(conn)
     conn.execute("UPDATE comments SET extracted_at = '2026-01-01'")
     conn.commit()
-    db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+    db_url = conn.info.dsn
     conn.commit()
 
     assert pending_comments(conn, 100) == [], "already extracted"
     assert len(pending_comments(conn, 100, as_if_reset=True)) == 1
 
-    main(["--dry-run", "--reset", "--db-path", db_path])
+    main(["--dry-run", "--reset", "--db-url", db_url])
 
     out = capsys.readouterr().out
     assert "comments pending" in out and " 1\n" in out

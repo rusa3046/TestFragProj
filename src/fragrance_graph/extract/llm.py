@@ -30,7 +30,6 @@ import argparse
 import json
 import logging
 import os
-import sqlite3
 import time
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
@@ -38,10 +37,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+import psycopg
 from pydantic import ValidationError
 
 from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.db import DEFAULT_DB_URL, Row, get_connection, migrate
 from fragrance_graph.models import (
     Claim,
     ClaimType,
@@ -283,7 +283,7 @@ RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
-def render_batch(comments: Sequence[sqlite3.Row]) -> str:
+def render_batch(comments: Sequence[Row]) -> str:
     """Render comments as a numbered list for the model."""
     return "\n\n".join(
         f"[{i}] {row['body']}" for i, row in enumerate(comments)
@@ -464,7 +464,7 @@ class CostEstimate:
 
 
 def estimate_cost(
-    rows: Sequence[sqlite3.Row],
+    rows: Sequence[Row],
     *,
     batch_size: int = DEFAULT_BATCH_SIZE,
     output_tokens_per_comment: int = DEFAULT_OUTPUT_TOKENS_PER_COMMENT,
@@ -522,12 +522,12 @@ class Rejection:
 INSERT_REJECTION_SQL = """
 INSERT INTO rejected_claims (
     comment_id, reason, raw_json, extraction_model, created_at
-) VALUES (?, ?, ?, ?, ?)
+) VALUES (%s, %s, %s, %s, %s)
 """
 
 
 def write_rejections(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     comment_id: int,
     rejections: Sequence[Rejection],
     *,
@@ -535,7 +535,7 @@ def write_rejections(
 ) -> int:
     """Persist the claims validation refused, for later diagnosis."""
     now = datetime.now(UTC).isoformat()
-    conn.executemany(
+    conn.cursor().executemany(
         INSERT_REJECTION_SQL,
         [
             (
@@ -616,19 +616,19 @@ INSERT INTO claims (
     object_kind, raw_object_text, sentiment, polarity,
     confidence, evidence_span, evidence_verified, extraction_model, created_at
 ) VALUES (
-    :comment_id, :claim_type, :subject_kind, :raw_subject_text,
-    :object_kind, :raw_object_text, :sentiment, :polarity,
-    :confidence, :evidence_span, :evidence_verified, :extraction_model, :created_at
+    %(comment_id)s, %(claim_type)s, %(subject_kind)s, %(raw_subject_text)s,
+    %(object_kind)s, %(raw_object_text)s, %(sentiment)s, %(polarity)s,
+    %(confidence)s, %(evidence_span)s, %(evidence_verified)s, %(extraction_model)s, %(created_at)s
 )
 """
 
-MARK_EXTRACTED_SQL = "UPDATE comments SET extracted_at = ? WHERE id = ?"
+MARK_EXTRACTED_SQL = "UPDATE comments SET extracted_at = %s WHERE id = %s"
 
 SELECT_PENDING_SQL = """
 SELECT id, body FROM comments
 WHERE extracted_at IS NULL
 ORDER BY id
-LIMIT ?
+LIMIT %s
 """
 
 #: Only comments someone has labelled. Re-extracting just these makes a
@@ -640,11 +640,11 @@ SELECT c.id, c.body FROM comments c
 WHERE c.extracted_at IS NULL
   AND EXISTS (SELECT 1 FROM eval_labels l WHERE l.comment_id = c.id)
 ORDER BY c.id
-LIMIT ?
+LIMIT %s
 """
 
 
-def reset_extraction(conn: sqlite3.Connection, *, labelled_only: bool = True) -> int:
+def reset_extraction(conn: psycopg.Connection, *, labelled_only: bool = True) -> int:
     """Delete claims and clear extracted_at so comments re-extract.
 
     Destructive by design: a before/after comparison needs the "after" to
@@ -670,7 +670,7 @@ def reset_extraction(conn: sqlite3.Connection, *, labelled_only: bool = True) ->
 
 
 def write_claims(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     comment_id: int,
     body: str,
     claims: Sequence[Claim],
@@ -729,24 +729,24 @@ def write_claims(
 SELECT_AFTER_RESET_SQL = """
 SELECT id, body FROM comments
 ORDER BY id
-LIMIT ?
+LIMIT %s
 """
 
 SELECT_AFTER_RESET_LABELLED_SQL = """
 SELECT c.id, c.body FROM comments c
 WHERE EXISTS (SELECT 1 FROM eval_labels l WHERE l.comment_id = c.id)
 ORDER BY c.id
-LIMIT ?
+LIMIT %s
 """
 
 
 def pending_comments(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     limit: int,
     *,
     labelled_only: bool = False,
     as_if_reset: bool = False,
-) -> list[sqlite3.Row]:
+) -> list[Row]:
     """Comments that have never been extracted, oldest first.
 
     `as_if_reset` ignores `extracted_at`, answering "what would this cost
@@ -767,8 +767,8 @@ def pending_comments(
 
 
 def iter_batches(
-    rows: Sequence[sqlite3.Row], size: int
-) -> Iterator[Sequence[sqlite3.Row]]:
+    rows: Sequence[Row], size: int
+) -> Iterator[Sequence[Row]]:
     for start in range(0, len(rows), size):
         yield rows[start : start + size]
 
@@ -814,7 +814,7 @@ def build_client() -> Any:
 
 def call_model(
     client: Any,
-    comments: Sequence[sqlite3.Row],
+    comments: Sequence[Row],
     *,
     model: str = MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -853,7 +853,7 @@ def call_model(
 
 
 def extract(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     client: Any,
     *,
     limit: int,
@@ -1004,7 +1004,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--max-tokens", type=int, default=DEFAULT_MAX_TOKENS, help="Output cap per call"
     )
-    parser.add_argument("--db-path", default=DEFAULT_DB_PATH, help="SQLite database path")
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL, help="SQLite database path")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -1058,7 +1058,7 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError:
         pass
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
 
     if args.only_labelled:
