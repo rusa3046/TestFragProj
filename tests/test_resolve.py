@@ -811,3 +811,40 @@ class TestDraftGuard:
         write_batch(path, self.drafted(conn))
         (row,) = read_batch(path)
         assert row.drafted_by == "model" and row.confirmed is False
+
+
+class TestPronounPhrases:
+    """"this stuff" is the same non-answer as "this", one noun longer.
+
+    It reached a review file on 2026-08-13 and cost a row of a reviewer's
+    attention, which is the only budget this tool spends.
+    """
+
+    @pytest.mark.parametrize("text", [
+        "this", "It", "that", "this stuff", "This stuff", "that one",
+        "this fragrance", "the stuff", "these",
+    ])
+    def test_a_stand_in_is_recognised(self, text):
+        from fragrance_graph.resolve.entities import is_pronoun
+
+        assert is_pronoun(text) is True
+
+    @pytest.mark.parametrize("text", [
+        "Detour", "liquid brun", "Aventus Cologne", "One Million",
+        "this is the best khamrah I own", "Kismet Angel",
+    ])
+    def test_a_name_is_not(self, text):
+        """Longer phrases are left alone: only a pronoun plus a word for
+        "a fragrance" names nothing. Anything more may be a real name."""
+        from fragrance_graph.resolve.entities import is_pronoun
+
+        assert is_pronoun(text) is False
+
+    def test_it_keeps_them_out_of_the_review_file(self, conn):
+        from fragrance_graph.resolve.entities import batch_rows
+
+        other = add_fragrance(conn, "Creed Aventus")
+        for i in range(4):
+            seed_edge(conn, i, mention="this stuff", other_id=other,
+                      author=f"p{i}", channel=f"UC-{i}")
+        assert batch_rows(conn) == []

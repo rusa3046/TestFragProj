@@ -316,10 +316,31 @@ PRONOUNS = frozenset(
     """.split()
 )
 
+#: Words that turn a pronoun into a phrase without turning it into a name.
+#: "this stuff" reached a review file on 2026-08-13 and cost a row: it is
+#: the same non-answer as "this", one noun longer.
+PRONOUN_NOUNS = frozenset(
+    "stuff one ones thing things bottle juice fragrance scent perfume".split()
+)
+
 
 def is_pronoun(text: str) -> bool:
-    """Whether a mention is a word standing in for a bottle, not naming one."""
-    return normalize_name(text) in PRONOUNS
+    """Whether a mention stands in for a bottle rather than naming one."""
+    words = normalize_name(text).split()
+    if not words:
+        return True
+    if len(words) == 1:
+        # `normalize_name` drops "the", so "the stuff" arrives here as
+        # "stuff" — a bare word for "a fragrance" names one no better
+        # than "this" does.
+        return words[0] in PRONOUNS | PRONOUN_NOUNS
+    # "this stuff", "that one", "this fragrance" — a pronoun and a word
+    # for "a fragrance" name nothing between them.
+    return (
+        len(words) == 2
+        and words[0] in PRONOUNS | {"the"}
+        and words[1] in PRONOUN_NOUNS
+    )
 
 
 #: Real sentences using a mention, with the video they were written under.
