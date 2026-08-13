@@ -109,6 +109,29 @@ def second_db(_schema):
         admin.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
 
 
+@pytest.fixture
+def scale_db(_schema):
+    """An empty database named `*_scale`, for the synthetic-row tests.
+
+    The name is the guard, so the fixture has to produce a real one — a
+    test that asserted the refusal against a mock would be testing the
+    mock.
+    """
+    name = "fragrance_graph_probe_scale"
+    admin_url = TEST_DB_URL.replace("/fragrance_graph_test", "/postgres")
+    with psycopg.connect(admin_url, autocommit=True) as admin:
+        admin.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+        admin.execute(f"CREATE DATABASE {name}")
+
+    url = TEST_DB_URL.replace("/fragrance_graph_test", f"/{name}")
+    connection = get_connection(url)
+    migrate(connection)
+    connection.close()
+    yield url
+    with psycopg.connect(admin_url, autocommit=True) as admin:
+        admin.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+
+
 def make_comment(i: int, **overrides):
     """A normalized comment row as `ingest` expects it."""
     row = {

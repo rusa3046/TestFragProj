@@ -1,0 +1,43 @@
+# Postgres with pgbouncer in front of it.
+#
+# Nothing in this project needs a pooler: one process runs twice a week.
+# That is exactly why it has to be stood up deliberately — you cannot
+# observe connection exhaustion on a workload that never has two clients.
+#
+#   docker compose -f docker/compose.pooling.yaml up -d
+#   psql "postgresql://postgres:postgres@localhost:6432/fragrance_graph_scale"
+#
+# Port 5432 is the server, 6432 is the pooler. Point the same query at
+# both and compare `pg_stat_activity` while a load runs.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fragrance_graph_scale
+    # Deliberately low. The default 100 hides the problem a pooler
+    # solves; at 20 you can exhaust it from a laptop and watch what the
+    # application does when it cannot get a connection.
+    command: postgres -c max_connections=20
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      DB_HOST: postgres
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: fragrance_graph_scale
+      AUTH_TYPE: scram-sha-256
+      # Switch to `session` and re-run the same test: the pool stops
+      # multiplexing and 20 clients exhaust 20 server connections again.
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 500
+      DEFAULT_POOL_SIZE: 10
+    ports: ["6432:5432"]

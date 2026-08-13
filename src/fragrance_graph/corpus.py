@@ -215,6 +215,26 @@ class WouldLoseRows(RuntimeError):
     """An export was about to shrink a committed corpus file."""
 
 
+class ScaleDatabase(RuntimeError):
+    """An export was pointed at a database of fabricated rows."""
+
+
+#: A database whose name ends in this holds synthetic rows — see
+#: `scripts/scale.py`. Kept as a name rule rather than a marker table
+#: because it is visible in every connection string a person types, and a
+#: guard you can see before you run the command is worth more than one
+#: that fires after.
+SCALE_SUFFIX = "_scale"
+
+
+def _database_name(conn: psycopg.Connection) -> str:
+    return psycopg.conninfo.conninfo_to_dict(conn.info.dsn).get("dbname", "")
+
+
+def is_scale_database(conn: psycopg.Connection) -> bool:
+    return _database_name(conn).endswith(SCALE_SUFFIX)
+
+
 #: Files an export may shrink only on purpose. Comments and claims can
 #: legitimately fall (a reset, a re-extraction); these four are records of
 #: something unrepeatable, so losing rows means the database is stale.
@@ -249,7 +269,20 @@ def export_corpus(
     """Write the corpus to `directory` as JSONL files.
 
     Refuses to shrink a guarded file unless `force`. See `shrinking`.
+
+    Also refuses a scale database outright, `force` or not. `scripts.scale`
+    fabricates millions of rows for practising against a database large
+    enough to have interesting query plans; this is the only path from a
+    database into the committed corpus, and the project's whole claim is
+    that no row in there is invented. A flag that could override it would
+    be a flag that could end the project's credibility in one command.
     """
+    if is_scale_database(conn):
+        raise ScaleDatabase(
+            f"{_database_name(conn)!r} is a scale database: its rows are "
+            "fabricated by scripts/scale.py. There is no --force for this."
+        )
+
     directory = Path(directory)
 
     comments = [
