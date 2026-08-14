@@ -350,10 +350,13 @@ def export_corpus(
                 "This export would delete rows that are committed:\n\n"
                 f"{detail}\n\n"
                 "Almost always this means the database was built before "
-                "those rows were, so exporting reverts them. Rebuild first:\n\n"
-                "  rm data/fragrance_graph.db\n"
-                "  python -m fragrance_graph.db init\n"
+                "those rows were — a `git pull` brings new corpus rows "
+                "that your database has never seen. Rebuild it, which "
+                "costs seconds and loses nothing:\n\n"
                 "  python -m fragrance_graph.corpus import\n\n"
+                "Anything you curated since the last export lives only in "
+                "the database, so re-apply it afterwards before exporting "
+                "again.\n\n"
                 "If the rows really should go, pass --force."
             )
 

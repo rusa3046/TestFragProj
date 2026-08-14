@@ -570,3 +570,30 @@ class TestExportWillNotSilentlyShrink:
             json.dumps({"claim_type": "DUPE_OF"}) + "\n", encoding="utf-8")
         export_corpus(conn, d)      # no raise
         assert (d / "claims.jsonl").read_text().strip() == ""
+
+
+def test_the_shrink_guard_tells_you_something_you_can_actually_run(conn, tmp_path):
+    """The advice outlived the database it was written for.
+
+    It said `rm data/fragrance_graph.db` — a SQLite file that has not
+    existed since the port. Someone hit this for real, ran the command,
+    and it did nothing, which is worse than no advice at all: it looks
+    like the fix failed rather than like the instruction was wrong.
+    """
+    from fragrance_graph.corpus import WouldLoseRows, export_corpus
+    from fragrance_graph.resolve.entities import add_fragrance
+
+    add_fragrance(conn, "Creed Aventus")
+    export_corpus(conn, tmp_path)
+    (tmp_path / "fragrances.jsonl").write_text(
+        (tmp_path / "fragrances.jsonl").read_text()
+        + '{"canonical_name": "Extra One", "brand": null,'
+        ' "house_year": null, "aliases": []}\n'
+    )
+
+    with pytest.raises(WouldLoseRows) as caught:
+        export_corpus(conn, tmp_path)
+    advice = str(caught.value)
+    assert "rm data/" not in advice, "no file to delete any more"
+    assert "corpus import" in advice
+    assert "--force" in advice
