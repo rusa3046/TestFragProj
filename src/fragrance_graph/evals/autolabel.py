@@ -31,12 +31,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.evals.labels import export_template, load_labels
 from fragrance_graph.evals.score import edge_score, match_key, score
 from fragrance_graph.models import (
@@ -380,7 +381,7 @@ def calibration_subset(entries: list[dict], n: int) -> list[dict]:
 
 
 def agreement(
-    conn: sqlite3.Connection, *, human: str, drafter: str = DRAFT_LABELER
+    conn: psycopg.Connection, *, human: str, drafter: str = DRAFT_LABELER
 ) -> Any:
     """How closely the drafter matches the human, on comments both labelled.
 
@@ -421,7 +422,7 @@ def agreement(
 
 
 def disagreements(
-    conn: sqlite3.Connection, *, human: str, drafter: str = DRAFT_LABELER
+    conn: psycopg.Connection, *, human: str, drafter: str = DRAFT_LABELER
 ) -> list[dict]:
     """The specific claims the two sides differ on, per comment.
 
@@ -510,7 +511,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     for p in (d, b, a):
-        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        p.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -534,7 +535,7 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError:
         pass
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         if args.command == "agreement":

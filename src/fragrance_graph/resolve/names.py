@@ -165,3 +165,17 @@ def best_match(
                     candidate.fragrance_id, candidate.canonical_name, "fuzzy", score
                 )
     return best
+
+
+def debranded(candidate: str, brand: str = "") -> str:
+    """A catalogue name with the house removed.
+
+    Name similarity has the same brand problem as `distinguishing_words`:
+    "Khamrah" against "Lattafa Khamrah" scores 0.64 and fails `CONFIDENT`,
+    even though it is the exact bottle. Comparing against the de-branded
+    name scores 1.00.
+    """
+    brand_words = set(normalize_name(brand or "").split())
+    return " ".join(
+        w for w in normalize_name(candidate).split() if w not in brand_words
+    )

@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.evals.labels import (
     HOLDOUT,
     TRAIN,
@@ -165,7 +166,7 @@ def edge_score(
     return collapsed.by_type.get(SIMILARITY_EDGE, Score())
 
 
-def extracted_claims(conn: sqlite3.Connection) -> dict[int, list[dict]]:
+def extracted_claims(conn: psycopg.Connection) -> dict[int, list[dict]]:
     """Claims to score, which excludes denials.
 
     `docs/LABELLING.md` tells a human to drop a denial entirely — "khamrah
@@ -241,12 +242,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--labeler", default=None, help="Restrict to one labeler")
-    parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL)
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         try:

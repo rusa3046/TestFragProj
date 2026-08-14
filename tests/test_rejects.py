@@ -131,24 +131,24 @@ def test_payload_survives_verbatim(conn):
     assert rejected(conn)[0]["claim"] == odd
 
 
-def test_report_on_an_empty_table_says_so(conn, tmp_path, capsys):
+def test_report_on_an_empty_table_says_so(conn, tmp_path, capsys, db_url):
     from fragrance_graph.db import get_connection, migrate
 
-    db = tmp_path / "empty.db"
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)
     fresh.close()
 
-    main(["report", "--db-path", str(db)])
+    main(["report", "--db-url", db])
 
     assert "No rejected claims recorded" in capsys.readouterr().out
 
 
-def test_cli_report_prints_counts(conn, tmp_path, capsys):
+def test_cli_report_prints_counts(conn, tmp_path, capsys, db_url):
     from fragrance_graph.db import get_connection, migrate
 
-    db = tmp_path / "cli.db"
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)
@@ -160,7 +160,7 @@ def test_cli_report_prints_counts(conn, tmp_path, capsys):
     fresh.commit()
     fresh.close()
 
-    main(["report", "--db-path", str(db)])
+    main(["report", "--db-url", db])
 
     out = capsys.readouterr().out
     assert "NOTE_DESCRIPTOR" in out
@@ -183,7 +183,7 @@ class TestRecoverable:
         conn.execute(
             "INSERT INTO rejected_claims (comment_id, reason, raw_json,"
             " extraction_model, created_at)"
-            " VALUES (?, ?, ?, 'test', '2026-01-01')",
+            " VALUES (%s, %s, %s, 'test', '2026-01-01')",
             (comment_id, reason, json.dumps(claim)),
         )
 

@@ -52,12 +52,13 @@ import argparse
 import json
 import logging
 import re
-import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.evals.labels import sample_rank, split_for
 from fragrance_graph.models import DUPE_SIGNAL_WORDS
 
@@ -146,20 +147,20 @@ SELECT c.id, c.source, c.source_id, c.body, c.extracted_at,
 """
 
 
-def _already_labelled(conn: sqlite3.Connection, labeler: str | None) -> set[str]:
+def _already_labelled(conn: psycopg.Connection, labeler: str | None) -> set[str]:
     sql = (
         "SELECT co.source_id FROM eval_labels l "
         "JOIN comments co ON co.id = l.comment_id"
     )
     params: tuple = ()
     if labeler:
-        sql += " WHERE l.labeler = ?"
+        sql += " WHERE l.labeler = %s"
         params = (labeler,)
     return {row["source_id"] for row in conn.execute(sql, params)}
 
 
 def select(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     count: int,
     *,
     labeler: str | None = None,
@@ -238,7 +239,7 @@ class Coverage:
     comments: int = 0
 
 
-def coverage(conn: sqlite3.Connection) -> Coverage:
+def coverage(conn: psycopg.Connection) -> Coverage:
     """Read the eval set's shape, including the part it is blind to."""
     out = Coverage()
     out.comments = conn.execute("SELECT count(*) FROM comments").fetchone()[0]
@@ -325,12 +326,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("coverage", help="What the eval set contains, and cannot see")
 
     for p in (plan, sub.choices["coverage"]):
-        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        p.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         if args.command == "coverage":

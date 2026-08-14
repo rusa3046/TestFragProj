@@ -56,7 +56,6 @@ import csv
 import io
 import logging
 import re
-import sqlite3
 import xml.etree.ElementTree as ET
 from collections import Counter
 from collections.abc import Iterable
@@ -64,7 +63,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, Row, get_connection, migrate
 from fragrance_graph.resolve.entities import load_candidates
 from fragrance_graph.resolve.names import Candidate, best_match
 
@@ -435,8 +436,8 @@ INSERT INTO products
     (fragrance_id, retailer_id, name, size_ml, concentration, external_id,
      price, currency, url, last_seen)
 VALUES
-    (:fragrance_id, :retailer_id, :name, :size_ml, :concentration, :external_id,
-     :price, :currency, :url, :last_seen)
+    (%(fragrance_id)s, %(retailer_id)s, %(name)s, %(size_ml)s, %(concentration)s, %(external_id)s,
+     %(price)s, %(currency)s, %(url)s, %(last_seen)s)
 ON CONFLICT (retailer_id, external_id) DO UPDATE SET
     fragrance_id = excluded.fragrance_id,
     name = excluded.name,
@@ -449,15 +450,15 @@ ON CONFLICT (retailer_id, external_id) DO UPDATE SET
 """
 
 
-def find_retailer_id(conn: sqlite3.Connection, name: str) -> int | None:
+def find_retailer_id(conn: psycopg.Connection, name: str) -> int | None:
     """Retailers are addressed by name, never by id — a rebuilt database
     renumbers rows, and the name is what a person types."""
-    row = conn.execute("SELECT id FROM retailers WHERE name = ?", (name,)).fetchone()
+    row = conn.execute("SELECT id FROM retailers WHERE name = %s", (name,)).fetchone()
     return None if row is None else row["id"]
 
 
 def import_products(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     retailer_id: int,
     products: Iterable[FeedProduct],
     *,
@@ -494,7 +495,7 @@ def import_products(
             stats.matched += 1
 
         existing = conn.execute(
-            "SELECT id FROM products WHERE retailer_id = ? AND external_id = ?",
+            "SELECT id FROM products WHERE retailer_id = %s AND external_id = %s",
             (retailer_id, product.external_id),
         ).fetchone()
         conn.execute(
@@ -538,7 +539,7 @@ SELECT p.name AS name, r.name AS retailer, count(*) AS listings
 """
 
 
-def unmatched_products(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def unmatched_products(conn: psycopg.Connection) -> list[Row]:
     """Stored products that match no curated fragrance, most listed first.
 
     The commerce twin of `resolve.entities report`: it says where curation
@@ -574,12 +575,12 @@ def main(argv: list[str] | None = None) -> int:
     un.add_argument("--limit", type=int, default=40)
 
     for p in (imp, un):
-        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        p.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         if args.command == "import":

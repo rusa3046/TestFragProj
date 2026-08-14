@@ -22,11 +22,12 @@ import argparse
 import hashlib
 import json
 import logging
-import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+import psycopg
+
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 
 log = logging.getLogger("fragrance_graph.evals.labels")
 
@@ -75,7 +76,7 @@ def sample_rank(source_id: str) -> str:
 
 
 def export_template(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     limit: int | None = None,
     *,
     sample: int | None = None,
@@ -165,7 +166,7 @@ def check_reviewable(
 
 
 def import_labels(
-    conn: sqlite3.Connection, entries: list[dict], *, labeler: str
+    conn: psycopg.Connection, entries: list[dict], *, labeler: str
 ) -> int:
     """Store labels, replacing any previous ones by the same labeler.
 
@@ -235,7 +236,7 @@ def import_labels(
     for comment_id, payload in resolved:
         conn.execute(
             "INSERT INTO eval_labels (comment_id, labeled_json, labeler, created_at) "
-            "VALUES (?, ?, ?, ?) "
+            "VALUES (%s, %s, %s, %s) "
             "ON CONFLICT (comment_id, labeler) DO UPDATE SET "
             "labeled_json = excluded.labeled_json, created_at = excluded.created_at",
             (comment_id, payload, labeler, now),
@@ -245,7 +246,7 @@ def import_labels(
 
 
 def load_labels(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     labeler: str | None = None,
     split: str | None = None,
@@ -273,7 +274,7 @@ def load_labels(
     sql = "SELECT comment_id, labeler, labeled_json FROM eval_labels"
     params: list = []
     if labeler:
-        sql += " WHERE labeler = ?"
+        sql += " WHERE labeler = %s"
         params.append(labeler)
 
     if strict and not labeler:
@@ -333,12 +334,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     for p in (exp, imp):
-        p.add_argument("--db-path", default=DEFAULT_DB_PATH)
+        p.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         if args.command == "export":

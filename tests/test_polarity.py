@@ -94,7 +94,7 @@ def test_a_denial_does_not_suppress_a_real_edge(conn):
         add_claim(conn, cid, subject=other, obj=target, evidence=f"{author} agrees")
     denier = add_comment(conn, 9, body="x", author="carol")
     add_claim(conn, denier, subject=other, obj=target, evidence="nothing alike")
-    conn.execute("UPDATE claims SET polarity = 'DENIED' WHERE comment_id = ?",
+    conn.execute("UPDATE claims SET polarity = 'DENIED' WHERE comment_id = %s",
                  (denier,))
     conn.commit()
 
@@ -163,7 +163,7 @@ def test_audit_separates_missed_from_caught(conn):
         cid = add_comment(conn, i, body="x", author=f"a{i}")
         add_claim(conn, cid, subject=other, obj=target, evidence=evidence)
         conn.execute(
-            "UPDATE claims SET polarity = ? WHERE comment_id = ?", (polarity, cid)
+            "UPDATE claims SET polarity = %s WHERE comment_id = %s", (polarity, cid)
         )
     conn.commit()
 
@@ -186,12 +186,12 @@ def test_audit_flags_denials_the_pattern_did_not_predict(conn):
     assert odd["evidence_span"] == "smells just like it"
 
 
-def test_audit_exits_nonzero_while_denials_are_live(conn, tmp_path, capsys):
+def test_audit_exits_nonzero_while_denials_are_live(conn, tmp_path, capsys, db_url):
     """So it can gate a re-extraction instead of being something you
     remember to read."""
     from fragrance_graph.db import get_connection, migrate
 
-    db = tmp_path / "audit.db"
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)
@@ -202,20 +202,20 @@ def test_audit_exits_nonzero_while_denials_are_live(conn, tmp_path, capsys):
               evidence="it is nothing like angel share")
     fresh.close()
 
-    assert main(["audit", "--db-path", str(db)]) == 1
+    assert main(["audit", "--db-url", db]) == 1
     assert "still stored as assertions" in capsys.readouterr().out
 
 
-def test_audit_on_a_clean_corpus_exits_zero(conn, tmp_path, capsys):
+def test_audit_on_a_clean_corpus_exits_zero(conn, tmp_path, capsys, db_url):
     from fragrance_graph.db import get_connection, migrate
 
-    db = tmp_path / "clean.db"
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)
     fresh.close()
 
-    assert main(["audit", "--db-path", str(db)]) == 0
+    assert main(["audit", "--db-url", db]) == 0
 
 
 # --- the eval -------------------------------------------------------------

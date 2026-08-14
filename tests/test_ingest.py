@@ -5,8 +5,8 @@ fixtures directly.
 """
 
 import json
-import sqlite3
 
+import psycopg
 import pytest
 
 from fragrance_graph.ingest.store import ingest
@@ -58,7 +58,7 @@ def test_interrupted_ingest_keeps_committed_work(conn):
 def test_source_id_uniqueness_is_enforced_by_the_database(conn):
     """Idempotency rests on the constraint, not just the INSERT clause."""
     ingest(conn, [make_comment(1)])
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(psycopg.errors.UniqueViolation):
         conn.execute(
             "INSERT INTO comments (source, source_id, body, permalink,"
             " created_utc, source_channel, score) VALUES"

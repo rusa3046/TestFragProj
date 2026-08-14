@@ -1,0 +1,78 @@
+# Tests and lint, on every push and pull request.
+#
+# This did not exist until 2026-08-14. The repository had 847 tests and a
+# twice-weekly workflow that ran the *product*, so a change could reach
+# `main` without a single test having been run anywhere but a laptop —
+# and the laptop is exactly where "it passed for me" comes from.
+#
+# It matters more since the database moved to PostgreSQL: the suite now
+# needs a server, which is the kind of dependency that quietly turns
+# "run the tests before you push" into "I'll run them later".
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  # A second push supersedes the first. Nobody reads the results of a run
+  # against a commit that is no longer the head.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # The suite drops and recreates the schema every session, so it gets
+      # its own database. `second_db` and `scale_db` create and drop
+      # further ones through the `postgres` database, which the image
+      # always provides.
+      FRAGRANCE_TEST_DB_URL: postgresql://postgres:postgres@localhost:5432/fragrance_graph_test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fragrance_graph_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --extra dev
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: The corpus still rebuilds a database
+        # The suite covers this with fixtures; this covers it with the
+        # real 6,077-comment corpus, which is the artifact a clean clone
+        # actually starts from. It costs seconds and it is the one thing
+        # whose failure would mean the committed data no longer loads.
+        env:
+          FRAGRANCE_DB_URL: postgresql://postgres:postgres@localhost:5432/fragrance_graph
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/postgres" \
+            -c "CREATE DATABASE fragrance_graph"
+          uv run python -m fragrance_graph.db init
+          uv run python -m fragrance_graph.corpus import
+          uv run python -m fragrance_graph.pages build --out site

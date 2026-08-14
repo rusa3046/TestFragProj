@@ -10,10 +10,10 @@ in them came from a retailer or a network.
 """
 
 import logging
-import sqlite3
 from dataclasses import replace
 from pathlib import Path
 
+import psycopg
 import pytest
 
 from fragrance_graph.commerce.feeds import (
@@ -49,7 +49,14 @@ XML_FEED = FEEDS / "example_parfumerie.xml"
 
 
 def columns(conn, table):
-    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    return {
+        row["column_name"]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = %s",
+            (table,),
+        )
+    }
 
 
 def add_retailer(
@@ -62,18 +69,18 @@ def add_retailer(
 ):
     cur = conn.execute(
         "INSERT INTO retailers (name, network, affiliate_id, url_template) "
-        "VALUES (?, ?, ?, ?)",
+        "VALUES (%s, %s, %s, %s) RETURNING id",
         (name, network, affiliate_id, url_template),
     )
     conn.commit()
-    return cur.lastrowid
+    return cur.fetchone()[0]
 
 
 def add_product(conn, retailer_id, external_id, *, fragrance_id=None, name="A bottle"):
     conn.execute(
         "INSERT INTO products (fragrance_id, retailer_id, name, external_id, url, "
         "                      last_seen) "
-        "VALUES (?, ?, ?, ?, 'https://shop.test/p', '2026-08-10')",
+        "VALUES (%s, %s, %s, %s, 'https://shop.test/p', '2026-08-10')",
         (fragrance_id, retailer_id, name, external_id),
     )
     conn.commit()
@@ -126,7 +133,7 @@ def test_products_are_unique_per_retailer_and_external_id(conn):
     """The idempotency key, so re-importing a feed updates instead of doubling."""
     retailer = add_retailer(conn)
     add_product(conn, retailer, "SKU-1")
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(psycopg.errors.UniqueViolation):
         add_product(conn, retailer, "SKU-1")
 
 
@@ -154,7 +161,7 @@ def test_retiring_a_fragrance_does_not_delete_the_shop_listing(conn):
     retailer = add_retailer(conn)
     add_product(conn, retailer, "SKU-1", fragrance_id=frag)
 
-    conn.execute("DELETE FROM fragrances WHERE id = ?", (frag,))
+    conn.execute("DELETE FROM fragrances WHERE id = %s", (frag,))
     conn.commit()
 
     (row,) = conn.execute("SELECT fragrance_id FROM products").fetchall()
@@ -166,7 +173,7 @@ def test_ending_a_retailer_relationship_removes_its_listings(conn):
     retailer = add_retailer(conn)
     add_product(conn, retailer, "SKU-1")
 
-    conn.execute("DELETE FROM retailers WHERE id = ?", (retailer,))
+    conn.execute("DELETE FROM retailers WHERE id = %s", (retailer,))
     conn.commit()
 
     assert conn.execute("SELECT count(*) FROM products").fetchone()[0] == 0
@@ -175,7 +182,7 @@ def test_ending_a_retailer_relationship_removes_its_listings(conn):
 def test_retailer_name_is_a_natural_key(conn):
     """Feed imports name their retailer in a shell command, not by row id."""
     add_retailer(conn, "Example Scent Co")
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(psycopg.errors.UniqueViolation):
         add_retailer(conn, "Example Scent Co")
 
 
@@ -398,7 +405,7 @@ def test_junk_names_resolve_to_nothing(curated):
 
 def import_fixture(conn, path, retailer_name, **kwargs):
     retailer = conn.execute(
-        "SELECT id FROM retailers WHERE name = ?", (retailer_name,)
+        "SELECT id FROM retailers WHERE name = %s", (retailer_name,)
     ).fetchone()
     retailer_id = retailer["id"] if retailer else add_retailer(conn, retailer_name)
     return import_products(conn, retailer_id, parse_feed(path), **kwargs)
@@ -538,16 +545,16 @@ def test_match_rate_of_an_empty_feed_is_not_a_zero_division():
 # --- CLI -------------------------------------------------------------------
 
 
-def test_cli_refuses_an_unregistered_retailer(tmp_path, capsys):
+def test_cli_refuses_an_unregistered_retailer(conn, tmp_path, capsys, db_url):
     from fragrance_graph.commerce.feeds import main
 
-    db = tmp_path / "cli.db"
+    db = db_url
     assert main(["import", str(CSV_FEED), "--retailer", "Nobody",
-                 "--db-path", str(db)]) == 1
+                 "--db-url", db]) == 1
     assert "No retailer named" in capsys.readouterr().out
 
 
-def test_cli_gates_on_match_rate_when_asked(tmp_path, capsys):
+def test_cli_gates_on_match_rate_when_asked(conn, tmp_path, capsys, db_url):
     """Optional, and off by default: a gate nobody set is not a promise.
 
     But an importer that can only report is one nobody can put in a
@@ -556,7 +563,7 @@ def test_cli_gates_on_match_rate_when_asked(tmp_path, capsys):
     from fragrance_graph.commerce.feeds import main
     from fragrance_graph.db import get_connection, migrate
 
-    db = tmp_path / "cli.db"
+    db = db_url
     setup = get_connection(db)
     migrate(setup)
     for name, brand, aliases in SEED:
@@ -565,7 +572,7 @@ def test_cli_gates_on_match_rate_when_asked(tmp_path, capsys):
     setup.close()
 
     args = ["import", str(CSV_FEED), "--retailer", "Example Scent Co",
-            "--db-path", str(db)]
+            "--db-url", db]
     assert main([*args, "--min-match-rate", "0.5"]) == 0
     assert main([*args, "--min-match-rate", "0.9"]) == 1
     assert "below the required" in capsys.readouterr().out
@@ -688,7 +695,7 @@ def shop(conn):
         conn.execute(
             "INSERT INTO products (fragrance_id, retailer_id, name, external_id, "
             "                      price, currency, url, last_seen) "
-            "VALUES (?, ?, 'Creed Aventus EDP 100ml', ?, ?, 'GBP', "
+            "VALUES (%s, %s, 'Creed Aventus EDP 100ml', %s, %s, 'GBP', "
             "        'https://shop.test/p', '2026-08-10')",
             (frag, retailer, sku, price),
         )
@@ -735,33 +742,33 @@ def test_ordering_by_commission_is_not_expressible(conn):
 # --- links CLI -------------------------------------------------------------
 
 
-def test_cli_registers_a_retailer_and_refuses_a_bad_template(tmp_path, capsys):
+def test_cli_registers_a_retailer_and_refuses_a_bad_template(conn, tmp_path, capsys, db_url):
     from fragrance_graph.commerce.links import main
 
-    db = tmp_path / "cli.db"
+    db = db_url
     ok = main(["retailer", "add", "Example Scent Co", "--network", "shareasale",
                "--affiliate-id", "aff-2", "--url-template", RAKUTEN_TEMPLATE,
-               "--db-path", str(db)])
+               "--db-url", db])
     assert ok == 0
 
     bad = main(["retailer", "add", "Broken", "--network", "x",
                 "--affiliate-id", "y", "--url-template", "https://shop.test/{url}",
-                "--db-path", str(db)])
+                "--db-url", db])
     assert bad == 1
     assert "Refusing that template" in capsys.readouterr().out
 
 
-def test_cli_says_plainly_when_a_fragrance_has_no_links(tmp_path, capsys):
+def test_cli_says_plainly_when_a_fragrance_has_no_links(conn, tmp_path, capsys, db_url):
     from fragrance_graph.commerce.links import main
     from fragrance_graph.db import get_connection, migrate
 
-    db = tmp_path / "cli.db"
+    db = db_url
     setup = get_connection(db)
     migrate(setup)
     add_fragrance(setup, "Obscure Indie Thing")
     setup.close()
 
-    assert main(["links", "Obscure Indie Thing", "--db-path", str(db)]) == 0
+    assert main(["links", "Obscure Indie Thing", "--db-url", db]) == 0
     assert "no buying links stored" in capsys.readouterr().out
 
 

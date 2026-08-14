@@ -32,7 +32,7 @@ import logging
 import time
 from pathlib import Path
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.ingest.store import ingest
 
 log = logging.getLogger("fragrance_graph.ingest.seed")
@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--note", default="", help="Free-text note stored in raw_json for provenance"
     )
-    parser.add_argument("--db-path", default=DEFAULT_DB_PATH, help="SQLite database path")
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL, help="SQLite database path")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -129,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
 
     rows = [make_row(e, subreddit=args.subreddit, note=args.note) for e in entries]
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         stats = ingest(conn, rows, source=SOURCE)

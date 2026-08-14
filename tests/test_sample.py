@@ -30,7 +30,7 @@ def add_claim_row(conn, comment_id, claim_type="SIMILAR_TO", subject="khamrah"):
         " raw_subject_text, object_kind, raw_object_text, confidence,"
         " polarity, evidence_span, evidence_verified, extraction_model,"
         " created_at)"
-        " VALUES (?, ?, 'FRAGRANCE', ?, 'FRAGRANCE', 'aventus', 0.9,"
+        " VALUES (%s, %s, 'FRAGRANCE', %s, 'FRAGRANCE', 'aventus', 0.9,"
         " 'ASSERTED', 'x', 1, 'test', '2026-01-01')",
         (comment_id, claim_type, subject),
     )
@@ -40,7 +40,7 @@ def add_reject(conn, comment_id):
     conn.execute(
         "INSERT INTO rejected_claims (comment_id, reason, raw_json,"
         " extraction_model, created_at)"
-        " VALUES (?, 'NOTE_DESCRIPTOR ... got NONE', '{}', 'test',"
+        " VALUES (%s, 'NOTE_DESCRIPTOR ... got NONE', '{}', 'test',"
         " '2026-01-01')",
         (comment_id,),
     )
@@ -48,7 +48,7 @@ def add_reject(conn, comment_id):
 
 def mark_extracted(conn, comment_id):
     conn.execute(
-        "UPDATE comments SET extracted_at = '2026-01-01' WHERE id = ?",
+        "UPDATE comments SET extracted_at = '2026-01-01' WHERE id = %s",
         (comment_id,),
     )
 

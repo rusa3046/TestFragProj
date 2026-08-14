@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.ingest.store import ingest
 
 log = logging.getLogger("fragrance_graph.ingest.youtube")
@@ -209,13 +209,14 @@ def record_discovery(
     written = 0
     for video_id in video_ids:
         conn.execute(
-            "INSERT OR IGNORE INTO videos (source, video_id) VALUES (?, ?)",
+            "INSERT INTO videos (source, video_id) VALUES (%s, %s)"
+            " ON CONFLICT DO NOTHING",
             (SOURCE, video_id),
         )
         cur = conn.execute(
-            "INSERT OR IGNORE INTO video_discoveries "
+            "INSERT INTO video_discoveries "
             "(source, video_id, retrieval_query, retrieved_at, discovery_run) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
             (SOURCE, video_id, query, datetime.now(UTC).isoformat(timespec="seconds"),
              run),
         )
@@ -267,7 +268,7 @@ def store_video_metadata(conn: Any, rows: list[dict[str, Any]]) -> int:
             "INSERT INTO videos "
             "(source, video_id, title, channel_id, channel_title, "
             " published_at, fetched_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (source, video_id) DO UPDATE SET "
             "title = excluded.title, channel_id = excluded.channel_id, "
             "channel_title = excluded.channel_title, "
@@ -284,7 +285,7 @@ def videos_missing_titles(conn: Any) -> list[str]:
     return [
         r["video_id"]
         for r in conn.execute(
-            "SELECT video_id FROM videos WHERE source = ? AND title IS NULL "
+            "SELECT video_id FROM videos WHERE source = %s AND title IS NULL "
             "ORDER BY video_id",
             (SOURCE,),
         )
@@ -364,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--sleep", type=float, default=DEFAULT_SLEEP, help="Seconds between requests"
     )
-    parser.add_argument("--db-path", default=DEFAULT_DB_PATH, help="SQLite database path")
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL, help="SQLite database path")
     parser.add_argument(
         "--backfill-titles",
         action="store_true",
@@ -391,7 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError:
         pass
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     client, api_key = build_client()
     quota = QuotaTracker()

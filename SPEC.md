@@ -997,6 +997,106 @@ Pages are not committed, for the reason products are not: no quota, no
 money, no judgement, and a pure function of `data/corpus/`. Output is
 byte-stable, so a diff under `site/` could only mean the corpus moved.
 
+### A page has to answer the question, and say the claim the right way round (2026-08-12)
+
+A page opened with *"5 people connected these two fragrances, across 3
+creators."* True, and a fact about our corpus rather than an answer to the
+question that brought someone here. Pages now lead with a **verdict line**:
+two sentences, both generated from counts, the first naming the claim the
+most people made and the second naming what nobody said.
+
+    6 people across 3 creators call The Woods Collection Dusk a dupe of
+    Parfums de Marly Layton. Nothing here describes what either one smells
+    like on its own.
+
+Three rules keep it a count rather than an opinion.
+
+**People and creators are counted over the same rows.** The pair-wide
+creator count is the larger one, and quoting it beside a claim-type
+commenter count is the scope defect recorded two sections up, one field
+over. `Related.creators` was added so the two numbers in one sentence
+describe one set of comments.
+
+**A claim only one person made is never the verdict.** Below two
+commenters the line says so — *"3 people across 2 creators mentioned X and
+Y together, but no two of them made the same comparison"* — rather than
+picking a winner from a field of ones. Layton vs Layton Exclusif was that
+page on the day this was written.
+
+**Both halves are stated.** What the evidence shows, and what it does not:
+a preference with no similarity claim behind it gets *"None of them said
+how the two differ"*; similarity with no preference gets *"Nobody here said
+which of the two they preferred."*
+
+#### The direction defect this uncovered
+
+Writing the sentence made an old bug visible. `similar_to` collapses
+DUPE_OF and SIMILAR_TO across both directions — correct for counting people
+— and pages then rendered every row from the **alphabetically first**
+bottle. Six people wrote *"Dusk is a dupe of Layton"*; the page said Layton
+was the dupe. The £200 bottle imitating the £30 one, on a live page, in the
+one direction a house would object to.
+
+It was invisible because the old wording never named the subject: *"6
+people called **it** a dupe of The Woods Collection Dusk"*, where "it" was
+whatever the title happened to start with. `Related.outbound_claims` now
+records how many of a row's claims ran from the queried end, and the
+majority decides the subject; ties keep the queried end in front so the
+wording cannot depend on which side the page was built from.
+
+#### A house compared with its own line clears a higher bar (2026-08-12)
+
+Flanker pairs — Layton vs Layton Exclusif, Amber Oud Ruby vs Amber Oud
+Black Edition — now need **5 commenters across 3 creators** rather than 3
+across 2. `MIN_FLANKER_COMMENTERS` / `MIN_FLANKER_SOURCES`.
+
+Two reasons, both recorded elsewhere in this file already.
+
+*The resolution is least reliable exactly here.* The names differ by one
+word, so a comment about the flanker resolves to the parent about as
+easily as to the flanker; `mention_only_words` exists because
+"Club De Nuit EDP" was auto-merged into the wrong node once, live. A wrong
+page in this category reads as a house duping itself.
+
+*The claim is worth less.* "The Exclusif is better" is the most common
+sentence under a flanker video and it is an opinion about two bottles the
+same house sells. Nobody is choosing between houses and no shopper is
+being warned off a fake, which is the question the site exists to answer.
+
+A pair counts as a flanker pair when both ends carry the **same brand**
+and their de-branded names **share at least one word**. Sharing a word
+rather than a prefix rule, so two flankers of one parent are caught as
+well; same brand alone would catch Layton vs Delina Exclusif, which are
+two unrelated Parfums de Marly bottles and get the ordinary gate.
+
+**What it unpublished, measured on the committed corpus: one page.**
+
+    Parfums de Marly Layton vs Parfums de Marly Layton Exclusif
+    3 people, 2 creators
+
+The site goes from 9 pages to 8. That page was already the weakest one
+published — its own verdict line read *"3 people across 2 creators
+mentioned Layton and Layton Exclusif together, but no two of them made the
+same comparison"*, which is a page saying out loud that it has nothing to
+report. `pages pairs` and `pages build` print the held-back list on every
+run, so the cost of the bar stays visible rather than becoming a number
+nobody re-reads.
+
+#### Asking from one end also dropped evidence
+
+`pair_stats` counts a pair direction-blind, but *rendering* still read rows
+from the left-hand bottle only — so an inbound `BETTER_THAN` was counted in
+the gate and then never shown. Layton/Dusk held two people preferring Dusk
+while the page announced that nobody had said which they preferred.
+
+`Pair.reverse` asks the far end for `BETTER_THAN` alone (the symmetric
+types already carry both directions and would arrive twice), and
+`Pair.statements` merges the two into claims with an explicit subject.
+Where both directions of a preference exist, the verdict says so:
+*"4 people across 2 creators say Lattafa Khamrah is better than Kilian
+Angels' Share. 2 people said the opposite."* Reporting only the larger side
+is picking a winner by omission.
+
 ### The unattended loop: a hard cap and a narrow auto-curation rule (2026-08-11)
 
 `daily.py` implements the demand-driven loop specified above. Two decisions
@@ -1591,3 +1691,39 @@ Aliasing and reviewing held rows move up, being free. And the extraction
 recall problem — the eval says about half of real comparisons are missed
 entirely — moves up with them, because unlike catalogue coverage it is
 something this project controls.
+
+### The catalogue was removed (2026-08-14)
+
+Fragella is gone: the client, the review-file round trip, the auto-curation
+rule in the daily loop, the `FRAGELLA_API_KEY`, and the 707-line
+`resolve/enrich.py` that held them. `docs/CURATION.md` keeps the
+measurements and the flanker reasoning under a history heading, because
+those are properties of fragrance naming rather than of any one tool.
+
+**It was removed because the ledger settled it.**
+
+    catalogue   $1.45   29 entries, all on 2026-08-11, none since
+    extract     $1.33   164 entries, still in use
+                -----
+    total       $2.78
+
+More than half of every dollar this project has ever spent went to the
+catalogue, in a single day, and SPEC already recorded what it bought: 60
+lookups, 5 names, **0 pages**. The catalogue does not carry the small
+houses this corpus discusses, so the mentions worth resolving were exactly
+the ones it could not answer. It had been switched off in practice since
+the scheduled workflow started passing `--lookup-limit 0`.
+
+What replaced it costs nothing. `resolve.entities batch` writes a review
+file with two real comment spans and the video titles behind each mention,
+ordered by pages unlocked rather than frequency; a person fills it in with
+no network. One sitting produced 4 bottles, 2 aliases, 49 resolved
+mentions and a page — more than the $1.45 ever did.
+
+**What was kept.** Nothing of the reasoning is lost. The flanker rule, the
+reverse-flanker failure of 2026-08-11, and the asymmetry between a bad
+merge and a miss are all recorded in `docs/CURATION.md`; the guards they
+produced live on in `resolve/entities.py` as `_answers_to` and the
+confirmation rule for drafted rows. Only the code that could not pay for
+itself is gone — the same reasoning that removed the PRAW paths on
+2026-08-10: code that cannot earn its place reads as an option.

@@ -7,10 +7,12 @@
 #
 # Two decisions are encoded here rather than in the code.
 #
-# **No catalogue lookups.** Measured 2026-08-12: 60 lookups converted 5
-# names, because the catalogue does not carry the small-house bottles this
-# corpus discusses. Lookups stay manual and occasional, so an unattended run
-# cannot spend on an 8% yield. See SPEC.
+# **The catalogue is gone entirely.** Measured 2026-08-12: 60 lookups
+# converted 5 names and produced 0 pages, because it does not carry the
+# small-house bottles this corpus discusses -- $1.45 of the $2.78 ever
+# spent here, for nothing a reader saw. Curation is offline now:
+# `resolve.entities batch` writes a review file, a person fills it in.
+# See SPEC.
 #
 # **Silence unless a person is needed.** A run that collected comments and
 # published nothing is not news. The issue below opens only when curation
@@ -43,14 +45,35 @@ jobs:
     timeout-minutes: 30
     # Job-level, so every step reads and writes the *same* database.
     # Setting it only on the step that runs the loop meant the rebuild
-    # populated the default path while the loop used data/, so the loop
-    # ran against an empty database: no fragrances, nothing resolvable,
-    # and an export that would have committed a corpus with 65 hand
-    # labels and 56 curated bottles deleted. The export guard refused it,
-    # which is the only reason this was a wasted run rather than a
-    # destroyed corpus.
+    # populated one database while the loop read another, so the loop ran
+    # against an empty one: no fragrances, nothing resolvable, and an
+    # export that would have committed a corpus with 65 hand labels and
+    # 56 curated bottles deleted. The export guard refused it, which is
+    # the only reason that was a wasted run rather than a destroyed
+    # corpus.
     env:
-      FRAGRANCE_DB_PATH: data/fragrance_graph.db
+      FRAGRANCE_DB_URL: postgresql://postgres:postgres@localhost:5432/fragrance_graph
+    # A throwaway server for the length of the run. The database is
+    # derived: `corpus import` rebuilds it from the committed JSONL in
+    # seconds, and nothing in it outlives the job. Which is why no volume
+    # is mounted and no backup exists — the corpus *is* the backup.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fragrance_graph
+        ports:
+          - 5432:5432
+        # Without this the first step races the server's startup and
+        # fails with "connection refused" perhaps one run in five, which
+        # is the worst possible failure rate: too rare to fix, too common
+        # to trust.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -67,21 +90,24 @@ jobs:
           uv run python -m fragrance_graph.corpus import
 
       - name: Check the rebuild actually landed
-        # A database on the wrong path imports fine and reports success,
-        # so "import succeeded" is not evidence the loop will see the
-        # data. This asserts the corpus is present where the loop reads.
+        # An import into the wrong database reports success just as
+        # cheerfully, so "import succeeded" is not evidence the loop will
+        # see the data. This asserts the corpus is where the loop reads.
         run: |
           uv run python -c "
-          import sqlite3, sys
+          import sys
+
+          import psycopg
+
           from fragrance_graph.db import get_connection
           try:
-              c = get_connection('data/fragrance_graph.db')
+              c = get_connection()
               n = c.execute('select count(*) from fragrances').fetchone()[0]
               labels = c.execute('select count(*) from eval_labels').fetchone()[0]
-          except sqlite3.OperationalError as exc:
-              sys.exit(f'Rebuild did not land at data/fragrance_graph.db ({exc}). '
+          except (psycopg.OperationalError, psycopg.errors.UndefinedTable) as exc:
+              sys.exit(f'Rebuild did not land ({exc}). '
                        'The import step wrote somewhere else — check '
-                       'FRAGRANCE_DB_PATH is set for every step.')
+                       'FRAGRANCE_DB_URL is set for every step.')
           print(f'{n} fragrances, {labels} eval labels')
           if not n:
               sys.exit('Rebuild did not land: no fragrances. Refusing to run '
@@ -95,12 +121,12 @@ jobs:
           FRAGRANCE_ANTHROPIC_API_KEY: ${{ secrets.FRAGRANCE_ANTHROPIC_API_KEY }}
         run: |
           set -o pipefail
-          uv run python -m fragrance_graph.daily run \
-            --lookup-limit 0 \
-            --queries "fragrance dupe" "aventus clone" "oud wood dupe" \
-                      "khamrah review" "parfums de marly layton" \
-                      "baccarat rouge 540 dupe" "sauvage clone" \
-            2>&1 | tee run.log
+          # No --queries: the seeds live in `daily.SEED_QUERIES`, where
+          # they are documented, shape-checked by a test, and reviewable
+          # in a diff. Six of the eight queries this step used to inline
+          # contained "dupe", which is a leading question asked of an
+          # audience assembled to answer it.
+          uv run python -m fragrance_graph.daily run 2>&1 | tee run.log
           {
             echo '## Loop report'
             echo '```'
@@ -132,7 +158,14 @@ jobs:
         # spent, and the published site should still reflect the corpus
         # even on a run that did no new work. Costs nothing — pages are
         # pure derivation from the database.
-        run: uv run python -m fragrance_graph.pages build --out site
+        # `--base-url` is what canonical tags and sitemap.xml are built
+        # from. It is the Pages URL GitHub derives from the repository,
+        # so it stays right if the repo is renamed; a `CNAME` file in the
+        # repo root overrides it, and `build` copies that file into the
+        # artifact so a custom domain survives every deploy.
+        run: |
+          uv run python -m fragrance_graph.pages build --out site \
+            --base-url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
 
       - name: Package the pages
         # `site/` is gitignored on purpose — pages cost no quota, no money
@@ -141,6 +174,51 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
+
+      - name: Post the run summary
+        # Every run, whether or not anything happened.
+        #
+        # The step below this one is deliberately silent on a quiet run —
+        # it opens an issue only when a person is *needed*, so that a
+        # notification from it always means something. This one is the
+        # other thing: a log you can subscribe to and read on a phone,
+        # answering "how big is the corpus now" without opening a laptop.
+        #
+        # One issue, commented on. A new issue per run would be a mailbox
+        # nobody reads, which is the failure mode of every status email
+        # ever built.
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const log = fs.existsSync('run.log')
+              ? fs.readFileSync('run.log', 'utf8') : '(no log)';
+            const body = [
+              `**${new Date().toISOString().slice(0, 10)}** — `
+                + `[run](${context.serverUrl}/${context.repo.owner}/`
+                + `${context.repo.repo}/actions/runs/${context.runId})`,
+              '```',
+              log.split('\n').slice(-30).join('\n'),
+              '```',
+            ].join('\n\n');
+
+            const title = 'Loop log';
+            const found = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'loop-log',
+            });
+            if (found.data.length) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: found.data[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['loop-log'],
+              });
+            }
 
       - name: Ask for a decision, only if one is needed
         if: always()
@@ -158,10 +236,10 @@ jobs:
             const title = 'Loop needs a decision';
             const body = [
               failed ? '**The run failed.** See the Actions log.' : '',
-              held ? `**${held[1]} names are held** — the catalogue offered `
-                   + 'something with a flanker question in it, which only a '
-                   + 'person can settle.\n\n```\nuv run python -m '
-                   + 'fragrance_graph.daily curate\n```' : '',
+              held ? `**${held[1]} names are waiting.** Curation is `
+                   + 'offline and costs nothing:\n\n```\nuv run python -m '
+                   + 'fragrance_graph.resolve.entities batch curate.json'
+                   + '\n```' : '',
               problems ? 'The run reported problems:' : '',
               '```', log.split('\n').slice(-45).join('\n'), '```',
             ].filter(Boolean).join('\n\n');

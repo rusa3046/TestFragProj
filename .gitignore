@@ -24,6 +24,7 @@ site/
 # Labelling scratch files — templates and drafts are working files, not
 # corpus. The labels themselves land in data/corpus/eval_labels.jsonl.
 next*.json
+curate*.json
 drafted*.json
 silent*.json
 labels*.json

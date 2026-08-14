@@ -34,7 +34,7 @@ import json
 import logging
 import sys
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.resolve.entities import add_alias, add_fragrance
 
 log = logging.getLogger("seed_fragrances")
@@ -255,11 +255,11 @@ DEFERRED = {
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         existing = {
@@ -283,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         taught = 0
         for name, aliases in EXTRA_ALIASES:
             row = conn.execute(
-                "SELECT id, aliases FROM fragrances WHERE canonical_name = ?", (name,)
+                "SELECT id, aliases FROM fragrances WHERE canonical_name = %s", (name,)
             ).fetchone()
             if row is None:
                 log.warning("no fragrance named %r; cannot teach %s", name, aliases)

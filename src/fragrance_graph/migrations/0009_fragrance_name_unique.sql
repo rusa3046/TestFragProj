@@ -13,10 +13,21 @@
 -- catch the cases they know about. This catches the rest, at the only
 -- layer that cannot be bypassed by a new code path.
 --
--- NOCASE because "Armaf Club De Nuit" and "Armaf Club de Nuit" are one
--- bottle. It does not normalise punctuation or spacing — `normalize_name`
--- does that, and encoding it here would mean rebuilding the index every
--- time that function learned a new rule. This is the floor, not the whole
--- policy.
+-- Case-insensitive because "Armaf Club De Nuit" and "Armaf Club de Nuit"
+-- are one bottle. It does not normalise punctuation or spacing —
+-- `normalize_name` does that, and encoding it here would mean rebuilding
+-- the index every time that function learned a new rule. This is the
+-- floor, not the whole policy.
+--
+-- SQLite spelled this `COLLATE NOCASE`, which is a property of the
+-- column. Postgres has no case-insensitive collation by default, so the
+-- same rule becomes an index on an expression — `lower(canonical_name)`.
+-- Two consequences worth knowing before you rely on it:
+--
+--   * The uniqueness is on the *expression*. A query has to say
+--     `WHERE lower(canonical_name) = lower(%s)` to use this index;
+--     `WHERE canonical_name = %s` will not.
+--   * `lower()` is locale-dependent. For ASCII fragrance names that is
+--     invisible; it would not be for a Turkish dotless i.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fragrances_canonical_name
-    ON fragrances (canonical_name COLLATE NOCASE);
+    ON fragrances (lower(canonical_name));

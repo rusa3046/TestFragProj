@@ -25,12 +25,12 @@ asking.
 YouTube comments → claim extraction → entity resolution → ranked answers
   (Data API v3)    (Claude Haiku 4.5)   (name → bottle)     (+ evidence)
                                               ↑
-                                    Fragella catalogue
-                                   (names and brands only)
+                                     offline curation
+                                  (a person, no network)
 ```
 
-1. **Ingest.** Official platform APIs only. Comments land in SQLite, idempotent
-   on `(source, source_id)`, resumable mid-run.
+1. **Ingest.** Official platform APIs only. Comments land in PostgreSQL,
+   idempotent on `(source, source_id)`, resumable mid-run.
 2. **Extract.** Claude reads batched comments and returns typed claims —
    `DUPE_OF`, `SIMILAR_TO`, `NOTE_DESCRIPTOR`, `LONGEVITY`, and seven more.
    Every claim carries an `evidence_span` quoted from the comment, verified
@@ -38,12 +38,12 @@ YouTube comments → claim extraction → entity resolution → ranked answers
    whether the commenter asserted the relationship **or denied it**.
 3. **Resolve.** `BR540`, `540` and `Baccarat Rouge` are one bottle. Curated
    aliases plus conservative fuzzy matching collapse them into a single node.
-   The [Fragella](https://api.fragella.com/) catalogue proposes canonical
-   names and brands for unresolved mentions — see
-   [docs/CURATION.md](./docs/CURATION.md). **Names and brands only:** its
-   notes, accords, ratings and computed-similarity endpoints are off limits,
-   because a result sourced from an accord overlap cannot be backed by a
-   quote. SPEC.md records the boundary field by field.
+   What is left is named by a person, offline: `resolve.entities batch`
+   writes a review file carrying two real comments and the video titles
+   behind each mention, ordered by how many pages naming it would publish
+   — see [docs/CURATION.md](./docs/CURATION.md). A catalogue API used to
+   do this and was removed on 2026-08-14: 60 lookups, $3.00, 5 names, 0
+   pages. It does not carry the small houses this corpus discusses.
 4. **Answer.** Ranked by distinct commenters, with quotes and permalinks.
 
 ### Which sources are live
@@ -52,7 +52,7 @@ YouTube comments → claim extraction → entity resolution → ranked answers
 |---|---|
 | **YouTube Data API v3** | **live** — the entire corpus |
 | **Anthropic API** | **live** — extraction, and eval-label drafting |
-| **Fragella** | **live** — name → canonical bottle, nothing else |
+| Fragella | **removed 2026-08-14.** 60 lookups produced 5 names and 0 pages |
 | Reddit | **not used.** API access was refused to this project |
 | Affiliate feeds (Rakuten, ShareASale) | built, no account yet — Phase C |
 | Fragrantica / Parfumo / Basenotes | **never.** No API, and scraping breaches their terms |
@@ -185,6 +185,50 @@ uv sync --extra dev          # --extra dev is required; plain `uv sync` omits py
 cp .env.example .env         # fill in the keys below
 ```
 
+### PostgreSQL
+
+Every command needs a running server. Either path works; **the connection
+string differs between them**, which is the one thing to get right.
+
+**Homebrew.** The superuser is *your macOS username*, not `postgres` — so
+the DSN leaves the user out and lets libpq default to it:
+
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+createdb fragrance_graph
+createdb fragrance_graph_test
+```
+
+```bash
+# in .env
+FRAGRANCE_DB_URL=postgresql:///fragrance_graph
+FRAGRANCE_TEST_DB_URL=postgresql:///fragrance_graph_test
+```
+
+**Docker**, if you would rather not install a server. Here the user really
+is `postgres`, and it has a password:
+
+```bash
+docker run -d --name fragrance-pg -p 5432:5432 \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=fragrance_graph postgres:16
+docker exec fragrance-pg createdb -U postgres fragrance_graph_test
+```
+
+```bash
+# in .env
+FRAGRANCE_DB_URL=postgresql://postgres:postgres@localhost:5432/fragrance_graph
+FRAGRANCE_TEST_DB_URL=postgresql://postgres:postgres@localhost:5432/fragrance_graph_test
+```
+
+If you get `role "postgres" does not exist`, you installed with Homebrew
+and are using the Docker DSN. That is the whole error.
+
+**The database is disposable and there is no backup, by design.** It is
+rebuilt from `data/corpus/*.jsonl` in seconds. Drop it, bloat it, lock it
+up — nothing of value is in there. That is also why it is a good place to
+practise the operational side of Postgres against real data.
+
 | variable | needed for | notes |
 |---|---|---|
 | `YOUTUBE_API_KEY` | ingest | Google Cloud console, issued instantly. 10,000 units/day |
@@ -203,13 +247,17 @@ Initialize the database:
 uv run python -m fragrance_graph.db init
 ```
 
-The database path comes from `FRAGRANCE_DB_PATH` (default
-`fragrance_graph.db` in the repo root), or `--db-path` on any command. The
-working corpus lives at **`data/fragrance_graph.db`**:
+The connection string comes from `FRAGRANCE_DB_URL`, or `--db-url` on any
+command. The default is:
 
 ```bash
-export FRAGRANCE_DB_PATH=data/fragrance_graph.db
+export FRAGRANCE_DB_URL=postgresql://postgres@localhost:5432/fragrance_graph
 ```
+
+The test suite uses a **separate** database, `FRAGRANCE_TEST_DB_URL`
+(default `.../fragrance_graph_test`). It is deliberately not the same one:
+the suite drops and rebuilds the schema at the start of every session, and
+truncates every table between tests.
 
 ### The database is disposable; the corpus is not
 
@@ -226,7 +274,7 @@ uv run python -m fragrance_graph.corpus import    # db  ← data/corpus/*.jsonl
 
 Four files: `comments.jsonl`, `claims.jsonl`, `fragrances.jsonl`, and
 `eval_labels.jsonl`. They diff line by line in review, are readable without
-SQLite, and round-trip losslessly
+a database at all, and round-trip losslessly
 — rows link by natural keys (`source` + `source_id`, and `canonical_name`),
 never by autoincrement id, so a rebuilt database re-numbering its rows cannot
 silently reattach a claim to the wrong comment. Export is byte-stable, so an
@@ -390,11 +438,10 @@ It is **demand-driven**, and that is a decision rather than an
 implementation detail:
 
 ```
-1. YouTube: search fragrance discussion broadly
+1. YouTube: search fragrance discussion, on the seeds in SEED_QUERIES
 2. ingest -> extract
-3. resolve.entities report  ->  newly frequent, still unnamed
-4. Fragella: resolve exactly those names
-5. auto-curate what corroborates -> backfill -> export -> pages
+3. backfill: resolve everything the curated dictionary already covers
+4. export -> pages -> report
 ```
 
 Asking a catalogue what is new and *then* looking for discussion of it
@@ -503,6 +550,49 @@ and they are a pure function of `data/corpus/` — the same reasoning that
 keeps products out of the corpus. `site/` is gitignored; rebuilding an
 unchanged corpus rewrites identical bytes, so a diff there would only ever
 mean the corpus moved.
+
+### Where the site lives, and who may watch it
+
+Three files decide, none of them code:
+
+```bash
+uv run python -m fragrance_graph.pages build --out site/ \
+  --base-url https://rusa3046.github.io/TestFragProj/
+```
+
+- **`--base-url`** is what canonical tags and `sitemap.xml` are built
+  from. Without it — and without a `CNAME` — both are skipped and the
+  build says so. A guessed domain is worse than none: a canonical tag
+  pointing at the wrong host tells a search engine to index somebody
+  else's copy of the page. The scheduled workflow passes the Pages URL
+  GitHub derives from the repository, so a rename cannot break it.
+
+- **`CNAME`** in the repository root turns on a custom domain. One line,
+  the bare domain, no scheme:
+
+  ```
+  dupes.example.com
+  ```
+
+  Then point a DNS `CNAME` record for that name at
+  `rusa3046.github.io.` and set the domain in the repository's Pages
+  settings. `build` copies the file into `site/` on every build, which is
+  the part that is easy to miss — GitHub Pages reads `CNAME` from the
+  published root, so a build that does not carry it forward silently
+  drops the custom domain on the next deploy. A `CNAME` also **overrides
+  `--base-url`**, because it is the file the host itself obeys.
+
+- **`data/analytics.html`** is injected verbatim into the `<head>` of
+  every page, and ships empty. Paste a provider's snippet there and
+  rebuild to turn analytics on; delete it to turn them off. It is a file
+  rather than a flag so the tag is reviewable in a diff — a script on
+  these pages can see every visitor, and *which script, added when, by
+  whom* should be answerable from git alone. Nothing in it is validated
+  or escaped, unlike comment text, so paste only what the provider gave
+  you.
+
+`robots.txt` is always written and always allows everything; it names the
+sitemap when there is one.
 
 ## Buying links
 
@@ -770,8 +860,8 @@ argument for each; this is the short form.
    correctly — turning curation from human decisions with automation help
    into automatic resolution with human exception handling.
 
-Deliberately not planned: Postgres or Neo4j (SQLite is nowhere near the
-constraint), a new-release crawler (a bottle launched yesterday has no
+Deliberately not planned: Neo4j (the graph is not the constraint; curation
+is), a new-release crawler (a bottle launched yesterday has no
 discussion), video transcripts (owner-gated, and every workaround is the
 scraping this project refuses), and computed similarity from notes.
 
@@ -843,8 +933,8 @@ Nothing regressed. The old figures came from **13** labelled comments, few
 enough that a single claim moved F1 by more than a tenth, and they were
 computed against a mixture of human and model labels — `load_labels` keyed
 results by comment, so with three labelers per comment every row but the
-last silently vanished and which one survived depended on the order SQLite
-returned rows. The same corpus scored 0.41 and 0.38 on two machines the
+last silently vanished and which one survived depended on the order the
+database returned rows. The same corpus scored 0.41 and 0.38 on two machines the
 day this was found. `score` now refuses to run without `--labeler` when
 labelers collide, and the numbers above are `--labeler aanya-verified`.
 

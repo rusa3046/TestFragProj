@@ -121,3 +121,42 @@ Video **titles** are a different case and were backfilled on 2026-08-11:
 `videos.list` refetches 50 for one quota unit, so a title is recoverable
 in a way a ranking is not. All 39 now carry title, channel and publish
 date.
+
+## The seeds were asking one question (2026-08-12)
+
+Six of the eight searches behind this corpus contained "dupe" or "clone".
+Measured on the discovery records: **10 of the 14 distinct queries, 71%.**
+
+That is a leading question put to an audience assembled to answer it. It
+finds people agreeing that A imitates B, and it does not find the person
+who says B is worth the money, or the one who says A smells like C
+instead — both of which the claim taxonomy already models and the corpus
+barely contains. The published pairs show the same shape: every one of
+them is a dupe claim or sits beside one.
+
+`daily.SEED_QUERIES` now mixes eight shapes and the dupe shape is 2 of 10
+rather than 6 of 8. The seeds moved out of the workflow file and into
+code, where they carry their reasoning, are covered by a test, and appear
+in a diff when they change.
+
+**Nothing has been re-ingested.** The seeds are a plan; the corpus is what
+happened. `daily seeds` prints both columns side by side for exactly that
+reason — a report showing only the new list would read as though the
+corpus had already broadened:
+
+    shape            seeds now  corpus so far
+    alternative to           1              0
+    bare name                0              1
+    better than              1              0
+    compared to              1              0
+    dupe/clone               2             10
+    head to head             3              0
+    review                   0              3
+    smells like              1              0
+    worth it                 1              0
+
+The second column moves only when an ingest runs under the new seeds. Until
+it does, `MIN_QUERIES` stays at 1 for the reason recorded above: a query
+count of 2 measured against a corpus built almost entirely from one
+question would unpublish pairs for our sampling rather than for their
+evidence.

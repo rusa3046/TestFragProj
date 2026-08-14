@@ -31,7 +31,7 @@ import argparse
 import logging
 import sys
 
-from fragrance_graph.db import DEFAULT_DB_PATH, get_connection, migrate
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 
 log = logging.getLogger("seed_video_discoveries")
 
@@ -71,17 +71,17 @@ DISCOVERIES: list[tuple[str, str]] = [
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    conn = get_connection(args.db_path)
+    conn = get_connection(args.db_url)
     migrate(conn)
     try:
         known = {
             row["video_id"]
             for row in conn.execute(
-                "SELECT video_id FROM videos WHERE source = ?", (SOURCE,)
+                "SELECT video_id FROM videos WHERE source = %s", (SOURCE,)
             )
         }
         added = 0
@@ -96,13 +96,13 @@ def main(argv: list[str] | None = None) -> int:
                     "database; recording it anyway", video_id
                 )
                 conn.execute(
-                    "INSERT OR IGNORE INTO videos (source, video_id) VALUES (?, ?)",
+                    "INSERT OR IGNORE INTO videos (source, video_id) VALUES (%s, %s)",
                     (SOURCE, video_id),
                 )
             cur = conn.execute(
                 "INSERT OR IGNORE INTO video_discoveries "
                 "(source, video_id, retrieval_query, retrieved_at, discovery_run) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s)",
                 (SOURCE, video_id, query, RETRIEVED_AT, RUN),
             )
             added += cur.rowcount
