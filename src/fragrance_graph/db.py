@@ -50,6 +50,29 @@ import psycopg
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
+
+def _load_env() -> None:
+    """Read `.env` before anything reads the environment.
+
+    Every entry point in this project imports this module, and several of
+    them do their own `load_dotenv()` inside `main()` — which is too late:
+    `DEFAULT_DB_URL` below is evaluated at import, so a `.env` loaded
+    afterwards has no effect on it. The result was a `FRAGRANCE_DB_URL`
+    line in `.env` that looked configured and was silently ignored, and a
+    person prefixing every single command with the variable instead.
+
+    `load_dotenv` does not override variables already in the environment,
+    so an explicit `FRAGRANCE_DB_URL=... uv run ...` still wins.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:  # pragma: no cover - python-dotenv is a dependency
+        return
+    load_dotenv()
+
+
+_load_env()
+
 #: Default connection string. Deliberately a full DSN rather than a
 #: hostname: a reader who has never seen libpq should be able to copy this
 #: and change one word.
@@ -91,9 +114,32 @@ def row_factory(cursor):
     return make
 
 
+class NoServer(psycopg.OperationalError):
+    """The server is not running, or is not where the DSN says it is.
+
+    A separate type so the message can say what to do. libpq's own is
+    accurate and unhelpful: it reports "Connection refused" for both
+    127.0.0.1 and ::1 across nine lines, and mentions neither Postgres
+    being stopped nor which database was being asked for — which is the
+    first error anybody meets after a fresh clone.
+    """
+
+
 def get_connection(db_url: str = DEFAULT_DB_URL) -> psycopg.Connection:
     """Open a connection whose rows behave like `sqlite3.Row`."""
-    return psycopg.connect(db_url, row_factory=row_factory)
+    try:
+        return psycopg.connect(db_url, row_factory=row_factory)
+    except psycopg.OperationalError as exc:
+        if "refused" not in str(exc) and "starting up" not in str(exc):
+            raise
+        raise NoServer(
+            f"No PostgreSQL server answered at {db_url!r}.\n"
+            "  Start one:   brew services start postgresql@16\n"
+            "               (or: docker start fragrance-pg)\n"
+            "  Then check:  pg_isready\n"
+            "  The DSN comes from FRAGRANCE_DB_URL in .env, or --db-url.\n"
+            "  See README > Setup."
+        ) from exc
 
 
 def _ensure_migrations_table(conn: psycopg.Connection) -> None:

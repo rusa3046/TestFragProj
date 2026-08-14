@@ -12,6 +12,8 @@ runner has to treat differently because Postgres will not run it inside a
 transaction.
 """
 
+from pathlib import Path
+
 import psycopg
 import pytest
 
@@ -139,3 +141,74 @@ class TestNonTransactionalMigrations:
                 "CREATE INDEX CONCURRENTLY idx_probe ON comments (created_utc)"
             )
             side.execute("DROP INDEX idx_probe")
+
+
+class TestTheFirstErrorAnybodyMeets:
+    """A stopped server is the first failure after a fresh clone, and
+    libpq's message for it names neither Postgres nor what to do."""
+
+    def test_a_stopped_server_says_how_to_start_one(self):
+        from fragrance_graph.db import NoServer, get_connection
+
+        # Port 1 is reserved and nothing listens on it.
+        with pytest.raises(NoServer) as caught:
+            get_connection("postgresql://postgres@localhost:1/whatever")
+        message = str(caught.value)
+        assert "brew services start" in message
+        assert "FRAGRANCE_DB_URL" in message
+
+    def test_it_is_still_an_operational_error(self):
+        """Callers that already catch psycopg.OperationalError keep working."""
+        from fragrance_graph.db import NoServer
+
+        assert issubclass(NoServer, psycopg.OperationalError)
+
+    def test_other_connection_failures_are_not_disguised(self, _schema):
+        """A wrong password or a missing database is a different problem
+        and must keep its own message."""
+        from fragrance_graph.db import NoServer, get_connection
+
+        missing = _schema.replace("fragrance_graph_test", "definitely_not_here")
+        with pytest.raises(psycopg.OperationalError) as caught:
+            get_connection(missing)
+        assert not isinstance(caught.value, NoServer)
+        assert "definitely_not_here" in str(caught.value)
+
+
+class TestDotenvIsReadBeforeTheDefault:
+    """`DEFAULT_DB_URL` is evaluated at import, and several entry points
+    called `load_dotenv()` inside `main()` — after it. A FRAGRANCE_DB_URL
+    line in .env therefore looked configured and did nothing."""
+
+    def test_the_env_file_is_loaded_at_import(self, tmp_path, monkeypatch):
+        import subprocess
+        import sys
+
+        (tmp_path / ".env").write_text(
+            "FRAGRANCE_DB_URL=postgresql://from-the-env-file/db\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "from fragrance_graph.db import DEFAULT_DB_URL; print(DEFAULT_DB_URL)"],
+            cwd=tmp_path, capture_output=True, text=True,
+            env={"PATH": "/usr/bin:/bin",
+                 "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
+        )
+        assert "from-the-env-file" in result.stdout, result.stderr
+
+    def test_an_explicit_variable_still_wins(self, tmp_path):
+        import subprocess
+        import sys
+
+        (tmp_path / ".env").write_text(
+            "FRAGRANCE_DB_URL=postgresql://from-the-env-file/db\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "from fragrance_graph.db import DEFAULT_DB_URL; print(DEFAULT_DB_URL)"],
+            cwd=tmp_path, capture_output=True, text=True,
+            env={"PATH": "/usr/bin:/bin",
+                 "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
+                 "FRAGRANCE_DB_URL": "postgresql://from-the-shell/db"},
+        )
+        assert "from-the-shell" in result.stdout, result.stderr
