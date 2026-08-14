@@ -136,11 +136,17 @@ class TestNonTransactionalMigrations:
             )
         conn.rollback()
 
-        with psycopg.connect(conn.info.dsn, autocommit=True) as side:
-            side.execute(
+        # Autocommit on this connection, not a second one from
+        # `conn.info.dsn` — libpq leaves the password out of `dsn`, so
+        # that reconnect only works where no password is asked for.
+        conn.autocommit = True
+        try:
+            conn.execute(
                 "CREATE INDEX CONCURRENTLY idx_probe ON comments (created_utc)"
             )
-            side.execute("DROP INDEX idx_probe")
+            conn.execute("DROP INDEX idx_probe")
+        finally:
+            conn.autocommit = False
 
 
 class TestTheFirstErrorAnybodyMeets:

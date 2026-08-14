@@ -672,11 +672,11 @@ def test_render_pluralises_one_person(conn):
     assert "1 person " in render("Layton", similar_to(conn, target))
 
 
-def test_cli_reports_an_unknown_fragrance(conn, tmp_path, capsys):
+def test_cli_reports_an_unknown_fragrance(conn, tmp_path, capsys, db_url):
     from fragrance_graph.db import get_connection, migrate
     from fragrance_graph.query import main
 
-    db = conn.info.dsn
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)

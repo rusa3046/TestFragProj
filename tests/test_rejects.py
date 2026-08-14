@@ -131,10 +131,10 @@ def test_payload_survives_verbatim(conn):
     assert rejected(conn)[0]["claim"] == odd
 
 
-def test_report_on_an_empty_table_says_so(conn, tmp_path, capsys):
+def test_report_on_an_empty_table_says_so(conn, tmp_path, capsys, db_url):
     from fragrance_graph.db import get_connection, migrate
 
-    db = conn.info.dsn
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)
@@ -145,10 +145,10 @@ def test_report_on_an_empty_table_says_so(conn, tmp_path, capsys):
     assert "No rejected claims recorded" in capsys.readouterr().out
 
 
-def test_cli_report_prints_counts(conn, tmp_path, capsys):
+def test_cli_report_prints_counts(conn, tmp_path, capsys, db_url):
     from fragrance_graph.db import get_connection, migrate
 
-    db = conn.info.dsn
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)

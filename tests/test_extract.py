@@ -516,10 +516,10 @@ def test_render_labels_itself_an_estimate_and_states_assumptions(conn):
     assert "per 1k comments" in rendered
 
 
-def test_dry_run_needs_no_api_key(conn, tmp_path, monkeypatch, capsys):
+def test_dry_run_needs_no_api_key(conn, tmp_path, monkeypatch, capsys, db_url):
     """The reason this path exists: cost before credentials."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    db = conn.info.dsn
+    db = db_url
     conn.close()
 
     from fragrance_graph.db import get_connection, migrate
@@ -536,8 +536,8 @@ def test_dry_run_needs_no_api_key(conn, tmp_path, monkeypatch, capsys):
     assert "comments pending        3" in out
 
 
-def test_dry_run_writes_nothing(conn, tmp_path):
-    db = conn.info.dsn
+def test_dry_run_writes_nothing(conn, tmp_path, db_url):
+    db = db_url
     conn.close()
 
     from fragrance_graph.db import get_connection, migrate
@@ -668,12 +668,12 @@ def test_reset_leaves_unlabelled_comments_alone(conn):
     assert len(pending_comments(conn, 10)) == 1
 
 
-def test_only_labelled_says_so_when_there_are_no_labels(conn, tmp_path):
+def test_only_labelled_says_so_when_there_are_no_labels(conn, tmp_path, db_url):
     """"Reset 0 comments" is true and useless; the cause is usually a
     scratch database rebuilt from a corpus export that predates labelling."""
     from fragrance_graph.db import get_connection, migrate
 
-    db = conn.info.dsn
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)
@@ -809,7 +809,7 @@ def test_pydantic_is_the_only_thing_enforcing_per_type_object_kinds():
     assert parse_response(text, batch_size=1)[0] == [], "DUPE_OF must refuse TAG"
 
 
-def test_dry_run_prices_a_reset_without_performing_it(conn, capsys):
+def test_dry_run_prices_a_reset_without_performing_it(conn, capsys, db_url):
     """--dry-run says it makes no API call, which reads as "changes
     nothing". It used to run the reset anyway and return before
     re-extracting, so the safe-looking flag was the destructive one.
@@ -822,7 +822,7 @@ def test_dry_run_prices_a_reset_without_performing_it(conn, capsys):
     (comment_id,) = seed(conn)
     conn.execute("UPDATE comments SET extracted_at = '2026-01-01'")
     conn.commit()
-    db_url = conn.info.dsn
+    db_url = db_url
     conn.commit()
 
     assert pending_comments(conn, 100) == [], "already extracted"

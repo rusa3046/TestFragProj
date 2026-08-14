@@ -186,12 +186,12 @@ def test_audit_flags_denials_the_pattern_did_not_predict(conn):
     assert odd["evidence_span"] == "smells just like it"
 
 
-def test_audit_exits_nonzero_while_denials_are_live(conn, tmp_path, capsys):
+def test_audit_exits_nonzero_while_denials_are_live(conn, tmp_path, capsys, db_url):
     """So it can gate a re-extraction instead of being something you
     remember to read."""
     from fragrance_graph.db import get_connection, migrate
 
-    db = conn.info.dsn
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)
@@ -206,10 +206,10 @@ def test_audit_exits_nonzero_while_denials_are_live(conn, tmp_path, capsys):
     assert "still stored as assertions" in capsys.readouterr().out
 
 
-def test_audit_on_a_clean_corpus_exits_zero(conn, tmp_path, capsys):
+def test_audit_on_a_clean_corpus_exits_zero(conn, tmp_path, capsys, db_url):
     from fragrance_graph.db import get_connection, migrate
 
-    db = conn.info.dsn
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)

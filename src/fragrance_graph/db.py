@@ -192,10 +192,21 @@ def migrate(conn: psycopg.Connection) -> list[str]:
 
         if NON_TRANSACTIONAL.search(sql):
             # Not atomic, and it cannot be. See the module docstring.
+            #
+            # Autocommit on *this* connection rather than a second one
+            # opened from `conn.info.dsn`. libpq does not put the password
+            # in `dsn`, by design, so reconnecting from it works only
+            # against a server that does not ask for one — which is every
+            # developer's laptop and no deployment. It failed on the first
+            # CI run against a password-authenticated server.
             conn.commit()
-            with psycopg.connect(conn.info.dsn, autocommit=True) as side:
+            prior = conn.autocommit
+            conn.autocommit = True
+            try:
                 for statement in _split_statements(sql):
-                    side.execute(statement)
+                    conn.execute(statement)
+            finally:
+                conn.autocommit = prior
         else:
             conn.execute(sql)
 

@@ -275,12 +275,12 @@ def test_review_file_is_stable_so_a_rerun_diffs_cleanly(tmp_path: Path):
     assert a.read_text() == b.read_text()
 
 
-def test_apply_says_why_nothing_happened(conn, tmp_path, capsys):
+def test_apply_says_why_nothing_happened(conn, tmp_path, capsys, db_url):
     """An unreviewed file applying nothing is correct but looks broken."""
     from fragrance_graph.db import get_connection, migrate
     from fragrance_graph.resolve.enrich import main
 
-    db = conn.info.dsn
+    db = db_url
     conn.close()
     fresh = get_connection(db)
     migrate(fresh)

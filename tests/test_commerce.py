@@ -545,16 +545,16 @@ def test_match_rate_of_an_empty_feed_is_not_a_zero_division():
 # --- CLI -------------------------------------------------------------------
 
 
-def test_cli_refuses_an_unregistered_retailer(conn, tmp_path, capsys):
+def test_cli_refuses_an_unregistered_retailer(conn, tmp_path, capsys, db_url):
     from fragrance_graph.commerce.feeds import main
 
-    db = conn.info.dsn
+    db = db_url
     assert main(["import", str(CSV_FEED), "--retailer", "Nobody",
                  "--db-url", db]) == 1
     assert "No retailer named" in capsys.readouterr().out
 
 
-def test_cli_gates_on_match_rate_when_asked(conn, tmp_path, capsys):
+def test_cli_gates_on_match_rate_when_asked(conn, tmp_path, capsys, db_url):
     """Optional, and off by default: a gate nobody set is not a promise.
 
     But an importer that can only report is one nobody can put in a
@@ -563,7 +563,7 @@ def test_cli_gates_on_match_rate_when_asked(conn, tmp_path, capsys):
     from fragrance_graph.commerce.feeds import main
     from fragrance_graph.db import get_connection, migrate
 
-    db = conn.info.dsn
+    db = db_url
     setup = get_connection(db)
     migrate(setup)
     for name, brand, aliases in SEED:
@@ -742,10 +742,10 @@ def test_ordering_by_commission_is_not_expressible(conn):
 # --- links CLI -------------------------------------------------------------
 
 
-def test_cli_registers_a_retailer_and_refuses_a_bad_template(conn, tmp_path, capsys):
+def test_cli_registers_a_retailer_and_refuses_a_bad_template(conn, tmp_path, capsys, db_url):
     from fragrance_graph.commerce.links import main
 
-    db = conn.info.dsn
+    db = db_url
     ok = main(["retailer", "add", "Example Scent Co", "--network", "shareasale",
                "--affiliate-id", "aff-2", "--url-template", RAKUTEN_TEMPLATE,
                "--db-url", db])
@@ -758,11 +758,11 @@ def test_cli_registers_a_retailer_and_refuses_a_bad_template(conn, tmp_path, cap
     assert "Refusing that template" in capsys.readouterr().out
 
 
-def test_cli_says_plainly_when_a_fragrance_has_no_links(conn, tmp_path, capsys):
+def test_cli_says_plainly_when_a_fragrance_has_no_links(conn, tmp_path, capsys, db_url):
     from fragrance_graph.commerce.links import main
     from fragrance_graph.db import get_connection, migrate
 
-    db = conn.info.dsn
+    db = db_url
     setup = get_connection(db)
     migrate(setup)
     add_fragrance(setup, "Obscure Indie Thing")

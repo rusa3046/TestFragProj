@@ -84,6 +84,19 @@ def conn(_schema):
 
 
 @pytest.fixture
+def db_url(_schema):
+    """The DSN of the test database, password and all.
+
+    Tests that exercise a CLI need something to pass to `--db-url`, and
+    `conn.info.dsn` is not it: libpq omits the password from `dsn` by
+    design, so a DSN taken from a live connection reconnects only against
+    a server that does not ask for one. That is every laptop and no
+    deployment — 15 tests passed locally and failed on the first CI run.
+    """
+    return _schema
+
+
+@pytest.fixture
 def second_db(_schema):
     """A second, empty database — "rebuild this corpus somewhere fresh".
 
