@@ -187,7 +187,11 @@ cp .env.example .env         # fill in the keys below
 
 ### PostgreSQL
 
-Every command needs a running server. On macOS:
+Every command needs a running server. Either path works; **the connection
+string differs between them**, which is the one thing to get right.
+
+**Homebrew.** The superuser is *your macOS username*, not `postgres` — so
+the DSN leaves the user out and lets libpq default to it:
 
 ```bash
 brew install postgresql@16
@@ -196,13 +200,29 @@ createdb fragrance_graph
 createdb fragrance_graph_test
 ```
 
-Or with Docker, if you would rather not install a server:
+```bash
+# in .env
+FRAGRANCE_DB_URL=postgresql:///fragrance_graph
+FRAGRANCE_TEST_DB_URL=postgresql:///fragrance_graph_test
+```
+
+**Docker**, if you would rather not install a server. Here the user really
+is `postgres`, and it has a password:
 
 ```bash
 docker run -d --name fragrance-pg -p 5432:5432 \
   -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=fragrance_graph postgres:16
 docker exec fragrance-pg createdb -U postgres fragrance_graph_test
 ```
+
+```bash
+# in .env
+FRAGRANCE_DB_URL=postgresql://postgres:postgres@localhost:5432/fragrance_graph
+FRAGRANCE_TEST_DB_URL=postgresql://postgres:postgres@localhost:5432/fragrance_graph_test
+```
+
+If you get `role "postgres" does not exist`, you installed with Homebrew
+and are using the Docker DSN. That is the whole error.
 
 **The database is disposable and there is no backup, by design.** It is
 rebuilt from `data/corpus/*.jsonl` in seconds. Drop it, bloat it, lock it
