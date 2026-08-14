@@ -565,3 +565,41 @@ class TestSeedQueries:
             if not line.strip().startswith("#")
         ]
         assert "--queries" not in "\n".join(commands), "the loop must take the seeds"
+
+
+class TestTheRunSummary:
+    """The notification has to answer "how big is this thing now".
+
+    Deltas say whether the loop did anything; totals say what it has.
+    Someone reading a summary on a phone is asking the second, and a
+    report with only the first sends them to a laptop to find out.
+    """
+
+    def test_it_reports_the_corpus_totals(self, conn):
+        from fragrance_graph.daily import RunReport, _snapshot
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Creed Aventus")
+        report = RunReport()
+        _snapshot(conn, report)
+
+        assert report.total_fragrances == 1
+        assert report.total_comments == 0
+        assert "1 fragrances" in report.render()
+
+    def test_totals_are_absent_rather_than_zero_on_an_empty_corpus(self):
+        """A line reading "0 comments, 0 claims" on a dry run is noise."""
+        from fragrance_graph.daily import RunReport
+
+        assert "Corpus" not in RunReport().render()
+
+    def test_the_workflow_posts_every_run(self):
+        """The decision issue is deliberately silent on a quiet run. The
+        log is the opposite, and they must not be the same step."""
+        from pathlib import Path
+
+        workflow = Path(".github/workflows/daily.yml").read_text(encoding="utf-8")
+        summary = workflow.split("Post the run summary", 1)[1].split("- name:", 1)[0]
+        assert "if: always()" in summary
+        assert "loop-log" in summary
+        assert "Loop needs a decision" not in summary

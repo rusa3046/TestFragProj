@@ -269,6 +269,13 @@ class RunReport:
     mentions_resolved: int = 0
     pages_before: int = 0
     pages_after: int = 0
+    #: The corpus after this run. Deltas answer "did the loop do
+    #: anything"; totals answer "how big is this thing now", which is the
+    #: question someone reading a notification on a phone is actually
+    #: asking. Both, because neither is the other.
+    total_comments: int = 0
+    total_claims: int = 0
+    total_fragrances: int = 0
     errors: list[str] = field(default_factory=list)
 
     def render(self) -> str:
@@ -315,6 +322,12 @@ class RunReport:
 
         lines.append("")
         lines.append(f"Resolved    {self.mentions_resolved} mentions into claims")
+        if self.total_comments or self.total_claims or self.total_fragrances:
+            lines.append(
+                f"Corpus      {self.total_comments:,} comments, "
+                f"{self.total_claims:,} claims, "
+                f"{self.total_fragrances} fragrances"
+            )
         delta = self.pages_after - self.pages_before
         lines.append(
             f"Pages       {self.pages_after}"
@@ -363,6 +376,7 @@ def run(
         # whose whole contract is an honest summary, a false alarm is the
         # most expensive kind of wrong.
         report.pages_after = report.pages_before
+        _snapshot(conn, report)
         return report
 
     from fragrance_graph.resolve.entities import backfill
@@ -396,6 +410,7 @@ def run(
     report.pages_after = len(qualifying_pairs(conn))
     if not dry_run:
         build(conn, out_dir)
+    _snapshot(conn, report)
     return report
 
 
@@ -580,6 +595,17 @@ def _curate(conn, budget: Budget, lookup_limit: int, report: RunReport, *,
 
     stats: ApplyStats = apply_review(conn, proposals)
     log.info("Auto-curation: %s", stats)
+
+
+def _snapshot(conn, report: RunReport) -> None:
+    """Record how big the corpus is now, for the run summary."""
+    report.total_comments = conn.execute(
+        "SELECT count(*) FROM comments"
+    ).fetchone()[0]
+    report.total_claims = _claim_count(conn)
+    report.total_fragrances = conn.execute(
+        "SELECT count(*) FROM fragrances"
+    ).fetchone()[0]
 
 
 def _claim_count(conn) -> int:
