@@ -59,7 +59,7 @@ log = logging.getLogger("fragrance_graph.budget")
 #: any rate here as corpus-specific and recheck it after a source changes.
 #:
 #: Catalogue lookups bill through this ledger too, at a flat
-#: `enrich.LOOKUP_COST_USD` per request, and at $0.05 each they dominate:
+#: $0.05 per request, and at that price they dominated:
 #: 20 lookups cost as much as 2,000 comments of extraction.
 DAILY_CAP_USD = 1.00
 

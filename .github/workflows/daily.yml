@@ -7,10 +7,12 @@
 #
 # Two decisions are encoded here rather than in the code.
 #
-# **No catalogue lookups.** Measured 2026-08-12: 60 lookups converted 5
-# names, because the catalogue does not carry the small-house bottles this
-# corpus discusses. Lookups stay manual and occasional, so an unattended run
-# cannot spend on an 8% yield. See SPEC.
+# **The catalogue is gone entirely.** Measured 2026-08-12: 60 lookups
+# converted 5 names and produced 0 pages, because it does not carry the
+# small-house bottles this corpus discusses -- $1.45 of the $2.78 ever
+# spent here, for nothing a reader saw. Curation is offline now:
+# `resolve.entities batch` writes a review file, a person fills it in.
+# See SPEC.
 #
 # **Silence unless a person is needed.** A run that collected comments and
 # published nothing is not news. The issue below opens only when curation
@@ -124,9 +126,7 @@ jobs:
           # in a diff. Six of the eight queries this step used to inline
           # contained "dupe", which is a leading question asked of an
           # audience assembled to answer it.
-          uv run python -m fragrance_graph.daily run \
-            --lookup-limit 0 \
-            2>&1 | tee run.log
+          uv run python -m fragrance_graph.daily run 2>&1 | tee run.log
           {
             echo '## Loop report'
             echo '```'
@@ -236,10 +236,10 @@ jobs:
             const title = 'Loop needs a decision';
             const body = [
               failed ? '**The run failed.** See the Actions log.' : '',
-              held ? `**${held[1]} names are held** — the catalogue offered `
-                   + 'something with a flanker question in it, which only a '
-                   + 'person can settle.\n\n```\nuv run python -m '
-                   + 'fragrance_graph.daily curate\n```' : '',
+              held ? `**${held[1]} names are waiting.** Curation is `
+                   + 'offline and costs nothing:\n\n```\nuv run python -m '
+                   + 'fragrance_graph.resolve.entities batch curate.json'
+                   + '\n```' : '',
               problems ? 'The run reported problems:' : '',
               '```', log.split('\n').slice(-45).join('\n'), '```',
             ].filter(Boolean).join('\n\n');

@@ -1691,3 +1691,39 @@ Aliasing and reviewing held rows move up, being free. And the extraction
 recall problem — the eval says about half of real comparisons are missed
 entirely — moves up with them, because unlike catalogue coverage it is
 something this project controls.
+
+### The catalogue was removed (2026-08-14)
+
+Fragella is gone: the client, the review-file round trip, the auto-curation
+rule in the daily loop, the `FRAGELLA_API_KEY`, and the 707-line
+`resolve/enrich.py` that held them. `docs/CURATION.md` keeps the
+measurements and the flanker reasoning under a history heading, because
+those are properties of fragrance naming rather than of any one tool.
+
+**It was removed because the ledger settled it.**
+
+    catalogue   $1.45   29 entries, all on 2026-08-11, none since
+    extract     $1.33   164 entries, still in use
+                -----
+    total       $2.78
+
+More than half of every dollar this project has ever spent went to the
+catalogue, in a single day, and SPEC already recorded what it bought: 60
+lookups, 5 names, **0 pages**. The catalogue does not carry the small
+houses this corpus discusses, so the mentions worth resolving were exactly
+the ones it could not answer. It had been switched off in practice since
+the scheduled workflow started passing `--lookup-limit 0`.
+
+What replaced it costs nothing. `resolve.entities batch` writes a review
+file with two real comment spans and the video titles behind each mention,
+ordered by pages unlocked rather than frequency; a person fills it in with
+no network. One sitting produced 4 bottles, 2 aliases, 49 resolved
+mentions and a page — more than the $1.45 ever did.
+
+**What was kept.** Nothing of the reasoning is lost. The flanker rule, the
+reverse-flanker failure of 2026-08-11, and the asymmetry between a bad
+merge and a miss are all recorded in `docs/CURATION.md`; the guards they
+produced live on in `resolve/entities.py` as `_answers_to` and the
+confirmation rule for drafted rows. Only the code that could not pay for
+itself is gone — the same reasoning that removed the PRAW paths on
+2026-08-10: code that cannot earn its place reads as an option.

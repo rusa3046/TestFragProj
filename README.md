@@ -25,8 +25,8 @@ asking.
 YouTube comments → claim extraction → entity resolution → ranked answers
   (Data API v3)    (Claude Haiku 4.5)   (name → bottle)     (+ evidence)
                                               ↑
-                                    Fragella catalogue
-                                   (names and brands only)
+                                     offline curation
+                                  (a person, no network)
 ```
 
 1. **Ingest.** Official platform APIs only. Comments land in PostgreSQL,
@@ -38,12 +38,12 @@ YouTube comments → claim extraction → entity resolution → ranked answers
    whether the commenter asserted the relationship **or denied it**.
 3. **Resolve.** `BR540`, `540` and `Baccarat Rouge` are one bottle. Curated
    aliases plus conservative fuzzy matching collapse them into a single node.
-   The [Fragella](https://api.fragella.com/) catalogue proposes canonical
-   names and brands for unresolved mentions — see
-   [docs/CURATION.md](./docs/CURATION.md). **Names and brands only:** its
-   notes, accords, ratings and computed-similarity endpoints are off limits,
-   because a result sourced from an accord overlap cannot be backed by a
-   quote. SPEC.md records the boundary field by field.
+   What is left is named by a person, offline: `resolve.entities batch`
+   writes a review file carrying two real comments and the video titles
+   behind each mention, ordered by how many pages naming it would publish
+   — see [docs/CURATION.md](./docs/CURATION.md). A catalogue API used to
+   do this and was removed on 2026-08-14: 60 lookups, $3.00, 5 names, 0
+   pages. It does not carry the small houses this corpus discusses.
 4. **Answer.** Ranked by distinct commenters, with quotes and permalinks.
 
 ### Which sources are live
@@ -52,7 +52,7 @@ YouTube comments → claim extraction → entity resolution → ranked answers
 |---|---|
 | **YouTube Data API v3** | **live** — the entire corpus |
 | **Anthropic API** | **live** — extraction, and eval-label drafting |
-| **Fragella** | **live** — name → canonical bottle, nothing else |
+| Fragella | **removed 2026-08-14.** 60 lookups produced 5 names and 0 pages |
 | Reddit | **not used.** API access was refused to this project |
 | Affiliate feeds (Rakuten, ShareASale) | built, no account yet — Phase C |
 | Fragrantica / Parfumo / Basenotes | **never.** No API, and scraping breaches their terms |
@@ -438,11 +438,10 @@ It is **demand-driven**, and that is a decision rather than an
 implementation detail:
 
 ```
-1. YouTube: search fragrance discussion broadly
+1. YouTube: search fragrance discussion, on the seeds in SEED_QUERIES
 2. ingest -> extract
-3. resolve.entities report  ->  newly frequent, still unnamed
-4. Fragella: resolve exactly those names
-5. auto-curate what corroborates -> backfill -> export -> pages
+3. backfill: resolve everything the curated dictionary already covers
+4. export -> pages -> report
 ```
 
 Asking a catalogue what is new and *then* looking for discussion of it

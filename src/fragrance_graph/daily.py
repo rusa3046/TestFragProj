@@ -1,92 +1,48 @@
 """The unattended daily loop: collect, extract, resolve, publish, report.
 
-    python -m fragrance_graph.daily run --queries "layton clone" "khamrah dupe"
+    python -m fragrance_graph.daily run
     python -m fragrance_graph.daily run --dry-run     # no key, no spend
 
-The loop is **demand-driven**, which SPEC settled on 2026-08-10 after
-rejecting a release feed:
-
-    1. YouTube: search fragrance discussion broadly
+    1. YouTube: search fragrance discussion, on the seeds in SEED_QUERIES
     2. ingest -> extract
-    3. resolve.entities report  ->  newly frequent, still unnamed
-    4. Fragella: resolve exactly those names
-    5. auto-curate what corroborates -> backfill -> export -> pages
+    3. backfill: resolve every mention the curated dictionary already covers
+    4. export -> pages -> report
 
-A supply-driven loop asks a catalogue what is new and then goes looking for
-discussion of it. That answers the wrong question: a bottle launched
-yesterday has no YouTube comments yet, so a release feed delivers
-fragrances that *cannot* produce an edge. The corpus is already the
-detector — a new release climbs the unresolved-mention report exactly when
-people start talking about it, which is the first moment it can become an
-edge. Fragella is then asked only the question it is genuinely better at
-than the corpus: "people started writing 'Qahwa' — what is that, and
-whose?"
+## There used to be a fifth step, and it bought nothing
 
-That ordering also makes the catalogue cheap. Lookups are spent on mentions
-the corpus has already proved people are discussing, rather than on a
-brand's whole back catalogue.
+Between them, steps 3 and 4 once had a catalogue lookup: ask Fragella
+about mentions people had newly started writing, and auto-curate the ones
+where no judgement was required. It was a good idea and it did not work.
 
-## Curation is automatic, and narrowly so
+Measured 2026-08-12: **60 lookups, $3.00 charged, 5 names, 0 pages.** The
+catalogue does not carry the small houses this corpus actually discusses,
+so the mentions worth resolving were exactly the ones it could not answer.
+Read against the ledger, it was $1.45 of the $2.78 this project has ever
+spent -- more than half the money, for nothing that reached a reader.
 
-The operator asked for auto-approval on corroboration with a summary,
-rather than a review queue. `AUTO_RULE` below is that corroboration test,
-and it is deliberately the narrowest defensible one: the only rows it takes
-are the rows where there is no judgement to make.
+It was removed on 2026-08-14. What replaced it is `resolve.entities
+batch` / `apply`: an offline review file with two real comment spans and
+the video titles behind each mention, which a person fills in with no
+network and no spend. One sitting of that produced 4 bottles, 2 aliases,
+49 resolved mentions and a page.
 
-`docs/CURATION.md` already names the judgement — flankers. A house ships
-Layton and Layton Exclusif, Khamrah and Khamrah Qahwa, and the catalogue
-returns whichever scores best. `corpus_mentions` encodes exactly that, and
-its `-1` case means *the proposed name adds no word to the mention* — it is
-the plain bottle, and the flanker question does not arise. Those are auto-
-approved. Every other value means a human is being asked something:
-
-    corpus_mentions == -1   no distinguishing word  -> auto-approve
-    corpus_mentions == 0    a flanker nobody wrote  -> hold: pick an alternative
-    corpus_mentions >  0    a flanker people discuss -> hold: probably its own entry
-
-`corpus_mentions` only asks what the *catalogue name* adds. The mirror had
-to be added after the first live run merged "Club De Nuit EDP" into "Armaf
-Club De Nuit": a mention more specific than the name it matched also has
-nothing distinguishing, and merging it is the same error in reverse. So
-`names_agree` requires neither side to add a word the other lacks.
-
-A merge is permanent and invisible to the test suite; a hold costs one
-lookup later and stays visible in `resolve.entities report`. That asymmetry
-is why the rule refuses rather than guesses, and it is the same one
-`FUZZY_THRESHOLD = 0.88` encodes.
-
-**This will still be wrong sometimes.** A hand-curated entry called
-"confident" turned out to name the wrong house — two houses ship a Perseus
-— which is roughly a 6% error rate on carefully checked entries. Automatic
-curation will do worse than that, not better. What stops a bad merge
-reaching a reader is not this rule; it is the publishing gate in
-`pages.py`, which requires 3 distinct commenters across 2 creators before a
-pair becomes a page. This rule only has to be good enough that the gate is
-not doing all the work alone.
+The reasoning the lookup path encoded is not lost -- SPEC records the
+flanker rule and the negative result, and `docs/CURATION.md` records what
+a curator is deciding. Only the code that could not pay for itself is
+gone.
 
 ## Nothing here spends without the cap
 
 Every paid step goes through `budget.Budget`, a hard $1/day stop backed by
 a committed ledger. See `budget.py` for why the ledger is a file rather
-than a table.
-
-This was aspirational until 2026-08-11: extraction was metered, catalogue
-lookups were not. That was survivable only while the catalogue's free tier
-capped itself at 20 requests a month. On pay-per-use the loop would make
-`--lookup-limit` billable calls per run, unattended, with nothing written
-to the ledger — the exact failure `budget.py` exists to prevent, in the
-one step the cap never saw. Lookups now bill through the same ledger at
-`enrich.LOOKUP_COST_USD`, charged *before* each request.
-
-Note the cap is per **day** and lookups are priced per request, so a large
-`--lookup-limit` needs `--cap` raised to match, or splitting across days.
+than a table. With the catalogue gone, extraction is the only thing left
+that costs money.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
-import os
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -96,14 +52,8 @@ import psycopg
 
 from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
 from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
-from fragrance_graph.resolve.enrich import Proposal, names_agree
 
 log = logging.getLogger("fragrance_graph.daily")
-
-#: A mention must appear at least this often before a lookup is spent on
-#: it. Below it, the mention cannot reach a 3-commenter bar even if every
-#: mention were a different person, so the lookup buys nothing.
-AUTO_MIN_COUNT = 3
 
 #: How the phrase a search was made with shapes what comes back.
 #:
@@ -222,31 +172,6 @@ def _share(part: int, whole: int) -> str:
     return "0%" if not whole else f"{round(100 * part / whole)}%"
 
 
-def auto_approvable(proposal: Proposal, *, min_count: int = AUTO_MIN_COUNT) -> bool:
-    """Whether a proposal corroborates well enough to write without a human.
-
-    Read the conditions as "is there a decision here?" rather than "is this
-    probably right?". The catalogue is usually right about the world; what
-    it cannot know is which sibling bottle *these* commenters meant.
-    """
-    if proposal.approved is not None:
-        return False  # already decided by a person; never overrule
-    if not proposal.canonical_name or not proposal.brand:
-        return False  # a name the catalogue never returned cannot be written
-    if not proposal.confident:
-        return False  # the proposed name is not the mention people wrote
-    if proposal.corpus_mentions != -1:
-        return False  # a flanker question exists, so a person answers it
-    if not names_agree(
-        proposal.mention, proposal.canonical_name, proposal.brand or ""
-    ):
-        # The mention is more specific than the name it matched — the
-        # flanker question in reverse. `corpus_mentions == -1` cannot see
-        # this, because it only asks what the *candidate* adds.
-        return False
-    return proposal.count >= min_count
-
-
 @dataclass
 class RunReport:
     """What one run did, in the terms the operator asked to hear about."""
@@ -263,9 +188,6 @@ class RunReport:
     #: stopped by a $1.00 cap that was not in force.
     cap_usd: float = DAILY_CAP_USD
     stopped_on_budget: bool = False
-    looked_up: int = 0
-    auto_approved: list[str] = field(default_factory=list)
-    held_for_review: list[tuple[str, str]] = field(default_factory=list)
     mentions_resolved: int = 0
     pages_before: int = 0
     pages_after: int = 0
@@ -305,20 +227,6 @@ class RunReport:
             f"Spent       ${self.spend_usd:.4f} "
             f"(${self.budget_remaining_usd:.4f} left today)"
         )
-        verb = "Would look up" if self.dry_run else "Looked up  "
-        lines.append(f"{verb} {self.looked_up} unresolved mentions")
-
-        if self.auto_approved:
-            lines.append("")
-            lines.append(f"Curated automatically ({len(self.auto_approved)}):")
-            lines += [f"  + {name}" for name in self.auto_approved]
-        if self.held_for_review:
-            lines.append("")
-            lines.append(
-                f"Held for you ({len(self.held_for_review)}) — a flanker "
-                "question the corpus cannot answer:"
-            )
-            lines += [f"  ? {m}: {why}" for m, why in self.held_for_review]
 
         lines.append("")
         lines.append(f"Resolved    {self.mentions_resolved} mentions into claims")
@@ -336,24 +244,12 @@ class RunReport:
         return "\n".join(lines)
 
 
-def newly_frequent(conn: psycopg.Connection, *, limit: int, min_count: int):
-    """The detector: unresolved mentions people have started writing.
-
-    Thin wrapper over `enrich.candidates` so the loop reads in the order
-    SPEC describes it, and so the "what is new" step has a name.
-    """
-    from fragrance_graph.resolve.enrich import candidates
-
-    return candidates(conn, limit, min_count=min_count)
-
-
 def run(
     conn: psycopg.Connection,
     *,
     queries: list[str],
     budget: Budget,
     ingest_limit: int = DEFAULT_INGEST_LIMIT,
-    lookup_limit: int = 25,
     max_videos: int = 3,
     out_dir: Path = Path("site"),
     dry_run: bool = False,
@@ -393,8 +289,6 @@ def run(
         # Backfill is free and idempotent; the lookup is neither.
         stats = backfill(conn)
         report.mentions_resolved = stats.subjects_resolved + stats.objects_resolved
-
-    _curate(conn, budget, lookup_limit, report, dry_run=dry_run)
 
     # Read after curation, not before: catalogue lookups are billed too, and
     # reporting the total before the last paid step understated it by
@@ -526,77 +420,6 @@ def _extract(conn, budget: Budget, limit: int, report: RunReport) -> None:
     report.claims_written = _claim_count(conn) - before
 
 
-def _curate(conn, budget: Budget, lookup_limit: int, report: RunReport, *,
-            dry_run: bool) -> None:
-    """Look up newly frequent names, write the ones with no decision in them."""
-    from fragrance_graph.resolve.enrich import (
-        ApplyStats,
-        apply_review,
-        propose,
-        read_review,
-    )
-
-    wanted = newly_frequent(conn, limit=lookup_limit, min_count=AUTO_MIN_COUNT)
-    report.looked_up = len(wanted)
-    if dry_run or not wanted:
-        return
-    if not os.environ.get("FRAGELLA_API_KEY"):
-        report.errors.append("FRAGELLA_API_KEY is not set; no names were looked up.")
-        return
-
-    review = Path("data/curation/auto-review.json")
-    try:
-        proposals = propose(
-            conn, review, limit=lookup_limit, min_count=AUTO_MIN_COUNT,
-            on_spend=budget.guard("catalogue"),
-        )
-    except BudgetExhausted as exc:
-        # Not an error: the cap did its job. Rows bought before the stop
-        # were still written, so they are curated below.
-        report.stopped_on_budget = True
-        log.warning("%s", exc)
-        proposals = read_review(review) if review.exists() else []
-    except SystemExit as exc:
-        # Quota exhausted, or a rejected key. `propose` writes what it
-        # gathered in a `finally`, so the lookups already paid for are on
-        # disk — returning here threw them away. Measured: a run bought 59
-        # names, hit 429 on the 60th, and applied none of them, for $3.
-        report.errors.append(f"catalogue lookup failed: {exc}")
-        proposals = read_review(review) if review.exists() else []
-        if not proposals:
-            return
-    except Exception as exc:
-        # Transport, DNS, TLS, an egress policy denying the host. `propose`
-        # raises SystemExit only for the failures it anticipated (quota, a
-        # rejected key); everything else arrives as an ordinary exception
-        # and used to kill the whole run from here.
-        #
-        # That was the wrong shape for this loop. Curation is the last
-        # paid step, and backfill, export and pages that follow it need no
-        # catalogue at all — so an unreachable catalogue was discarding
-        # work already done and, worse, taking the report with it. An
-        # unattended loop that dies silently is the failure this module's
-        # whole design is trying to avoid, so this degrades like the other
-        # two steps: record it, finish the run, say so at the top.
-        report.errors.append(f"catalogue unreachable: {exc!r}")
-        return
-
-    for proposal in proposals:
-        if auto_approvable(proposal):
-            proposal.approved = True
-            report.auto_approved.append(
-                f"{proposal.mention} -> {proposal.canonical_name} "
-                f"[{proposal.brand}]"
-            )
-        else:
-            report.held_for_review.append(
-                (proposal.mention, proposal.note or "no catalogue match")
-            )
-
-    stats: ApplyStats = apply_review(conn, proposals)
-    log.info("Auto-curation: %s", stats)
-
-
 def _snapshot(conn, report: RunReport) -> None:
     """Record how big the corpus is now, for the run summary."""
     report.total_comments = conn.execute(
@@ -624,7 +447,6 @@ def main(argv: list[str] | None = None) -> int:
         help="YouTube searches. See SEED_QUERIES for the shapes and why.",
     )
     r.add_argument("--ingest-limit", type=int, default=DEFAULT_INGEST_LIMIT)
-    r.add_argument("--lookup-limit", type=int, default=25)
     r.add_argument("--max-videos", type=int, default=3)
     r.add_argument("--out", default="site", type=Path)
     r.add_argument("--cap", type=float, default=DAILY_CAP_USD)
@@ -634,18 +456,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Report what would happen. No API key needed, nothing spent.",
     )
 
-    cur = sub.add_parser(
-        "curate",
-        help="Apply an existing review file — no lookups, no spend",
-    )
-    cur.add_argument(
-        "review", type=Path, nargs="?",
-        default=Path("data/curation/auto-review.json"),
-        help="A review file written by an earlier run. "
-             "Default: data/curation/auto-review.json",
-    )
-    cur.add_argument("--out", default="site", type=Path)
-
     s = sub.add_parser("spend", help="Recent daily spend")
     s.add_argument("--days", type=int, default=7)
 
@@ -654,7 +464,7 @@ def main(argv: list[str] | None = None) -> int:
         help="The seed queries by shape, beside what the corpus was built from",
     )
 
-    for p in (r, s, cur, sd):
+    for p in (r, s, sd):
         p.add_argument("--db-url", default=DEFAULT_DB_URL)
 
     args = parser.parse_args(argv)
@@ -670,44 +480,6 @@ def main(argv: list[str] | None = None) -> int:
         load_dotenv()
     except ImportError:
         pass
-
-    if args.command == "curate":
-        # The lookups are already bought and on disk. A run that stopped on
-        # quota used to discard them, and even with that fixed, re-running
-        # `run` would query the catalogue again and bill again. This applies
-        # what is already paid for and spends nothing.
-        from fragrance_graph.pages import build, qualifying_pairs
-        from fragrance_graph.resolve.enrich import apply_review, read_review
-        from fragrance_graph.resolve.entities import backfill
-
-        conn = get_connection(args.db_url)
-        migrate(conn)
-        try:
-            proposals = read_review(args.review)
-            report = RunReport()
-            report.pages_before = len(qualifying_pairs(conn))
-            for proposal in proposals:
-                if auto_approvable(proposal):
-                    proposal.approved = True
-                    report.auto_approved.append(
-                        f"{proposal.mention} -> {proposal.canonical_name} "
-                        f"[{proposal.brand}]"
-                    )
-                else:
-                    report.held_for_review.append(
-                        (proposal.mention, proposal.note or "no catalogue match")
-                    )
-            stats = apply_review(conn, proposals)
-            conn.commit()
-            log.info("Curation from %s: %s", args.review, stats)
-            back = backfill(conn)
-            report.mentions_resolved = back.subjects_resolved + back.objects_resolved
-            report.pages_after = len(qualifying_pairs(conn))
-            build(conn, args.out)
-            print(report.render())
-        finally:
-            conn.close()
-        return 0
 
     if args.command == "spend":
         from fragrance_graph.budget import summary
@@ -732,7 +504,6 @@ def main(argv: list[str] | None = None) -> int:
             queries=args.queries,
             budget=Budget.load(cap_usd=args.cap, require_ledger=True),
             ingest_limit=args.ingest_limit,
-            lookup_limit=args.lookup_limit,
             max_videos=args.max_videos,
             out_dir=Path(args.out),
             dry_run=args.dry_run,

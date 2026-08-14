@@ -91,8 +91,7 @@ from fragrance_graph.gate import (
     MIN_SOURCES,
 )
 from fragrance_graph.query import Related, pair_stats, similar_to
-from fragrance_graph.resolve.enrich import debranded
-from fragrance_graph.resolve.names import normalize_name
+from fragrance_graph.resolve.names import debranded, normalize_name
 
 #: Re-exported so `from fragrance_graph.pages import MIN_COMMENTERS` keeps
 #: working; `gate.py` is where they are defined and explained.
