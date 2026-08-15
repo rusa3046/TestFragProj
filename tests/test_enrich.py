@@ -269,3 +269,71 @@ class TestNeitherJobCanRouteAroundTheCap:
 
         for func in (learn_about, verify_comparison):
             assert "run" in inspect.signature(func).parameters
+
+
+class TestCodexPhase78Findings:
+    """Three findings from the 2026-08-15 enrichment/scheduler review."""
+
+    def test_three_people_in_one_room_is_a_near_miss(self, bottles):
+        """P2. The head-count bound hid the most targetable case of all:
+        three people agreeing inside one creator's section, which needs one
+        more channel and was invisible to the work list."""
+        conn, delina, khamrah = bottles
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            claim(conn, i, subject=khamrah, obj=delina, author=author,
+                  channel="one_room", claim_type="SIMILAR_TO")
+        (miss,) = near_misses(conn)
+        assert (miss.people, miss.creators) == (3, 1)
+        assert "creator" in miss.needs
+
+    def test_a_published_pair_is_still_excluded(self, bottles):
+        """The widened query must not start returning pairs that already
+        publish."""
+        conn, delina, khamrah = bottles
+        for i, (author, chan) in enumerate(
+            [("p1", "c1"), ("p2", "c2"), ("p3", "c3")]
+        ):
+            claim(conn, i, subject=khamrah, obj=delina, author=author,
+                  channel=chan, claim_type="SIMILAR_TO")
+        assert near_misses(conn) == []
+
+    def test_denials_alone_are_not_new_knowledge(self, bottles):
+        """P2. A fact with only opposing evidence records that people
+        denied something. That is worth keeping and is not gain."""
+        conn, delina, _ = bottles
+
+        def run(query):
+            for i, author in enumerate(["p1", "p2"], start=5):
+                claim(conn, i, subject=delina, tag="rose", author=author,
+                      channel=f"c{i}")
+                conn.execute(
+                    "UPDATE claims SET polarity = 'DENIED' "
+                    "WHERE id = (SELECT max(id) FROM claims)"
+                )
+            conn.commit()
+            return (40, 0.02)
+
+        gain = learn_about(conn, delina, name="Delina", run=run)
+        assert gain.new_facts == 0
+        assert not gain.succeeded
+
+    def test_inferred_only_facts_are_counted_apart(self, bottles):
+        """A fact resting on unreviewed machine attribution is knowledge
+        about a claim, not yet about a bottle."""
+        conn, delina, _ = bottles
+
+        def run(query):
+            claim(conn, 5, subject=None, tag="lychee", author="p5")
+            conn.execute(
+                "INSERT INTO claim_attributions (claim_id, role, fragrance_id,"
+                " method, evidence, confidence, review_status, created_at)"
+                " VALUES ((SELECT max(id) FROM claims), 'subject', %s,"
+                " 'video_subject', 'title', 0.95, 'proposed', '2026-01-01')",
+                (delina,),
+            )
+            conn.commit()
+            return (40, 0.02)
+
+        gain = learn_about(conn, delina, name="Delina", run=run)
+        assert gain.new_facts == 0, "not advertised as checked knowledge"
+        assert gain.new_inferred_facts == 1, "but recorded"

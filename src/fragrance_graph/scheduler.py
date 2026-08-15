@@ -292,6 +292,23 @@ def plan(
         + thick
     )
 
+    # One bottle, one job. `_ready_releases` and `_coverage_tasks` both
+    # cover the whole catalogue, so an enrichable release appeared twice —
+    # reserving $0.34 and 200 quota units for two identical broad searches
+    # of the same bottle. The first occurrence wins, which is the
+    # higher-priority class by construction.
+    seen_targets: set = set()
+    deduped = []
+    for task in ordered:
+        key = ("frag", task.fragrance_id) if task.fragrance_id else (
+            ("pair", task.pair) if task.pair else ("release", task.release_id)
+        )
+        if key in seen_targets:
+            continue
+        seen_targets.add(key)
+        deduped.append(task)
+    ordered = deduped
+
     spent = 0.0
     quota = 0
     for task in ordered:

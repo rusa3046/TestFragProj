@@ -233,3 +233,43 @@ class TestTheClassesAreReadable:
             if t.priority is Priority.NEW_RELEASE
         ]
         assert task.estimated_usd == ESTIMATED_JOB_USD
+
+
+class TestCodexPhase78SchedulerFinding:
+    def test_one_bottle_gets_one_paid_job(self, conn, announced, rich_budget):
+        """P1. `_ready_releases` and `_coverage_tasks` both cover the whole
+        catalogue, so an enrichable release appeared twice — reserving
+        $0.34 and 200 quota units for two identical searches of one
+        bottle."""
+        row = announced()
+        conn.execute(
+            "UPDATE release_candidates SET status = 'ENRICHABLE',"
+            " relevant_creators = 4 WHERE id = %s", (row["id"],)
+        )
+        conn.commit()
+        tasks = plan(conn, budget=rich_budget, limit=99).tasks
+        for_bottle = [
+            t for t in tasks if t.fragrance_id == row["fragrance_id"]
+        ]
+        assert len(for_bottle) == 1
+        assert for_bottle[0].priority is Priority.NEW_RELEASE, (
+            "and it is the higher-priority class that survives"
+        )
+
+    def test_two_announcements_of_one_bottle_are_one_job(
+        self, conn, tmp_path, rich_budget
+    ):
+        path = tmp_path / "a.jsonl"
+        path.write_text("\n".join(json.dumps(r) for r in [
+            {"source_id": "rss-1", "name": "Delina La Rosee",
+             "brand": "Parfums de Marly", "announced_at": "2026-08-01"},
+            {"source_id": "shop-2", "name": "Delina La Rosée",
+             "brand": "Parfums de Marly", "announced_at": "2026-08-02"},
+        ]) + "\n")
+        discover(conn, FixtureSource(path))
+        verify(conn)
+        conn.execute("UPDATE release_candidates SET status = 'ENRICHABLE'")
+        conn.commit()
+        tasks = plan(conn, budget=rich_budget, limit=99).tasks
+        paid = [t for t in tasks if t.spends_money]
+        assert len({t.fragrance_id for t in paid}) == len(paid)

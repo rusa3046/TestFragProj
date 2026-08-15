@@ -74,6 +74,10 @@ class InformationGain:
     new_declarable: int = 0
     new_contested: int = 0
     new_descriptors: int = 0
+    #: Facts that exist only because a machine decided which bottle a
+    #: comment was about. Reported apart from `new_facts` so a run cannot
+    #: advertise knowledge nobody has checked.
+    new_inferred_facts: int = 0
     #: Distinct creators whose comments contributed, before and after.
     creators_before: int = 0
     creators_after: int = 0
@@ -99,6 +103,7 @@ class InformationGain:
             f"{self.name}: +{self.new_facts} facts "
             f"(+{self.new_declarable} declarable, +{self.new_contested} "
             f"contested), +{self.new_descriptors} new descriptors, "
+            f"+{self.new_inferred_facts} inferred-only, "
             f"creators {self.creators_before}->{self.creators_after}, "
             f"{self.comments_read} comments, ${self.usd:.4f}"
         )
@@ -146,11 +151,24 @@ class PairOutcome:
 
 
 def _snapshot(conn: psycopg.Connection, fragrance_id: int) -> dict:
+    """The evidence layer as it stands, split by what counts as knowledge.
+
+    Two exclusions from the headline. A fact with only *opposing* evidence
+    is a record that people denied something — worth keeping, and not
+    "new attributable knowledge" about what the bottle is like. And a fact
+    resting entirely on unreviewed machine attribution is knowledge about a
+    claim, not yet about a bottle; it is counted separately so a learn run
+    cannot advertise gain that nobody has checked.
+    """
     facts = attribute_facts(
         conn, fragrance_id=fragrance_id, attribution=Attribution.PROPOSED
     )
+    asserted = [f for f in facts if f.supporting.people > 0]
     return {
-        "keys": {(f.attribute, f.value) for f in facts},
+        "keys": {(f.attribute, f.value) for f in asserted if not f.inferred},
+        "inferred_keys": {
+            (f.attribute, f.value) for f in asserted if f.inferred
+        },
         "declarable": sum(1 for f in facts if f.may_declare),
         "contested": sum(1 for f in facts if f.opposing.people),
         "creators": max((f.supporting.creators for f in facts), default=0),
@@ -176,6 +194,7 @@ def measure_learning(
     """
     after = _snapshot(conn, fragrance_id)
     fresh = after["keys"] - before["keys"]
+    fresh_inferred = after["inferred_keys"] - before["inferred_keys"]
     return InformationGain(
         fragrance_id=fragrance_id,
         name=name,
@@ -183,6 +202,7 @@ def measure_learning(
         new_declarable=max(0, after["declarable"] - before["declarable"]),
         new_contested=max(0, after["contested"] - before["contested"]),
         new_descriptors=len({value for _, value in fresh}),
+        new_inferred_facts=len(fresh_inferred),
         creators_before=before["creators"],
         creators_after=after["creators"],
         comments_read=comments_read,
@@ -290,20 +310,33 @@ SELECT LEAST(c.subject_frag_id, c.object_frag_id)    AS a_id,
    AND c.subject_frag_id <> c.object_frag_id
  GROUP BY 1, 2
 HAVING count(DISTINCT COALESCE(NULLIF(co.author_id, ''), 'author:unknown'))
-       BETWEEN %(low)s AND %(high)s
+           >= %(low)s
+   AND (
+         -- Short on people, or short on creators, or both. Bounding only
+         -- the head count hid the most targetable case of all: three
+         -- people agreeing inside one creator's comment section, which
+         -- needs exactly one more channel to publish and was invisible.
+         count(DISTINCT COALESCE(NULLIF(co.author_id, ''), 'author:unknown'))
+             < %(min_people)s
+      OR count(DISTINCT NULLIF(co.source_channel, '')) < %(min_creators)s
+       )
 """
 
 
 def near_misses(
-    conn: psycopg.Connection, *, low: int = 2, high: int | None = None
+    conn: psycopg.Connection, *, low: int = 2
 ) -> list[NearMiss]:
     """Pairs close enough to the gate that one targeted search might settle
     them — the natural work list for `verify_comparison`.
 
+    A pair can fall short on *either* axis. Three people agreeing inside
+    one creator's comment section is as much a near miss as two people
+    across two channels, and it is the cheaper of the two to fix: it needs
+    one new channel rather than one new person.
+
     Ordered by how close they are, because the cheapest thing to buy is
-    the pair that needs one person rather than three.
+    the pair that needs one more of something rather than three.
     """
-    high = MIN_COMMENTERS - 1 if high is None else high
     names = {
         row["id"]: row["canonical_name"]
         for row in conn.execute("SELECT id, canonical_name FROM fragrances")
@@ -317,7 +350,14 @@ def near_misses(
             people=row["people"],
             creators=row["creators"],
         )
-        for row in conn.execute(NEAR_MISS_SQL, {"low": low, "high": high})
+        for row in conn.execute(
+            NEAR_MISS_SQL,
+            {
+                "low": low,
+                "min_people": MIN_COMMENTERS,
+                "min_creators": MIN_SOURCES,
+            },
+        )
     ]
     found.sort(key=lambda m: (-m.people, -m.creators, m.a_name))
     return found
