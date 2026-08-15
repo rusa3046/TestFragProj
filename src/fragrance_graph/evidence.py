@@ -51,6 +51,7 @@ product should answer, and this is where the answer comes from.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -207,6 +208,9 @@ class AttributeFact:
     #: than by the commenter naming the bottle. Travels with the fact so a
     #: renderer can never lose track of it.
     inferred: bool = False
+    #: True when the catalogue states this rather than a commenter. Graded
+    #: CANONICAL regardless of head count, because no head count applies.
+    canonical: bool = False
     #: The subset of `supporting` whose attribution a commenter stated.
     #: Declarability is computed from this and never from the total, so
     #: turning inference on can widen what the system can *find* without
@@ -215,6 +219,8 @@ class AttributeFact:
 
     @property
     def strength(self) -> Strength:
+        if self.canonical:
+            return Strength.CANONICAL
         return strength_of(self.supporting, self.opposing)
 
     @property
@@ -426,6 +432,53 @@ def _support(side: dict) -> Support:
         videos=len(side["videos"]),
         claim_ids=tuple(sorted(side["ids"])),
     )
+
+
+#: Note words a canonical name may state outright. Kept short and literal:
+#: this is the *catalogue* asserting a note, not a perception, and a long
+#: inferred list here would quietly become a second, worse note ontology.
+CANONICAL_NAME_NOTES = frozenset({
+    "rose", "oud", "vanilla", "amber", "musk", "leather", "tobacco", "coffee",
+    "jasmine", "sandalwood", "cedar", "vetiver", "patchouli", "iris",
+    "bergamot", "lavender", "saffron", "cardamom", "cinnamon", "coconut",
+    "chocolate", "caramel", "pineapple", "cherry", "peach", "raspberry",
+    "citrus", "lemon", "orange", "apple", "green", "aqua", "marine",
+})
+
+
+def canonical_facts(conn: psycopg.Connection) -> list[AttributeFact]:
+    """Notes the catalogue itself states, from the canonical name.
+
+    "Swiss Arabian Rose 01" contains rose because the house says so on the
+    bottle, and no commenter has to mention it for that to be true. Without
+    this the recommender happily offered it to somebody asking for *less*
+    rose, because absence of community evidence looked like absence of
+    rose.
+
+    These are `CANONICAL` and never merge with community facts. An official
+    note and a perceived note are different claims about different things —
+    "officially contains raspberry" is not "people smell raspberry" — and
+    keeping them apart is what lets a page say which it has.
+
+    Deliberately only the name. Release years, concentrations and official
+    note lists belong here too and the corpus has none of them; inventing
+    them from a model would be exactly the fabrication this system exists
+    to avoid.
+    """
+    facts = []
+    for row in conn.execute("SELECT id, canonical_name FROM fragrances"):
+        words = set(re.findall(r"[a-z]+", row["canonical_name"].lower()))
+        for note in sorted(words & CANONICAL_NAME_NOTES):
+            facts.append(
+                AttributeFact(
+                    fragrance_id=row["id"],
+                    attribute="note",
+                    value=note,
+                    supporting=Support(people=0, creators=0),
+                    canonical=True,
+                )
+            )
+    return facts
 
 
 def coverage(

@@ -48,6 +48,7 @@ say so rather than to guess a baseline.
 from __future__ import annotations
 
 import re
+import weakref
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -529,7 +530,15 @@ def note_vocabulary(conn: psycopg.Connection) -> frozenset[str]:
         for word in set(re.findall(r"[a-z]{4,}", row["tag"] or "")):
             if word not in STOPWORDS and word not in INTENSITY_WORDS:
                 counts[word] = counts.get(word, 0) + 1
-    return frozenset(w for w, n in counts.items() if n >= MIN_NOTE_CLAIMS)
+    from fragrance_graph.evidence import CANONICAL_NAME_NOTES
+
+    # Union with the notes the catalogue itself names. "Raspberry" is a
+    # note whether or not this corpus happens to carry two comments about
+    # it, and the frequency floor exists to keep *noise* out, not to make
+    # the system forget words it already knows.
+    return frozenset(
+        w for w, n in counts.items() if n >= MIN_NOTE_CLAIMS
+    ) | CANONICAL_NAME_NOTES
 
 
 #: Words that appear inside note tags but never *name* a note. Without
@@ -568,9 +577,13 @@ INTENSITY_WORDS = frozenset({
 #: the request become a hard constraint that silently returns nothing.
 MIN_NOTE_CLAIMS = 2
 
-#: Cached per-connection so parsing a benchmark of 30 queries does not run
-#: 30 identical scans.
-_NOTE_CACHE: dict[int, frozenset[str]] = {}
+#: Cached per connection *object*, not per `id()`. CPython reuses ids after
+#: collection, so an id-keyed cache handed one connection's vocabulary to a
+#: later, unrelated connection — which in tests meant one fixture's notes
+#: leaking into the next.
+_NOTE_CACHE: weakref.WeakKeyDictionary[psycopg.Connection, frozenset[str]] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _read_notes(
@@ -612,7 +625,7 @@ def parse_with_corpus(conn: psycopg.Connection, text: str) -> QueryPlan:
     Cached per connection so parsing a thirty-query benchmark does not run
     thirty identical scans of the claim table.
     """
-    vocabulary = _NOTE_CACHE.get(id(conn))
+    vocabulary = _NOTE_CACHE.get(conn)
     if vocabulary is None:
-        vocabulary = _NOTE_CACHE[id(conn)] = note_vocabulary(conn)
+        vocabulary = _NOTE_CACHE[conn] = note_vocabulary(conn)
     return parse(conn, text, notes=vocabulary)
