@@ -254,3 +254,69 @@ class TestComparisonCoverage:
         assert row.anchor_evidence
         assert not row.baseline_usable
         assert "thin" in row.render()
+
+
+class TestDecomposingTwoSnapshots:
+    """Bucket counts cannot say what happened.
+
+    Singleton -29 and repeated +6 is consistent with two conversions and
+    with twenty, and the difference decides whether enrichment is worth
+    buying. The first run could not distinguish them corpus-wide.
+    """
+
+    def test_it_names_the_singletons_that_converted(self, anchor_and_others):
+        from fragrance_graph.coverage import converted, snapshot
+
+        conn, anchor, _ = anchor_and_others
+        note(conn, 1, frag=anchor, value="rose", author="p1", channel="c1")
+        first = snapshot(conn)
+
+        note(conn, 2, frag=anchor, value="rose", author="p2", channel="c2")
+        second = snapshot(conn)
+
+        moved = converted(first, second)
+        assert len(moved["converted"]) == 1
+        assert "note|rose" in moved["converted"][0]
+
+    def test_a_new_singleton_is_not_a_conversion(self, anchor_and_others):
+        from fragrance_graph.coverage import converted, snapshot
+
+        conn, anchor, _ = anchor_and_others
+        note(conn, 1, frag=anchor, value="rose", author="p1")
+        first = snapshot(conn)
+
+        note(conn, 2, frag=anchor, value="lychee", author="p2")
+        moved = converted(first, snapshot(conn))
+        assert moved["converted"] == []
+        assert len(moved["new_singleton"]) == 1
+
+    def test_a_fact_arriving_already_repeated_is_its_own_category(
+        self, anchor_and_others
+    ):
+        """Two people saying a new thing in one batch is real evidence and
+        is not a conversion — counting it as one would credit enrichment
+        with turning an opinion into agreement that was never an opinion."""
+        from fragrance_graph.coverage import converted, snapshot
+
+        conn, anchor, _ = anchor_and_others
+        note(conn, 1, frag=anchor, value="rose", author="p1")
+        first = snapshot(conn)
+
+        note(conn, 2, frag=anchor, value="lychee", author="p2", channel="c2")
+        note(conn, 3, frag=anchor, value="lychee", author="p3", channel="c3")
+        moved = converted(first, snapshot(conn))
+        assert moved["converted"] == []
+        assert len(moved["new_repeated"]) == 1
+
+    def test_it_sees_conversions_on_bottles_nobody_enriched(
+        self, anchor_and_others
+    ):
+        """Cross-bottle gains are real and per-bottle diffs hide them."""
+        from fragrance_graph.coverage import converted, snapshot
+
+        conn, anchor, others = anchor_and_others
+        note(conn, 1, frag=others[0], value="vanilla", author="p1", channel="c1")
+        first = snapshot(conn)
+
+        note(conn, 2, frag=others[0], value="vanilla", author="p2", channel="c2")
+        assert len(converted(first, snapshot(conn))["converted"]) == 1

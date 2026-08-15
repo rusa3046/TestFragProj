@@ -29,6 +29,30 @@ have said the same thing. The outcomes worth money, in order:
 and the number that decides everything is **cost per repeated fact**,
 against the measured $0.17 of a targeted pair verification.
 
+## What the first run measured, and what it does not license
+
+Three bottles, $0.3909, on 2026-08-15:
+
+    facts 664 -> 699, of which 29 of the 35 net gain are singletons
+    2 singleton -> repeated conversions, at $0.1955 each
+    0 new supported, 0 new declarable, 0 newly answerable comparisons
+
+Read narrowly that is a clear negative: **on this cohort, at this cost, on
+this corpus**, enrichment did not densify the matrix. Read as a general
+verdict on enrichment it is not supported, and the difference matters
+because a scheduler would act on the second.
+
+Two conversions is a sample of two. The three bottles run were the *dense*
+end of the cohort — Layton, Khamrah, Angels' Share — so the thin end is
+untested, and the hypothesis that enrichment works better where evidence
+is already dense has not been separated from the hypothesis that it works
+nowhere. The remaining seven bottles are what would separate them.
+
+One caution the numbers themselves carry: Layton took $0.1941 and returned
+zero Layton-attributed facts. Paying to read a bottle's own review section
+does not reliably produce evidence about that bottle, and that is a
+finding about the *mechanism* rather than about the cohort.
+
 ## Why the cohort looks like this
 
 Ten bottles spanning the range rather than the ten best. Layton has 81

@@ -65,7 +65,35 @@ at all.
 
 ### B — learn-about-fragrance
 
-Blocked today: $1.1104 spent against the $1.00 cap.
+**Run on 2026-08-15 under the raised $1.50 ceiling. Three bottles,
+$0.3909, stopped by the cap mid-cohort.**
+
+```
+facts                  664 -> 699   +35, of which 29 net-new singletons
+repeated (2+)           89 ->  95    +6
+supported               21 ->  21     0
+declarable              15 ->  15     0
+attributes on >=2       84 ->  89    +5
+attributes on >=3       39 ->  39     0
+answerable 'less X'      2 ->   2     0
+
+singleton -> repeated conversions   2   ($0.1955 each)
+singleton -> supported              0
+cost per newly answerable query     n/a
+```
+
+Read narrowly: on this cohort, at this cost, on this corpus, enrichment
+did not densify the matrix usefully. Read as a general verdict it is not
+supported — two conversions is a sample of two, and the three bottles that
+ran were the *dense* end. The thin end is untested, so "enrichment works
+only where evidence is already dense" and "enrichment works nowhere"
+remain unseparated.
+
+The sharpest single number: **Layton took $0.1941 and returned zero
+Layton-attributed facts.** Paying to read a bottle's own review section
+does not reliably produce evidence about that bottle. That is a finding
+about the mechanism, not about the cohort, and it is the one most likely
+to generalise.
 
 An earlier draft of this document said the experiment was "one command
 from running". It was not — the `run` command checked the budget, printed

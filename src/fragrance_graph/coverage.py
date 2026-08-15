@@ -471,6 +471,13 @@ class Snapshot:
     answerable_relative: int = 0
     comments: int = 0
     creators: int = 0
+    #: Every (fragrance, attribute, value) key with its head count, so a
+    #: later snapshot can say *which* singletons converted rather than
+    #: only that the buckets moved. Without it the corpus-wide numbers
+    #: cannot be decomposed: singleton -29 and repeated +6 is consistent
+    #: with two conversions and with twenty, and the difference decides
+    #: whether enrichment is worth buying.
+    keys: dict = field(default_factory=dict)
 
     def render(self, other: Snapshot | None = None) -> str:
         rows = [
@@ -499,6 +506,24 @@ class Snapshot:
             mark = f"{delta:+}" if delta else "-"
             lines.append(f"  {k:<30}{before:>9}{after:>9}{mark:>9}")
         return "\n".join(lines)
+
+
+def converted(before: Snapshot, after: Snapshot) -> dict[str, list[str]]:
+    """Decompose two snapshots into what actually happened.
+
+    Bucket counts alone cannot: singleton -29 and repeated +6 is
+    consistent with two conversions and with twenty. This names each one.
+    """
+    result = {"converted": [], "new_singleton": [], "new_repeated": []}
+    for key, people in after.keys.items():
+        was = before.keys.get(key)
+        if was is None:
+            result["new_repeated" if people >= 2 else "new_singleton"].append(key)
+        elif was == 1 and people >= 2:
+            result["converted"].append(key)
+    for values in result.values():
+        values.sort()
+    return result
 
 
 def _rows_of(snap: Snapshot):
@@ -538,6 +563,10 @@ def snapshot(
         )
     relative = relative_coverage(conn, attribution=attribution)
     return Snapshot(
+        keys={
+            f"{f.fragrance_id}|{f.attribute}|{f.value}": f.supporting.people
+            for f in facts
+        },
         fragrances=conn.execute("SELECT count(*) FROM fragrances").fetchone()[0],
         facts=len(facts),
         singleton=sum(1 for f in facts if f.supporting.people == 1),

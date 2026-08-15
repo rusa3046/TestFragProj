@@ -314,3 +314,42 @@ class TestEveryPaidPathStillUsesTheSameGuard:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         }
         assert "guard" not in called and "record" not in called
+
+
+class TestTheKnownConcurrencyGap:
+    """Two processes can together exceed the ceiling.
+
+    Pinned as a *known limit* rather than presented as safety. Each reads
+    the ledger at start, so two runs beginning together can each believe
+    the full remainder is theirs. The ledger stays accurate — every batch
+    is recorded — but the cap is advisory across processes.
+
+    Not fixed here because the fix is a lock or an atomic
+    read-modify-write against the ledger file, and that is a change to the
+    enforcement mechanism rather than to a caller. Naming it is the point:
+    an undocumented limit reads as a guarantee.
+    """
+
+    def test_two_processes_can_together_exceed_the_ceiling(self, ledger):
+        first = Budget.load(ledger, today="2026-08-16")
+        second = Budget.load(ledger, today="2026-08-16")
+
+        first.guard("extract")(0.90, 1000)
+        # `second` still believes nothing has been spent.
+        assert second.spent_usd == pytest.approx(0.0)
+        second.guard("extract")(0.90, 1000)
+
+        total = Budget.load(ledger, today="2026-08-16")
+        assert total.spent_usd == pytest.approx(1.80)
+        assert total.spent_usd > DAILY_CAP_USD, (
+            "documented limit: the cap is per-process, not per-day, when "
+            "two runs overlap"
+        )
+
+    def test_a_process_that_reloads_sees_the_other_and_stops(self, ledger):
+        """The mitigation that exists today: any process re-reading the
+        ledger picks up the other's spend."""
+        Budget.load(ledger, today="2026-08-16").guard("extract")(1.40, 1000)
+        reloaded = Budget.load(ledger, today="2026-08-16")
+        with pytest.raises(BudgetExhausted):
+            reloaded.check(0.20)
