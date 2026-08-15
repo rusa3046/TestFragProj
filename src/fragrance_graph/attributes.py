@@ -228,13 +228,18 @@ def subject_of(
 
 FLOATING_SQL = """
 SELECT cl.id, cl.claim_type, cl.raw_subject_text, cl.raw_object_text,
-       c.video_id, c.body,
+       cl.polarity, c.video_id, c.body,
        COALESCE(NULLIF(c.author_id, ''), 'author:unknown') AS person,
        c.source_channel AS creator
   FROM claims cl
   JOIN comments c ON c.id = cl.comment_id
- WHERE cl.polarity = 'ASSERTED'
-   AND cl.subject_frag_id IS NULL
+ -- Deliberately NOT filtered by polarity. Attribution answers "which
+ -- bottle did they mean", and a denial names a bottle exactly as an
+ -- assertion does. Filtering to ASSERTED here attributed only the
+ -- supporting half of every dispute, so inference could only ever push a
+ -- fact toward looking stronger: a 3-for/2-against disagreement came back
+ -- as 3-for/0-against and graded SUPPORTED instead of CONTESTED.
+ WHERE cl.subject_frag_id IS NULL
    AND cl.claim_type = ANY(%(types)s)
    AND c.video_id IS NOT NULL
 """
@@ -263,6 +268,11 @@ class Attachment:
     #: What the rule read to decide this, so a person auditing the row does
     #: not have to re-derive it from a video id.
     evidence: str = ""
+    #: Carried because attribution is polarity-blind but *counting* is not.
+    #: A denial names its bottle exactly as an assertion does, and both need
+    #: attributing; a consumer that adds them together would turn "this is
+    #: not rosy" into support for rose.
+    polarity: str = "ASSERTED"
 
 
 @dataclass
@@ -331,6 +341,7 @@ def attach_by_video(conn: psycopg.Connection) -> SubjectReport:
                 person=row["person"],
                 creator=row["creator"],
                 evidence=f"video {video}: {(title or query or '')[:120]}",
+                polarity=row["polarity"],
             )
         )
     return report
@@ -591,7 +602,7 @@ def facts(
         rows += [
             (a.fragrance_id, a.tag, a.person, a.creator)
             for a in attach_by_video(conn).attached
-            if a.claim_type in TAGGED and a.tag
+            if a.claim_type in TAGGED and a.tag and a.polarity == "ASSERTED"
         ]
     plurals = known_singulars([(t or "").lower().strip() for _, t, _, _ in rows])
     grouped: dict[tuple[int, str], tuple[set[str], set[str]]] = {}

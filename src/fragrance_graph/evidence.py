@@ -207,10 +207,48 @@ class AttributeFact:
     #: than by the commenter naming the bottle. Travels with the fact so a
     #: renderer can never lose track of it.
     inferred: bool = False
+    #: The subset of `supporting` whose attribution a commenter stated.
+    #: Declarability is computed from this and never from the total, so
+    #: turning inference on can widen what the system can *find* without
+    #: changing one word of what it is willing to *say*.
+    stated: Support = field(default_factory=Support)
 
     @property
     def strength(self) -> Strength:
         return strength_of(self.supporting, self.opposing)
+
+    @property
+    def may_declare(self) -> bool:
+        """Whether a page may state *this fact* in its own voice.
+
+        Strictly narrower than `strength.may_declare`, and the difference is
+        the point. A fact can clear the people-and-creators bar entirely on
+        the back of claims a machine attributed to this bottle, and counting
+        heads does not make that attribution any more likely to be right —
+        the video-subject rule is wrong about one time in twenty. Grading
+        such a fact declarable is laundering: weak provenance walks in and
+        strong-looking evidence walks out.
+
+        So the bar is the *stated* half on its own: a fact is declarable
+        when the people who named this bottle themselves already clear the
+        gate. Inference can then only ever widen what the system finds, not
+        what it says. The first version of this simply disqualified any
+        fact touched by inference, which was wrong in the other direction —
+        it stripped declarability from facts that three commenters had
+        stated outright, merely because two more were inferred.
+
+        A contested fact is never declarable however it was attributed.
+        Opposition raising doubt is the safe direction to fail in, so an
+        inferred denial is allowed to *block* a statement even though an
+        inferred assertion cannot support one.
+
+        Callers must use this and never `strength.may_declare` when deciding
+        what to print. `Strength` grades the head count; only the fact knows
+        where the heads came from.
+        """
+        if self.strength is Strength.CANONICAL:
+            return True
+        return self.stated.clears_gate and self.strength is not Strength.CONTESTED
 
     @property
     def people(self) -> int:
@@ -324,6 +362,7 @@ def attribute_facts(
             {
                 "for": {"people": set(), "creators": set(), "videos": set(), "ids": []},
                 "against": {"people": set(), "creators": set(), "videos": set(), "ids": []},
+                "stated": {"people": set(), "creators": set(), "videos": set(), "ids": []},
                 "inferred": False,
             },
         )
@@ -340,6 +379,13 @@ def attribute_facts(
         side["ids"].append(row["claim_id"])
         if row["stated_frag_id"] is None:
             bucket["inferred"] = True
+        elif not opposes:
+            stated = bucket["stated"]
+            stated["people"].add(row["person"])
+            stated["creators"].add(row["creator"])
+            if row["video_id"]:
+                stated["videos"].add(row["video_id"])
+            stated["ids"].append(row["claim_id"])
 
     facts = [
         AttributeFact(
@@ -349,6 +395,7 @@ def attribute_facts(
             supporting=_support(bucket["for"]),
             opposing=_support(bucket["against"]),
             inferred=bucket["inferred"],
+            stated=_support(bucket["stated"]),
         )
         for (frag, attribute, value), bucket in buckets.items()
     ]
@@ -399,7 +446,12 @@ def coverage(
         "facts": len(facts),
         **by_strength,
         "fragrances_with_any_fact": len({f.fragrance_id for f in facts}),
+        # `fact.may_declare`, never `fact.strength.may_declare`: a fact
+        # standing on machine-attributed claims is not declarable however
+        # many heads it counts.
         "fragrances_declarable": len(
-            {f.fragrance_id for f in facts if f.strength.may_declare}
+            {f.fragrance_id for f in facts if f.may_declare}
         ),
+        "declarable_facts": sum(1 for f in facts if f.may_declare),
+        "facts_resting_on_inference": sum(1 for f in facts if f.inferred),
     }
