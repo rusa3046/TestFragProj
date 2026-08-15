@@ -333,7 +333,7 @@ def recommend(
             continue
         result = _score(
             frag_id, names.get(frag_id, "?"), facts, plan, neighbours,
-            semantic.get(frag_id),
+            semantic.get(frag_id), grouped.get(plan.anchor_id or -1, []),
         )
         if result is None:
             rejected_by_hard += 1
@@ -471,6 +471,7 @@ def _score(
     plan: QueryPlan,
     neighbours: dict[int, int],
     semantic=None,
+    anchor_facts: list[AttributeFact] | None = None,
 ) -> Recommendation | None:
     result = Recommendation(fragrance_id=frag_id, name=name)
 
@@ -484,6 +485,11 @@ def _score(
 
     # Stage 3 — soft preferences, each a named reason or a named gap.
     for preference in plan.soft:
+        if preference.relative_to_anchor:
+            _score_comparative(
+                result, facts, preference, plan, anchor_facts or []
+            )
+            continue
         fact = _preference_fact(facts, preference)
         if fact is None:
             result.unmatched.append(f"{preference.attribute}={preference.value}")
@@ -566,11 +572,16 @@ def _score(
         described = [f for f in facts if not f.from_name and f.strength.may_retrieve]
         if not described or not plan.soft:
             return None
+        # Only plainly avoided things. An attribute under a *comparative*
+        # is owned by `_score_comparative`, which has already reported that
+        # the corpus cannot settle it — claiming "no rose evidence" as a
+        # reason to pick the bottle while also saying "no evidence either
+        # way" is the answer contradicting itself in two lines.
         avoided = ", ".join(
-            p.value
-            for p in plan.soft
-            if p.direction in (Direction.LOW, Direction.LESS_THAN_ANCHOR)
+            p.value for p in plan.soft if p.direction is Direction.LOW
         )
+        if not avoided:
+            return None
         best = max(f.supporting.people for f in described)
         sources = max(f.supporting.creators for f in described)
         result.reasons.append(
@@ -611,6 +622,105 @@ def _score(
     result.creators = max((r.creators for r in everything), default=0)
     result.score += min(result.people, 10) * 0.05
     return result
+
+
+#: How much less of something counts as "less". Two people describing a
+#: bottle as rosy against eight is a real difference; two against three is
+#: noise dressed as a comparison.
+COMPARATIVE_MARGIN = 2
+
+
+def _score_comparative(
+    result: Recommendation,
+    facts: list[AttributeFact],
+    preference: Preference,
+    plan: QueryPlan,
+    anchor_facts: list[AttributeFact],
+) -> None:
+    """"Less rose than Delina" — a comparison, not an avoidance.
+
+    Collapsing this to "avoid rose" answers a different question. Somebody
+    who loves Delina wants a bottle *like* it with the rose dialled down;
+    the avoidance reading throws away everything they said they liked and
+    returns bottles with no rose and nothing else in common.
+
+    So the comparison is made against the anchor's own rose evidence, and
+    when the corpus cannot establish both sides the honest outcome is to
+    say so. "Insufficient comparative evidence" is a real answer;
+    silently downgrading to a different constraint is not.
+    """
+    anchor_level = _prominence(anchor_facts, preference)
+    candidate_level = _prominence(facts, preference)
+
+    if anchor_level is None:
+        result.unmatched.append(
+            f"{preference.value} vs {plan.anchor}: nobody has recorded how "
+            f"much {preference.value} {plan.anchor} has, so there is no "
+            "baseline to compare against"
+        )
+        return
+    if candidate_level is None:
+        # Absence is not a low score. Nobody having mentioned rose here is
+        # not evidence there is less of it, so this neither helps nor
+        # hurts — it is reported as the open question it is.
+        result.unmatched.append(
+            f"{preference.value} vs {plan.anchor}: no {preference.value} "
+            "evidence recorded for this bottle either way"
+        )
+        return
+
+    wants_less = preference.direction is Direction.LESS_THAN_ANCHOR
+    difference = anchor_level - candidate_level
+    if not wants_less:
+        difference = -difference
+    if difference < COMPARATIVE_MARGIN:
+        result.caveats.append(
+            Reason(
+                kind="comparative",
+                text=(
+                    f"{preference.value}: {_people(candidate_level)} here "
+                    f"against {_people(anchor_level)} for {plan.anchor} — "
+                    "not a clear difference"
+                ),
+                strength=Strength.OBSERVED,
+                people=candidate_level,
+            )
+        )
+        result.score -= 1.0
+        return
+
+    result.reasons.append(
+        Reason(
+            kind="comparative",
+            text=(
+                f"{'less' if wants_less else 'more'} {preference.value} than "
+                f"{plan.anchor}: {_people(candidate_level)} here against "
+                f"{_people(anchor_level)} there"
+            ),
+            strength=Strength.OBSERVED,
+            people=max(candidate_level, 1),
+        )
+    )
+    result.score += 2.0
+
+
+def _prominence(
+    facts: list[AttributeFact], preference: Preference
+) -> int | None:
+    """How many people said this bottle has the thing, or None if nobody
+    has spoken either way.
+
+    Head count stands in for prominence. It is a proxy and a coarse one —
+    ten people mentioning rose means rose is noticeable, not that it
+    dominates — and it is the only one this corpus supports, because
+    nobody records intensity. Stated rather than dressed up as a measure.
+    """
+    for fact in facts:
+        if fact.from_name:
+            continue
+        if _matches(fact, preference.attribute, preference.value):
+            return fact.supporting.people
+    return None
 
 
 def _preference_fact(
@@ -677,6 +787,15 @@ def _note(
             "No match below clears the independence bar — the evidence is "
             "there, but not from enough separate creators to call it "
             "consensus."
+        )
+    comparatives = [p for p in plan.soft if p.relative_to_anchor]
+    if comparatives and not candidates:
+        wanted = ", ".join(f"{p.value} than {plan.anchor}" for p in comparatives)
+        return (
+            f"Insufficient comparative evidence for {wanted}. The corpus "
+            "would need people describing that quality in both bottles to "
+            "compare them, and it does not have that. This request has not "
+            "been answered as a different, easier one."
         )
     if plan.hard:
         wanted = ", ".join(f"{c.attribute}={c.value}" for c in plan.hard)

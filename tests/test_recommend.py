@@ -391,3 +391,92 @@ class TestCodexPhase3Findings:
         answer = recommend(conn, "something like Delina with raspberry but less rose")
         names = [r.name for r in answer.results]
         assert names.index("Lattafa Khamrah") < names.index("Kilian Angels' Share")
+
+
+class TestAComparativeIsNotAnAvoidance:
+    """"Less rose than Delina" and "avoid rose" are different requests.
+
+    Somebody who loves Delina wants a bottle like it with the rose dialled
+    down. The avoidance reading throws away everything they said they
+    liked and returns bottles with no rose and nothing else in common.
+    """
+
+    def _pair(self, conn):
+        anchor = add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
+        other = add_fragrance(conn, "Lattafa Khamrah")
+        return anchor, other
+
+    def test_it_compares_against_the_anchors_own_evidence(self, conn):
+        anchor, other = self._pair(conn)
+        for i, author in enumerate(["p1", "p2", "p3", "p4", "p5"]):
+            note(conn, i, frag=anchor, value="rose", author=author,
+                 channel=f"c{i}")
+        note(conn, 20, frag=other, value="rose", author="p9")
+        note(conn, 21, frag=other, value="dates", author="p8")
+
+        (result,) = [
+            r for r in recommend(
+                conn, "i love Delina but the rose is too strong"
+            ).results if r.name == "Lattafa Khamrah"
+        ]
+        comparative = [r for r in result.reasons if r.kind == "comparative"]
+        assert comparative, "the comparison is the reason, not an avoidance"
+        assert "less rose than Parfums de Marly Delina" in comparative[0].text
+
+    def test_a_similar_level_is_not_a_difference(self, conn):
+        """Two against three is noise dressed as a comparison."""
+        anchor, other = self._pair(conn)
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            note(conn, i, frag=anchor, value="rose", author=author,
+                 channel=f"c{i}")
+        for i, author in enumerate(["p4", "p5"], start=20):
+            note(conn, i, frag=other, value="rose", author=author,
+                 channel=f"c{i}")
+        note(conn, 40, frag=other, value="dates", author="p9")
+
+        (result,) = [
+            r for r in recommend(
+                conn, "i love Delina but the rose is too strong"
+            ).results if r.name == "Lattafa Khamrah"
+        ]
+        assert any(r.kind == "comparative" for r in result.caveats)
+        assert "not a clear difference" in result.caveats[0].text
+
+    def test_no_anchor_evidence_means_no_baseline(self, conn):
+        """Not 'avoid rose'. There is nothing to be less than."""
+        anchor, other = self._pair(conn)
+        note(conn, 20, frag=other, value="rose", author="p9")
+        answer = recommend(conn, "i love Delina but the rose is too strong")
+        assert "Insufficient comparative evidence" in answer.note
+        assert "not been answered as a different, easier one" in answer.note
+
+    def test_absence_on_the_candidate_is_not_a_low_score(self, conn):
+        """Nobody mentioning rose is not evidence there is less of it."""
+        anchor, other = self._pair(conn)
+        for i, author in enumerate(["p1", "p2", "p3", "p4", "p5"]):
+            note(conn, i, frag=anchor, value="rose", author=author,
+                 channel=f"c{i}")
+        note(conn, 20, frag=other, value="dates", author="p9")
+
+        results = recommend(
+            conn, "i love Delina but the rose is too strong"
+        ).results
+        khamrah = [r for r in results if r.name == "Lattafa Khamrah"]
+        if khamrah:
+            assert not any(r.kind == "comparative" for r in khamrah[0].reasons)
+            assert any("either way" in u for u in khamrah[0].unmatched)
+
+    def test_more_x_than_anchor_works_the_other_way(self, conn):
+        anchor, other = self._pair(conn)
+        note(conn, 1, frag=anchor, value="vanilla", author="p1")
+        for i, author in enumerate(["p2", "p3", "p4", "p5"], start=10):
+            note(conn, i, frag=other, value="vanilla", author=author,
+                 channel=f"c{i}")
+        from fragrance_graph.plan import Direction, Preference
+        from fragrance_graph.recommend import _prominence
+
+        pref = Preference("note", "vanilla", Direction.MORE_THAN_ANCHOR)
+        from fragrance_graph.evidence import attribute_facts
+
+        assert _prominence(attribute_facts(conn, fragrance_id=other), pref) == 4
+        assert _prominence(attribute_facts(conn, fragrance_id=anchor), pref) == 1
