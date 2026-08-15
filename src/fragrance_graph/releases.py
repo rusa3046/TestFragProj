@@ -577,15 +577,21 @@ def main(argv: list[str] | None = None) -> int:
     conn = get_connection(args.db_url)
     try:
         if args.command == "discover":
-            if args.source != "fixture":
-                print(
-                    f"No adapter for {args.source!r}. Permitted sources are "
-                    "RSS/Atom feeds, authorized retailer feeds, official "
-                    "brand announcements and licensed feeds; none is "
-                    "configured, so only the fixture source is available."
-                )
-                return 2
-            print(discover(conn, FixtureSource(args.path), since=args.since))
+            if args.source == "fixture":
+                source = FixtureSource(args.path)
+            else:
+                from fragrance_graph.release_sources import PERMITTED, build
+
+                if args.source not in PERMITTED:
+                    print(
+                        f"No adapter for {args.source!r}. Permitted sources "
+                        f"are: fixture, {', '.join(sorted(PERMITTED))}. "
+                        "Adding one is a licensing decision before it is a "
+                        "technical one."
+                    )
+                    return 2
+                source = build(args.source, conn)
+            print(discover(conn, source, since=args.since))
         elif args.command == "verify":
             print(verify(conn, dry_run=args.dry_run))
         elif args.command == "evidenced":
