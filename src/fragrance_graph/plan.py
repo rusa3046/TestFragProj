@@ -253,13 +253,22 @@ TOO_MUCH = re.compile(
 )
 
 #: "like X but ..." / "similar to X but ..."
+#: Where a fragrance name stops. Anything that starts a new clause or
+#: introduces a requirement ends the name — without "with" and "and" here,
+#: "something like Delina with raspberry but less rose" captured the anchor
+#: as "delina with raspberry", which resolved to nothing *and* swallowed
+#: the raspberry constraint on the way past.
+_NAME_END = (
+    r"(?:\s+(?:but|that|with|and|for|which|containing|minus|without|"
+    r"except|though|however)\b|\s*[,\.\?!]|$)"
+)
+
 ANCHOR_PATTERNS = (
     re.compile(r"\b(?:something |anything )?(?:like|similar to|reminiscent of) "
-               r"([a-z0-9'’\.\- ]{2,40}?)(?:\s+but\b|\s+that\b|\s*[,\.]|$)"),
+               r"([a-z0-9'’\.\- ]{2,40}?)" + _NAME_END),
     re.compile(r"\bi (?:really )?(?:love|like|enjoy|adore) "
-               r"([a-z0-9'’\.\- ]{2,40}?)(?:\s+but\b|\s*[,\.]|$)"),
-    re.compile(r"\b(?:fan of|into) ([a-z0-9'’\.\- ]{2,40}?)"
-               r"(?:\s+but\b|\s*[,\.]|$)"),
+               r"([a-z0-9'’\.\- ]{2,40}?)" + _NAME_END),
+    re.compile(r"\b(?:fan of|into) ([a-z0-9'’\.\- ]{2,40}?)" + _NAME_END),
 )
 
 COMPARE_PATTERN = re.compile(

@@ -138,28 +138,42 @@ class TestNegativePreferences:
         assert "rose" not in " ".join(r.text for r in result.reasons)
 
 
-class TestCanonicalMetadata:
-    """Official facts and perceived facts are different claims."""
+class TestNameDerivedNotesDemoteButNeverAssert:
+    """Rewritten after the phase-3 review.
 
-    def test_a_note_in_the_name_is_canonical_evidence(self, conn):
-        from fragrance_graph.evidence import canonical_facts
+    This class used to pin the opposite behaviour: a note word found in a
+    product name was graded CANONICAL and printed as "(official listing)".
+    On the real catalogue that produced "Creed Green Irish Tweed -> green
+    (official listing)", which asserts a provenance nobody has. The signal
+    is kept, the assertion is not.
+    """
+
+    def test_a_note_in_the_name_is_recognised(self, conn):
+        from fragrance_graph.evidence import name_facts
 
         add_fragrance(conn, "Swiss Arabian Rose 01")
-        (fact,) = canonical_facts(conn)
+        (fact,) = name_facts(conn)
         assert (fact.attribute, fact.value) == ("note", "rose")
-        assert fact.strength is Strength.CANONICAL
+        assert fact.from_name
 
-    def test_it_needs_no_commenter(self, conn):
-        from fragrance_graph.evidence import canonical_facts
+    def test_it_is_never_declarable(self, conn):
+        from fragrance_graph.evidence import name_facts
 
+        add_fragrance(conn, "Creed Green Irish Tweed")
+        (fact,) = name_facts(conn)
+        assert fact.strength is Strength.INSUFFICIENT
+        assert not fact.may_declare, (
+            "nobody official listed a green note in Green Irish Tweed"
+        )
+
+    def test_it_cannot_satisfy_a_hard_requirement(self, conn):
+        """A word in a name is not evidence anybody smelled it."""
         add_fragrance(conn, "Swiss Arabian Rose 01")
-        (fact,) = canonical_facts(conn)
-        assert fact.supporting.people == 0
-        assert fact.may_declare, "the house said it; no head count applies"
+        answer = recommend(conn, "a fragrance with rose")
+        assert answer.results == []
 
-    def test_it_demotes_a_bottle_the_asker_wants_less_of(self, conn):
-        """The defect it was built for: with no community rose evidence,
-        'Rose 01' was recommended to someone asking for less rose."""
+    def test_it_still_demotes_what_the_asker_wants_less_of(self, conn):
+        """The defect it was built for, and the only job it keeps."""
         add_fragrance(conn, "Swiss Arabian Rose 01")
         add_fragrance(conn, "Lattafa Khamrah")
         note(conn, 1, frag=1, value="raspberry", author="p1")
@@ -168,16 +182,16 @@ class TestCanonicalMetadata:
         names = [r.name for r in answer.results]
         assert names.index("Lattafa Khamrah") < names.index("Swiss Arabian Rose 01")
 
-    def test_official_and_perceived_stay_separate_rows(self, conn):
-        from fragrance_graph.evidence import attribute_facts, canonical_facts
+    def test_a_name_note_and_a_perceived_note_stay_separate(self, conn):
+        from fragrance_graph.evidence import attribute_facts, name_facts
 
         frag = add_fragrance(conn, "Swiss Arabian Rose 01")
         note(conn, 1, frag=frag, value="rose", author="p1")
         community = [f for f in attribute_facts(conn) if f.value == "rose"]
-        official = [f for f in canonical_facts(conn) if f.value == "rose"]
-        assert len(community) == 1 and len(official) == 1
+        from_name = [f for f in name_facts(conn) if f.value == "rose"]
+        assert len(community) == 1 and len(from_name) == 1
         assert community[0].strength is Strength.OBSERVED
-        assert official[0].strength is Strength.CANONICAL
+        assert from_name[0].strength is Strength.INSUFFICIENT
 
 
 class TestRefusalAndIntent:
@@ -250,3 +264,80 @@ class TestDisputesAreDisclosed:
         (result,) = recommend(conn, "a raspberry with strong projection").results
         assert not any("projection" in r.text for r in result.reasons)
         assert any("projection" in c.text for c in result.caveats)
+
+
+class TestCodexPhase3Findings:
+    """Five findings from the 2026-08-15 recommender review, all confirmed."""
+
+    def test_an_unknown_channel_is_not_a_second_channel(self, conn):
+        """P1. A NULL `source_channel` joined the creator set, so two
+        comments from one channel plus one unattributed comment cleared
+        MIN_SOURCES and declared consensus."""
+        from fragrance_graph.evidence import attribute_facts
+
+        frag = add_fragrance(conn, "Lattafa Khamrah")
+        note(conn, 1, frag=frag, value="rose", author="p1", channel="chan_a")
+        note(conn, 2, frag=frag, value="rose", author="p2", channel="chan_a")
+        note(conn, 3, frag=frag, value="rose", author="p3", channel="chan_a")
+        conn.execute(
+            "UPDATE comments SET source_channel = '' WHERE source_id = 't1_fake00003'"
+        )
+        conn.commit()
+        (fact,) = attribute_facts(conn, fragrance_id=frag)
+        assert fact.supporting.people == 3
+        assert fact.supporting.creators == 1, "one known channel is one room"
+        assert not fact.may_declare
+
+    def test_a_mostly_denied_fact_cannot_satisfy_a_requirement(self, catalogue):
+        """P1. `_satisfies_hard` accepted any retrievable strength, so a
+        bottle three people call weak satisfied a demand for strong."""
+        conn, a, _ = catalogue
+        for i, author in enumerate(["p1", "p2"]):
+            note(conn, i, frag=a, value=None, author=author, channel=f"c{i}",
+                 claim_type="PROJECTION")
+        for i, author in enumerate(["p3", "p4", "p5"], start=50):
+            note(conn, i, frag=a, value=None, author=author, channel=f"c{i}",
+                 claim_type="PROJECTION")
+            conn.execute(
+                "UPDATE claims SET sentiment = 'NEGATIVE' "
+                "WHERE id = (SELECT max(id) FROM claims)"
+            )
+        conn.commit()
+        answer = recommend(conn, "strong projection")
+        assert answer.results == []
+
+    def test_graph_evidence_respects_creator_independence(self, conn):
+        """P1. Three commenters in one creator's section were graded
+        SUPPORTED, skipping the independence bar the product rests on."""
+        from tests.test_query import add_claim, add_comment
+
+        anchor = add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
+        other = add_fragrance(conn, "Maison Alhambra Delilah")
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            cid = add_comment(conn, i, body="x", author=author)
+            add_claim(conn, cid, subject=other, obj=anchor)
+        (result,) = recommend(conn, "something like Delina").results
+        graph = result.reasons[0]
+        assert graph.people == 3
+        assert graph.creators == 1
+        assert graph.strength is Strength.OBSERVED, "one room is not consensus"
+        assert not graph.declarable
+
+    def test_avoiding_a_trait_outranks_being_near_the_anchor(self, conn):
+        """P2. Anchor proximity (+2.6) outweighed an avoided observed trait
+        (-1.2), so the rosy bottle beat the one with no rose."""
+        from tests.test_query import add_claim, add_comment
+
+        anchor = add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
+        rosy = add_fragrance(conn, "Kilian Angels' Share")
+        clean = add_fragrance(conn, "Lattafa Khamrah")
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            cid = add_comment(conn, i, body="x", author=author)
+            add_claim(conn, cid, subject=rosy, obj=anchor)
+        note(conn, 20, frag=rosy, value="rose", author="p9")
+        note(conn, 21, frag=rosy, value="raspberry", author="p8")
+        note(conn, 22, frag=clean, value="raspberry", author="p7")
+
+        answer = recommend(conn, "something like Delina with raspberry but less rose")
+        names = [r.name for r in answer.results]
+        assert names.index("Lattafa Khamrah") < names.index("Kilian Angels' Share")

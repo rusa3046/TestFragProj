@@ -320,3 +320,16 @@ class TestCodexPhase2Findings:
         started = time.monotonic()
         plan("no " * 400 + "rose")
         assert time.monotonic() - started < 1.0
+
+    def test_an_anchor_name_stops_at_a_requirement(self, conn):
+        """Found while testing the recommender. The lazy capture ran to
+        " but ", so "something like Delina with raspberry but less rose"
+        took the anchor as "delina with raspberry" — which resolved to
+        nothing and swallowed the raspberry constraint on the way."""
+        add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
+        got = parse_with_corpus(
+            conn, "something like Delina with raspberry but less rose"
+        )
+        assert got.anchor == "Parfums de Marly Delina"
+        assert [c.value for c in got.hard] == ["raspberry"]
+        assert ("rose", Direction.LOW) in {(p.value, p.direction) for p in got.soft}

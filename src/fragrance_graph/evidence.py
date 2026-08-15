@@ -208,9 +208,11 @@ class AttributeFact:
     #: than by the commenter naming the bottle. Travels with the fact so a
     #: renderer can never lose track of it.
     inferred: bool = False
-    #: True when the catalogue states this rather than a commenter. Graded
-    #: CANONICAL regardless of head count, because no head count applies.
-    canonical: bool = False
+    #: True when this note was read out of the product name rather than
+    #: asserted by anybody. Never declarable, never satisfies a hard
+    #: constraint; it exists only to stop "no evidence of rose" being read
+    #: as "no rose" for a bottle called Rose 01.
+    from_name: bool = False
     #: The subset of `supporting` whose attribution a commenter stated.
     #: Declarability is computed from this and never from the total, so
     #: turning inference on can widen what the system can *find* without
@@ -219,8 +221,8 @@ class AttributeFact:
 
     @property
     def strength(self) -> Strength:
-        if self.canonical:
-            return Strength.CANONICAL
+        if self.from_name:
+            return Strength.INSUFFICIENT
         return strength_of(self.supporting, self.opposing)
 
     @property
@@ -379,7 +381,13 @@ def attribute_facts(
             opposes = not opposes
         side = bucket["against" if opposes else "for"]
         side["people"].add(row["person"])
-        side["creators"].add(row["creator"])
+        # A missing channel is missing provenance, not another independent
+        # source. Adding NULL to the set let two comments from one channel
+        # plus one unattributed comment clear MIN_SOURCES = 2 and declare
+        # consensus. `query.pair_stats` has always filtered these out; this
+        # counter did not.
+        if row["creator"]:
+            side["creators"].add(row["creator"])
         if row["video_id"]:
             side["videos"].add(row["video_id"])
         side["ids"].append(row["claim_id"])
@@ -388,7 +396,8 @@ def attribute_facts(
         elif not opposes:
             stated = bucket["stated"]
             stated["people"].add(row["person"])
-            stated["creators"].add(row["creator"])
+            if row["creator"]:
+                stated["creators"].add(row["creator"])
             if row["video_id"]:
                 stated["videos"].add(row["video_id"])
             stated["ids"].append(row["claim_id"])
@@ -434,9 +443,9 @@ def _support(side: dict) -> Support:
     )
 
 
-#: Note words a canonical name may state outright. Kept short and literal:
-#: this is the *catalogue* asserting a note, not a perception, and a long
-#: inferred list here would quietly become a second, worse note ontology.
+#: Note words that may be recognised inside a product name. Kept short and
+#: literal; a long list here would quietly become a second, worse note
+#: ontology that nobody reviewed.
 CANONICAL_NAME_NOTES = frozenset({
     "rose", "oud", "vanilla", "amber", "musk", "leather", "tobacco", "coffee",
     "jasmine", "sandalwood", "cedar", "vetiver", "patchouli", "iris",
@@ -446,24 +455,34 @@ CANONICAL_NAME_NOTES = frozenset({
 })
 
 
-def canonical_facts(conn: psycopg.Connection) -> list[AttributeFact]:
-    """Notes the catalogue itself states, from the canonical name.
+def name_facts(conn: psycopg.Connection) -> list[AttributeFact]:
+    """Notes a *product name* mentions. Not official, not declarable.
 
-    "Swiss Arabian Rose 01" contains rose because the house says so on the
-    bottle, and no commenter has to mention it for that to be true. Without
-    this the recommender happily offered it to somebody asking for *less*
-    rose, because absence of community evidence looked like absence of
-    rose.
+    This started life as `canonical_facts`, grading a note word found in
+    the canonical name as `CANONICAL` and printing it as "(official
+    listing)". Codex found what that produces on the real catalogue:
 
-    These are `CANONICAL` and never merge with community facts. An official
-    note and a perceived note are different claims about different things —
-    "officially contains raspberry" is not "people smell raspberry" — and
-    keeping them apart is what lets a page say which it has.
+        Creed Green Irish Tweed  ->  green (official listing)
 
-    Deliberately only the name. Release years, concentrations and official
-    note lists belong here too and the corpus has none of them; inventing
-    them from a model would be exactly the fabrication this system exists
-    to avoid.
+    Nobody official listed a green note. The catalogue supplies a *name*,
+    and reading a note out of a name is an inference — a decent one for
+    "Atomic Rose", a fabricated provenance claim for "Green Irish Tweed".
+    Asserting it as official is precisely the failure this system exists to
+    avoid, so the grade and the wording are both gone.
+
+    What survives is the thing it was built for. "Swiss Arabian Rose 01"
+    was being recommended to somebody asking for *less* rose, because no
+    community evidence about rose looked like no rose. A name-derived note
+    may therefore **demote** a candidate, and may never promote one:
+
+      - it is `INSUFFICIENT`, so it satisfies no hard constraint;
+      - it never counts toward the minimum evidence to be a candidate;
+      - it is phrased as what it is — the name contains this word.
+
+    Real canonical metadata — official note lists from an authorized feed,
+    release years, concentrations — belongs in `Strength.CANONICAL`. The
+    corpus has none of it yet, and that grade stays unused rather than
+    being filled with a guess.
     """
     facts = []
     for row in conn.execute("SELECT id, canonical_name FROM fragrances"):
@@ -475,7 +494,7 @@ def canonical_facts(conn: psycopg.Connection) -> list[AttributeFact]:
                     attribute="note",
                     value=note,
                     supporting=Support(people=0, creators=0),
-                    canonical=True,
+                    from_name=True,
                 )
             )
     return facts

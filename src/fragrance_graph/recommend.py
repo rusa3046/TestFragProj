@@ -56,8 +56,9 @@ from fragrance_graph.evidence import (
     Attribution,
     Strength,
     attribute_facts,
-    canonical_facts,
+    name_facts,
 )
+from fragrance_graph.gate import MIN_COMMENTERS, MIN_SOURCES
 from fragrance_graph.plan import (
     CONCEPTS,
     Constraint,
@@ -201,10 +202,10 @@ def _facts_by_fragrance(
     conn: psycopg.Connection, attribution: Attribution
 ) -> dict[int, list[AttributeFact]]:
     grouped: dict[int, list[AttributeFact]] = {}
-    # Canonical first, so a catalogue-stated note is present even for a
-    # bottle nobody has commented on. They are separate rows and never
-    # merge with community facts.
-    for fact in canonical_facts(conn) + attribute_facts(conn, attribution=attribution):
+    # Name-derived notes first. They are separate rows, never merge with
+    # community facts, and are INSUFFICIENT — present only so a bottle
+    # called "Rose 01" can be demoted for somebody asking for less rose.
+    for fact in name_facts(conn) + attribute_facts(conn, attribution=attribution):
         grouped.setdefault(fact.fragrance_id, []).append(fact)
     return grouped
 
@@ -248,11 +249,26 @@ def _fact_reason(fact: AttributeFact, kind: str) -> Reason:
     )
 
 
-def _satisfies_hard(facts: list[AttributeFact], constraint: Constraint) -> AttributeFact | None:
+def _satisfies_hard(
+    facts: list[AttributeFact], constraint: Constraint
+) -> AttributeFact | None:
+    """The best evidence that a candidate really has what was required.
+
+    Two exclusions beyond "may_retrieve". A fact most people contradict
+    does not satisfy a requirement for the thing they contradict — asking
+    for strong projection must not return a bottle three people call weak
+    and two call strong. And a note read out of the product name is not
+    evidence anybody smelled it, so it cannot satisfy a requirement either;
+    `_score` handles the soft path equivalently.
+    """
     for fact in facts:
-        if _matches(fact, constraint.attribute, constraint.value):
-            if fact.strength.may_retrieve:
-                return fact
+        if not _matches(fact, constraint.attribute, constraint.value):
+            continue
+        if fact.from_name or not fact.strength.may_retrieve:
+            continue
+        if fact.opposing.people > fact.supporting.people:
+            continue
+        return fact
     return None
 
 
@@ -325,7 +341,7 @@ def _anchor_neighbours(conn: psycopg.Connection, plan: QueryPlan) -> dict[int, i
     if plan.anchor_id is None:
         return {}
     return {
-        related.fragrance_id: related.pair_commenters
+        related.fragrance_id: (related.pair_commenters, related.pair_sources)
         for related in similar_to(conn, plan.anchor_id)
     }
 
@@ -356,8 +372,13 @@ def _score(
         if preference.direction in (Direction.LOW, Direction.LESS_THAN_ANCHOR):
             # Evidence that a candidate *has* the thing being avoided is a
             # caveat, and it costs the candidate rather than helping it.
+            # Must dominate the anchor bonus. Graph proximity tops out at
+            # +2.0 and this starts at -3.0, so a candidate carrying the very
+            # trait the user asked to avoid can never be lifted above one
+            # that does not by being close to the anchor. Somebody who says
+            # "less rose" has ruled on the trade-off already.
             result.caveats.append(_fact_reason(fact, "avoid"))
-            result.score -= 1.0 + _weight(fact)
+            result.score -= 3.0 + _weight(fact)
         elif fact.opposing.people > fact.supporting.people:
             # Asked for strong projection, and more people say it is weak
             # than strong. Citing that as a reason to pick the bottle
@@ -371,16 +392,26 @@ def _score(
 
     # Stage 4 — what the comparison graph already says about the anchor.
     if frag_id in neighbours:
-        support = neighbours[frag_id]
+        support, sources = neighbours[frag_id]
+        # Graded by the same rule as everything else. Three people in one
+        # creator's comment section is one room, and calling that SUPPORTED
+        # let anchor results skip the independence bar the whole product
+        # rests on.
+        strong = support >= MIN_COMMENTERS and sources >= MIN_SOURCES
         result.reasons.append(
             Reason(
                 kind="graph",
-                text=f"{_people(support)} compared this with {plan.anchor}",
-                strength=Strength.SUPPORTED if support >= 3 else Strength.OBSERVED,
+                text=(
+                    f"{_people(support)} across {_sources(sources)} compared "
+                    f"this with {plan.anchor}"
+                ),
+                strength=Strength.SUPPORTED if strong else Strength.OBSERVED,
                 people=support,
+                creators=sources,
             )
         )
-        result.score += 2.0 + min(support, 5) * 0.2
+        # Capped below the avoidance penalty on purpose; see `_score`.
+        result.score += 1.0 + min(support, 5) * 0.2
 
     if not result.reasons and not plan.hard:
         return None
