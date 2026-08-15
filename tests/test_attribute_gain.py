@@ -284,3 +284,45 @@ class TestTheExperimentCanActuallyRun:
         from fragrance_graph.experiments.attribute_gain import main
 
         assert main(["report"]) == 0
+
+
+class TestTheCohortIsActuallyEnrichable:
+    """Caught before spending. Seven of the ten cohort bottles had no row
+    in `frontier.candidates`, whose 4-9 comparison-claim band answers a
+    different question — Layton falls outside it for having *two hundred*
+    comparison claims. The run would have skipped most of the experiment
+    and reported success on what remained.
+    """
+
+    def test_a_candidate_is_built_from_the_catalogue_name(self, conn):
+        from fragrance_graph.experiments.attribute_gain import _candidate_for
+
+        frag = add_fragrance(conn, "Parfums de Marly Layton")
+        note(conn, 1, frag=frag, value="vanilla", author="p1", channel="c1")
+        note(conn, 2, frag=frag, value="menthol", author="p2", channel="c2")
+
+        candidate = _candidate_for(conn, "Parfums de Marly Layton")
+        assert candidate is not None
+        assert candidate.text == "Parfums de Marly Layton"
+        assert candidate.claims == 2
+        assert candidate.creators == 2
+
+    def test_it_does_not_depend_on_the_comparison_claim_band(self, conn):
+        """A bottle with no comparison claims at all is still enrichable —
+        learning what it smells like is the whole job."""
+        from fragrance_graph.experiments.attribute_gain import _candidate_for
+
+        frag = add_fragrance(conn, "Fragrance World Oud Wonder")
+        note(conn, 1, frag=frag, value="oud", author="p1")
+        assert _candidate_for(conn, "Fragrance World Oud Wonder") is not None
+
+    def test_a_name_not_in_the_catalogue_returns_none(self, conn):
+        from fragrance_graph.experiments.attribute_gain import _candidate_for
+
+        assert _candidate_for(conn, "Nonexistent Bottle") is None
+
+    def test_matching_is_case_insensitive(self, conn):
+        from fragrance_graph.experiments.attribute_gain import _candidate_for
+
+        add_fragrance(conn, "Lattafa Khamrah")
+        assert _candidate_for(conn, "lattafa khamrah") is not None

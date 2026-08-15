@@ -79,6 +79,40 @@ class _NullLog:
         pass
 
 
+def _candidate_for(conn: psycopg.Connection, name: str):
+    """A `frontier.Candidate` for any catalogue bottle, by name.
+
+    Built directly rather than filtered out of `frontier.candidates`,
+    whose 4-9 claim band answers a different question. The counts come
+    from the bottle's own resolved evidence so `enrich_one`'s early stops
+    still see a truthful starting point.
+    """
+    from fragrance_graph.frontier import Candidate
+
+    row = conn.execute(
+        "SELECT id, canonical_name FROM fragrances"
+        " WHERE lower(canonical_name) = lower(%s)",
+        (name,),
+    ).fetchone()
+    if row is None:
+        return None
+    stats = conn.execute(
+        "SELECT count(*) AS claims,"
+        "       count(DISTINCT NULLIF(co.source_channel, '')) AS creators,"
+        "       count(DISTINCT COALESCE(NULLIF(co.author_id, ''),"
+        "                               'author:unknown')) AS people"
+        "  FROM claims cl JOIN comments co ON co.id = cl.comment_id"
+        " WHERE cl.subject_frag_id = %s AND cl.polarity = 'ASSERTED'",
+        (row["id"],),
+    ).fetchone()
+    return Candidate(
+        text=row["canonical_name"],
+        claims=stats["claims"],
+        creators=stats["creators"],
+        people=stats["people"],
+    )
+
+
 def _llm_client():
     """The extraction client, built only inside `run`.
 
@@ -457,9 +491,10 @@ def main(argv: list[str] | None = None) -> int:
             QuotaTracker,
             Trial,
             budgeted_extractor,
-            candidates,
             enrich_one,
             query_for,
+            search_with_creators,
+            store_hits,
         )
         from fragrance_graph.ingest.youtube import build_client
 
@@ -487,18 +522,34 @@ def main(argv: list[str] | None = None) -> int:
             `query_for` produces "<name> fragrance review" — never "dupe",
             because this job exists to learn what a bottle is like and the
             corpus is already dupe-shaped.
+
+            The candidate is built **from the catalogue name**, not looked
+            up in `frontier.candidates`. That function selects mentions in
+            a 4-9 comparison-claim band for a different job — finding
+            bottles whose *pair* evidence is nearly enough — and seven of
+            these ten fall outside it, Layton because it has two hundred
+            comparison claims rather than too few. Filtering the cohort
+            through it would have skipped most of the experiment while
+            reporting success.
             """
-            pool = candidates(conn)
-            match = next((c for c in pool if c.text.lower() in name.lower()), None)
+            match = _candidate_for(conn, name)
             if match is None:
-                log.warning("%s has no candidate row; skipping", name)
-                return 0, 0.0, 0, "no-candidate"
+                log.warning("%s is not in the catalogue; skipping", name)
+                return 0, 0.0, 0, "not-in-catalogue"
             trial = Trial(
                 text=match.text, claims_before=match.claims,
                 creators_before=match.creators,
                 started_at=datetime.now(UTC).isoformat(timespec="seconds"),
                 query=query_for(match.text),
             )
+            # One search, then comments. `enrich_one` reads recorded hits
+            # rather than searching again, so the search happens here and
+            # its quota is attributed to this bottle.
+            hits = search_with_creators(
+                client, api_key, trial.query, limit=25, quota=quota
+            )
+            store_hits(conn, hits, trial.query, run=run_id)
+            trial.searches = 1
             enrich_one(
                 conn, client, api_key, match, quota=quota, ceiling=ceiling,
                 run=run_id, extract_fn=extract_fn, trial=trial,
