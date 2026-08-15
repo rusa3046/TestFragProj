@@ -569,3 +569,101 @@ class TestCodexPhase6ComparativeFindings:
         assert "across 5 channels" in comparative.text, (
             "and the sentence shows the baseline's independence"
         )
+
+
+class TestSocialConceptsAreNotSynonyms:
+    """Somebody being complimented is a fact about them and their circle.
+    A fragrance being broadly likable is a fact about everyone. They
+    correlate; they are not interchangeable, and the difference is exactly
+    what a buyer asking for a safe blind buy wants to know.
+
+    Measured on the corpus: compliment 29 claims / 10 attached, mass
+    appeal 2 / 1. Folding them together answered a question the corpus
+    cannot speak to using evidence for a different one.
+    """
+
+    def _bottle(self, conn, value):
+        frag = add_fragrance(conn, "Lattafa Khamrah")
+        note(conn, 1, frag=frag, value="sweet", author="p1")
+        note(conn, 2, frag=frag, value=value, author="p2",
+             claim_type="AESTHETIC")
+        return frag
+
+    def test_crowd_pleasing_asks_about_mass_appeal(self, conn):
+        from fragrance_graph.plan import parse_with_corpus
+
+        add_fragrance(conn, "Lattafa Khamrah")
+        plan = parse_with_corpus(conn, "a crowd-pleasing fragrance")
+        assert [(p.attribute, p.value) for p in plan.soft] == [
+            ("concept", "mass appeal")
+        ]
+
+    def test_direct_evidence_is_named_as_itself(self, conn):
+        self._bottle(conn, "mass appeal")
+        (result,) = recommend(conn, "a crowd-pleasing sweet fragrance").results
+        concepts = [r for r in result.reasons if "mass appeal" in r.text]
+        assert concepts
+        assert "related to" not in concepts[0].text
+
+    def test_compliment_evidence_is_named_as_compliments(self, conn):
+        """It may retrieve, and the sentence must say which concept it is
+        evidence for."""
+        self._bottle(conn, "compliments from women")
+        (result,) = recommend(conn, "a crowd-pleasing sweet fragrance").results
+        concepts = [r for r in result.reasons if "compliment" in r.text]
+        assert concepts
+        assert "related to mass appeal" in concepts[0].text
+        assert "does not speak to directly" in concepts[0].text
+
+    def test_a_related_match_scores_below_a_direct_one(self, conn):
+        direct = add_fragrance(conn, "Lattafa Khamrah")
+        note(conn, 1, frag=direct, value="sweet", author="p1")
+        note(conn, 2, frag=direct, value="mass appeal", author="p2",
+             claim_type="AESTHETIC")
+        related = add_fragrance(conn, "Al Haramain Detour Noir")
+        note(conn, 3, frag=related, value="sweet", author="p3")
+        note(conn, 4, frag=related, value="compliments", author="p4",
+             claim_type="AESTHETIC")
+        names = [r.name for r in recommend(
+            conn, "a crowd-pleasing sweet fragrance"
+        ).results]
+        assert names.index("Lattafa Khamrah") < names.index(
+            "Al Haramain Detour Noir"
+        )
+
+    def test_no_social_evidence_says_so_rather_than_substituting(self, conn):
+        """With a note requirement met and no social evidence at all, the
+        concept is reported as unmatched rather than filled in from
+        something adjacent."""
+        frag = add_fragrance(conn, "Lattafa Khamrah")
+        # Two claims so "sweet" clears the vocabulary floor and becomes a
+        # requirement; otherwise the query has nothing to retrieve on.
+        note(conn, 1, frag=frag, value="sweet", author="p1", channel="c1")
+        note(conn, 2, frag=frag, value="sweet", author="p2", channel="c2")
+        answer = recommend(conn, "a crowd-pleasing sweet fragrance")
+        assert answer.results, "the sweet requirement is still met"
+        result = answer.results[0]
+        assert any("mass appeal" in item for item in result.unmatched)
+        assert not any("mass appeal" in reason.text for reason in result.reasons)
+
+    def test_a_concept_with_no_evidence_anywhere_returns_nothing(self, conn):
+        """And the answer says so rather than inventing a match."""
+        frag = add_fragrance(conn, "Lattafa Khamrah")
+        note(conn, 1, frag=frag, value="mysterious", author="p1")
+        answer = recommend(conn, "a crowd-pleasing fragrance")
+        assert answer.results == []
+        assert answer.note
+
+    def test_polarizing_is_not_reachable_through_compliments(self, conn):
+        """The expansion is directional. Compliment evidence is weak
+        support for mass appeal and no support at all for polarizing."""
+        from fragrance_graph.plan import RELATED_CONCEPTS
+
+        assert "compliment getting" not in RELATED_CONCEPTS.get("polarizing", ())
+        assert "polarizing" not in RELATED_CONCEPTS.get("mass appeal", ())
+
+    def test_the_concepts_have_separate_vocabularies(self):
+        from fragrance_graph.plan import CONCEPTS
+
+        assert "compliment" not in " ".join(CONCEPTS["mass appeal"])
+        assert "crowd" not in " ".join(CONCEPTS["compliment getting"])

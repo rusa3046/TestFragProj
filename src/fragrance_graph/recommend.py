@@ -61,6 +61,7 @@ from fragrance_graph.evidence import (
 from fragrance_graph.gate import MIN_COMMENTERS, MIN_SOURCES
 from fragrance_graph.plan import (
     CONCEPTS,
+    RELATED_CONCEPTS,
     Constraint,
     Direction,
     Intent,
@@ -239,14 +240,35 @@ def _matches(fact: AttributeFact, attribute: str, value: str) -> bool:
 
 
 def _concept_matches(fact: AttributeFact, concept: str) -> bool:
-    """Whether a fact expresses a concept the corpus has no word for.
-
-    "Crowd-pleasing" is never written; "compliment" is written 29 times.
-    The concept's word list is what bridges them.
-    """
-    words = CONCEPTS.get(concept, ())
+    """Whether a fact is evidence for *this* concept — not a related one."""
     haystack = f"{fact.attribute} {fact.value}"
-    return any(word in haystack for word in words)
+    return any(word in haystack for word in CONCEPTS.get(concept, ()))
+
+
+def _concept_evidence(
+    facts: list[AttributeFact], wanted: str
+) -> tuple[AttributeFact, str] | None:
+    """The best evidence for a concept, and **which concept it is for**.
+
+    Direct evidence wins. Failing that, a related concept may bring the
+    candidate into consideration — "crowd-pleasing" is a mass-appeal
+    question, the corpus has one attached mass-appeal claim and ten
+    compliment claims, so refusing to look at compliments answers nothing.
+
+    What must not happen is the substitution going unmentioned. Somebody
+    being complimented is a fact about them and their circle; a fragrance
+    being broadly likable is a fact about everyone. The returned concept
+    name is the one the *evidence* supports, and `_score` puts that name
+    in the sentence rather than the one the user typed.
+    """
+    for fact in facts:
+        if _concept_matches(fact, wanted):
+            return fact, wanted
+    for related in RELATED_CONCEPTS.get(wanted, ()):
+        for fact in facts:
+            if _concept_matches(fact, related):
+                return fact, related
+    return None
 
 
 def _fact_reason(fact: AttributeFact, kind: str) -> Reason:
@@ -505,6 +527,9 @@ def _score(
                 result, facts, preference, plan, anchor_facts or []
             )
             continue
+        if preference.attribute == "concept":
+            _score_concept(result, facts, preference)
+            continue
         fact = _preference_fact(facts, preference)
         if fact is None:
             result.unmatched.append(f"{preference.attribute}={preference.value}")
@@ -643,6 +668,40 @@ def _score(
 #: bottle as rosy against eight is a real difference; two against three is
 #: noise dressed as a comparison.
 COMPARATIVE_MARGIN = 2
+
+
+def _score_concept(
+    result: Recommendation, facts: list[AttributeFact], preference: Preference
+) -> None:
+    """Score a social-reaction concept, naming what the evidence supports.
+
+    The substitution is the whole point of the separate path: a request
+    for mass appeal answered from compliment evidence must say
+    "compliments", not "crowd pleasing".
+    """
+    found = _concept_evidence(facts, preference.value)
+    if found is None:
+        result.unmatched.append(f"concept={preference.value}")
+        return
+    fact, actual = found
+    reason = _fact_reason(fact, "concept")
+    if actual == preference.value:
+        text = f"{actual}: {reason.text}"
+        bonus = 1.0 + _weight(fact)
+    else:
+        # Related, not the same. Said in the sentence, and worth less.
+        text = (
+            f"{actual}: {reason.text} — related to {preference.value}, "
+            "which the corpus does not speak to directly"
+        )
+        bonus = 0.4
+    scored = Reason(**{**reason.__dict__, "text": text})
+    if preference.direction is Direction.LOW:
+        result.caveats.append(scored)
+        result.score -= bonus
+    else:
+        result.reasons.append(scored)
+        result.score += bonus
 
 
 def _score_comparative(
@@ -810,10 +869,8 @@ def _preference_fact(
     facts: list[AttributeFact], preference: Preference
 ) -> AttributeFact | None:
     if preference.attribute == "concept":
-        for fact in facts:
-            if _concept_matches(fact, preference.value):
-                return fact
-        return None
+        found = _concept_evidence(facts, preference.value)
+        return found[0] if found else None
     for fact in facts:
         if _matches(fact, preference.attribute, preference.value):
             return fact

@@ -125,22 +125,22 @@ class TestNegation:
 
 
 class TestConcepts:
-    def test_crowd_pleasing_is_a_concept_not_a_string(self):
-        """"crowd" appears zero times in 9,495 comments. Matching the user's
-        phrase against the corpus finds nothing; the concept carries the
-        words people actually write."""
+    def test_crowd_pleasing_asks_about_mass_appeal(self):
+        """Rewritten after the concept audit. "Crowd-pleasing" is how
+        people ask about mass appeal, and it used to be folded together
+        with compliment evidence — answering a question the corpus cannot
+        speak to using evidence for a different one."""
         from fragrance_graph.plan import CONCEPTS
 
         got = plan("a crowd-pleasing fragrance with raspberry")
-        assert ("concept", "crowd pleasing") in {(p.attribute, p.value) for p in got.soft}
-        assert "compliment" in CONCEPTS["crowd pleasing"]
-        assert "crowd" not in " ".join(CONCEPTS["crowd pleasing"]).replace(
-            "crowd pleaser", ""
-        ).replace("crowd pleasing", "")
+        assert ("concept", "mass appeal") in {
+            (p.attribute, p.value) for p in got.soft
+        }
+        assert "compliment" not in " ".join(CONCEPTS["mass appeal"])
 
     def test_the_hyphenated_spelling_is_the_same_concept(self):
-        assert plan("crowd-pleasing").soft[0].value == "crowd pleasing"
-        assert plan("crowd pleasing").soft[0].value == "crowd pleasing"
+        assert plan("crowd-pleasing").soft[0].value == "mass appeal"
+        assert plan("crowd pleasing").soft[0].value == "mass appeal"
 
     def test_expensive_smelling_is_a_concept(self):
         got = plan("something expensive smelling and airy")

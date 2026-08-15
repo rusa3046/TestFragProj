@@ -174,13 +174,72 @@ class QueryPlan:
 #: string-matches the user's phrase against the corpus answers nothing, so
 #: the planner maps the phrase to the concept and the concept carries the
 #: words the corpus actually uses.
+#: Each concept carries **only the words that are evidence for that
+#: concept**. They are not merged, because they are not the same claim and
+#: the corpus proves it:
+#:
+#:     compliment getting      29 claims, 10 attached
+#:     mass appeal             2 claims,  1 attached
+#:     safe / easy wear        9 claims,  4 attached
+#:     polarizing              0 claims
+#:
+#: The first version folded all of these into "crowd pleasing", so a
+#: request for mass appeal — which the corpus can say almost nothing about
+#: — was answered with compliment evidence, and the explanation said
+#: "crowd pleasing". Somebody being complimented on a fragrance is a fact
+#: about *them and their circle*; a fragrance being broadly likable is a
+#: fact about *everyone*. They correlate. They are not interchangeable, and
+#: the difference is exactly what a buyer asking for a safe blind buy
+#: wants to know.
 CONCEPTS: dict[str, tuple[str, ...]] = {
-    "crowd pleasing": ("compliment", "compliments", "complimented", "crowd pleaser",
-                       "easy to like", "people love", "everyone loves", "mass appeal",
-                       "safe blind buy", "crowd pleasing"),
-    "polarizing": ("polarizing", "love it or hate it", "divisive"),
+    "compliment getting": (
+        "compliment", "compliments", "complimented", "compliment getter",
+        "gets compliments",
+    ),
+    "mass appeal": (
+        "crowd pleaser", "crowd pleasing", "mass appeal", "everyone loves",
+        "people love", "universally", "broadly likable",
+    ),
+    "easy to wear": (
+        "safe blind buy", "easy to like", "easy wear", "inoffensive",
+        "versatile", "crowd safe",
+    ),
+    "polarizing": ("polarizing", "love it or hate it", "divisive", "hit or miss"),
+    "challenging": ("challenging", "difficult", "not for everyone",
+                    "acquired taste"),
     "expensive smelling": ("expensive", "luxurious", "smells expensive", "rich"),
     "cheap smelling": ("cheap", "smells cheap", "synthetic"),
+}
+
+#: Concepts a request may be *retrieved* through when its own concept has
+#: little evidence. Retrieval only: the explanation always names the
+#: concept the matched evidence actually belongs to, never the one asked
+#: for. Directional on purpose — compliment evidence is weak support for
+#: mass appeal, and mass-appeal evidence is not support for "will people
+#: compliment me".
+RELATED_CONCEPTS: dict[str, tuple[str, ...]] = {
+    "mass appeal": ("compliment getting", "easy to wear"),
+    "easy to wear": ("mass appeal",),
+    "compliment getting": (),
+}
+
+#: Phrases people type, mapped to the concept they are actually asking
+#: about. "Crowd-pleasing" is a mass-appeal question.
+CONCEPT_PHRASES: dict[str, str] = {
+    "crowd pleasing": "mass appeal",
+    "crowd-pleasing": "mass appeal",
+    "crowd pleaser": "mass appeal",
+    "mass appealing": "mass appeal",
+    "broadly likable": "mass appeal",
+    "compliment getting": "compliment getting",
+    "compliment getter": "compliment getting",
+    "gets compliments": "compliment getting",
+    "safe blind buy": "easy to wear",
+    "easy to wear": "easy to wear",
+    "polarizing": "polarizing",
+    "challenging": "challenging",
+    "expensive smelling": "expensive smelling",
+    "cheap smelling": "cheap smelling",
 }
 
 #: Words that name a whole attribute rather than one of its values.
@@ -479,11 +538,15 @@ def _add(plan: QueryPlan, pref: Preference | Constraint) -> None:
 def _read_concepts(
     text: str, plan: QueryPlan, negated: list, consumed: list
 ) -> None:
-    for concept in CONCEPTS:
-        position = text.find(concept)
+    """Map what the user typed to the concept they are asking about.
+
+    Keyed on the *phrase*, not the concept name, because "crowd-pleasing"
+    is how people ask about mass appeal and nobody types "mass appeal".
+    """
+    for phrase, concept in CONCEPT_PHRASES.items():
+        position = text.find(phrase)
         if position == -1:
-            # Also match the hyphenated spelling people actually type.
-            position = text.find(concept.replace(" ", "-"))
+            position = text.find(phrase.replace(" ", "-"))
         if position == -1:
             continue
         _add(
@@ -493,13 +556,13 @@ def _read_concepts(
                 value=concept,
                 direction=Direction.LOW if _is_negated(position, negated)
                 else Direction.HIGH,
-                said=concept,
+                said=phrase,
             ),
         )
-        # The words the concept is spelled with are spoken for. Without
+        # The words the phrase is spelled with are spoken for. Without
         # this, "expensive-smelling and airy" also produced a hard filter
         # for a note called "expensive".
-        consumed.append((position, position + len(concept)))
+        consumed.append((position, position + len(phrase)))
 
 
 def _read_performance(text: str, plan: QueryPlan, negated: list) -> None:
