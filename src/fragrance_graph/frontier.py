@@ -600,6 +600,7 @@ STOP_REASONS = (
     "comment-ceiling",
     "spend-ceiling",
     "quota-exhausted",
+    "daily-cap",  # the run stopped, not the bottle
 )
 
 
@@ -867,15 +868,32 @@ def enrich_one(
     return trial
 
 
-def budgeted_extractor(client: Any, budget: Any, model_kwargs: dict[str, Any] | None = None) -> Any:
+def budgeted_extractor(
+    client: Any, budget: Any, model_kwargs: dict[str, Any] | None = None
+) -> Any:
     """An `extract_fn` that charges the daily ledger and stops at the cap.
 
     `enrich_one` takes extraction as a callable rather than importing it,
     so the stopping logic can be tested without an Anthropic key and
     without inventing a fake for the whole extraction pipeline. This is the
     real one.
+
+    **It must delegate to `budget.guard`, not to `budget.record`.** The
+    first version here called `record` and built its own callback around
+    it. `record` appends a line to the ledger and returns; `guard` records
+    *and raises* when the cap is crossed, and that raise is the entire
+    mechanism. With `record` alone the ledger stayed perfectly accurate
+    while the cap enforced nothing — a run on 2026-08-15 reached $1.11
+    against a $1.00 cap and would have continued, and the ledger recorded
+    every cent of it correctly.
+
+    That is the same defect class the cap was written for: `budget.py`'s
+    own docstring records the day the ledger reached $3.11 against a $1.00
+    cap. A number that is measured but not enforced is not a cap.
     """
     from fragrance_graph.extract.llm import extract
+
+    charge = budget.guard("frontier")
 
     def run(conn: psycopg.Connection, *, limit: int) -> float:
         spent = 0.0
@@ -883,7 +901,11 @@ def budgeted_extractor(client: Any, budget: Any, model_kwargs: dict[str, Any] | 
         def on_spend(usd: float, comments: int) -> None:
             nonlocal spent
             spent += usd
-            budget.record(usd, "frontier", comments=comments)
+            # Records first, then raises if that crossed the cap. The
+            # increment above happens before the raise on purpose: the
+            # trial has to report money that was genuinely spent even on
+            # the batch that stopped the run.
+            charge(usd, comments)
 
         extract(conn, client, limit=limit, on_spend=on_spend, **(model_kwargs or {}))
         return spent
@@ -1060,7 +1082,7 @@ def main(argv: list[str] | None = None) -> int:
             print("\n--dry-run: nothing fetched, nothing spent.")
             return 0
 
-        from fragrance_graph.budget import Budget
+        from fragrance_graph.budget import Budget, BudgetExhausted
         from fragrance_graph.extract.llm import build_client as build_llm
         from fragrance_graph.ingest.youtube import build_client
 
@@ -1083,10 +1105,21 @@ def main(argv: list[str] | None = None) -> int:
             trial.pairs_after = trial.pairs_before
             trial.publishable_after = trial.publishable_before
             try:
+                # Checked before the bottle rather than only inside the
+                # extractor, so the run does not pay for a video whose
+                # comments it cannot afford to read.
+                budget.check(ceiling.max_usd)
                 enrich_one(
                     conn, client, api_key, candidate, quota=quota, ceiling=ceiling,
                     run=run, extract_fn=extract_fn, trial=trial,
                 )
+            except BudgetExhausted as exc:
+                trial.stop_reason = "daily-cap"
+                trial.note = str(exc)[:200]
+                trials.append(trial)
+                run_log.write(trial.as_row())
+                print(f"\nDaily cap reached before {candidate.text!r}: {exc}")
+                break
             except Exception as exc:  # noqa: BLE001 - recorded, then the run stops
                 trial.stop_reason = "error"
                 trial.note = str(exc)[:200]

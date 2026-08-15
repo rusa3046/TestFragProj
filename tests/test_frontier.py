@@ -705,3 +705,106 @@ class TestProbingIsNotGatedOnTheCorpus:
             log_to=RunLog(path=tmp_path / "r.jsonl"),
         )
         assert trials[0].newly_publishable == 0
+
+
+class TestTheDailyCapIsEnforcedNotJustRecorded:
+    """The defect that let a run reach $1.11 against a $1.00 cap.
+
+    `budgeted_extractor` built its own per-batch callback around
+    `budget.record`. `record` appends a line to the ledger and returns;
+    only `budget.guard` raises. So the ledger stayed perfectly accurate
+    while the cap enforced nothing, which is the exact failure `budget.py`
+    was written for after a day reached $3.11.
+
+    These tests exercise the wiring rather than the arithmetic —
+    `test_budget.py` already covers what a cap is. What was missing was
+    anything asserting that *this* caller is attached to it.
+    """
+
+    def _budget(self, tmp_path, spent=0.0):
+        from fragrance_graph.budget import Budget
+
+        ledger = tmp_path / "spend.jsonl"
+        ledger.write_text("")
+        budget = Budget.load(ledger=ledger, cap_usd=0.10)
+        if spent:
+            budget.record(spent, "earlier")
+        return budget
+
+    def test_it_raises_once_the_cap_is_crossed(self, conn, tmp_path):
+        from fragrance_graph.budget import BudgetExhausted
+        from fragrance_graph.frontier import budgeted_extractor
+
+        budget = self._budget(tmp_path)
+        calls = []
+
+        def fake_extract(conn, client, *, limit, on_spend=None, **kw):
+            for _ in range(5):
+                calls.append(1)
+                on_spend(0.04, 20)
+
+        import fragrance_graph.extract.llm as llm
+
+        original = llm.extract
+        llm.extract = fake_extract
+        try:
+            run = budgeted_extractor(object(), budget)
+            with pytest.raises(BudgetExhausted):
+                run(conn, limit=100)
+        finally:
+            llm.extract = original
+
+        assert len(calls) == 3, "stopped on the batch that crossed, not after all five"
+        assert budget.spent_usd == pytest.approx(0.12)
+
+    def test_it_still_reports_what_the_stopping_batch_cost(self, conn, tmp_path):
+        """A trial has to account for money genuinely spent, including on
+        the batch that tripped the cap — the API was still called."""
+        from fragrance_graph.budget import BudgetExhausted
+        from fragrance_graph.frontier import budgeted_extractor
+
+        budget = self._budget(tmp_path)
+
+        def fake_extract(conn, client, *, limit, on_spend=None, **kw):
+            on_spend(0.11, 20)
+
+        import fragrance_graph.extract.llm as llm
+
+        original = llm.extract
+        llm.extract = fake_extract
+        try:
+            run = budgeted_extractor(object(), budget)
+            with pytest.raises(BudgetExhausted):
+                run(conn, limit=100)
+        finally:
+            llm.extract = original
+        assert budget.spent_usd == pytest.approx(0.11), "the ledger records it"
+
+    def test_every_batch_reaches_the_ledger(self, conn, tmp_path):
+        from fragrance_graph.frontier import budgeted_extractor
+
+        budget = self._budget(tmp_path)
+
+        def fake_extract(conn, client, *, limit, on_spend=None, **kw):
+            on_spend(0.01, 20)
+            on_spend(0.02, 20)
+
+        import fragrance_graph.extract.llm as llm
+
+        original = llm.extract
+        llm.extract = fake_extract
+        try:
+            spent = budgeted_extractor(object(), budget)(conn, limit=100)
+        finally:
+            llm.extract = original
+
+        assert spent == pytest.approx(0.03)
+        lines = (tmp_path / "spend.jsonl").read_text().splitlines()
+        assert len(lines) == 2, "one ledger line per batch"
+
+    def test_daily_cap_is_a_recognised_stop_reason(self):
+        """It ends the run rather than the bottle, so it is named rather
+        than reported as a generic error."""
+        from fragrance_graph.frontier import STOP_REASONS
+
+        assert "daily-cap" in STOP_REASONS
