@@ -331,8 +331,24 @@ class OpenAIEmbeddings:
                 "Content-Type": "application/json",
             },
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = _json.loads(response.read())
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = _json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            # A rejected request costs nothing and must not be reported as
+            # a crash. 401 in particular is a configuration fact — the key
+            # is absent, expired or revoked — and a traceback buries that
+            # under thirty lines of urllib internals.
+            if exc.code == 401:
+                raise RuntimeError(
+                    "OpenAI rejected the API key (401). Nothing was "
+                    "charged. Check OPENAI_API_KEY is current and has "
+                    "embeddings access."
+                ) from exc
+            raise RuntimeError(
+                f"OpenAI returned {exc.code} for an embedding request; "
+                "nothing was charged."
+            ) from exc
         # Charged from the provider's own usage figure rather than an
         # estimate. The caller's projection is a pre-flight check; this is
         # what actually happened.

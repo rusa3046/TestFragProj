@@ -330,7 +330,16 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             arms.append(OpenAIEmbeddings(on_spend=budget.guard("fuzzy-eval")))
 
-        reports = [run_arm(arm, vocabulary, cases, k=args.k) for arm in arms]
+        reports = []
+        for arm in arms:
+            try:
+                reports.append(run_arm(arm, vocabulary, cases, k=args.k))
+            except RuntimeError as exc:
+                # One arm being unavailable is not a reason to lose the
+                # measurements of the others.
+                print(f"arm {arm.name!r} could not run: {exc}")
+        if not reports:
+            return 2
         print(render(reports, k=args.k))
     finally:
         conn.close()

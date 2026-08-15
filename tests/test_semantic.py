@@ -376,3 +376,38 @@ class TestThePaidArmCannotSkipTheLedger:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
             OpenAIEmbeddings(api_key="", on_spend=lambda usd, n: None).embed("rose")
+
+    def test_a_rejected_key_is_a_message_not_a_traceback(self, monkeypatch):
+        """401 is a configuration fact — absent, expired or revoked key —
+        and a urllib traceback buries that under thirty lines of internals.
+        Nothing is charged, because the callback only fires on success."""
+        import urllib.error
+
+        from fragrance_graph.semantic import OpenAIEmbeddings
+
+        def reject(*args, **kwargs):
+            raise urllib.error.HTTPError(
+                "https://api.openai.com/v1/embeddings", 401, "Unauthorized",
+                {}, None,
+            )
+
+        monkeypatch.setattr("urllib.request.urlopen", reject)
+        charged = []
+        embedder = OpenAIEmbeddings(
+            api_key="bad", on_spend=lambda usd, n: charged.append(usd)
+        )
+        with pytest.raises(RuntimeError, match="rejected the API key"):
+            embedder.embed("rose")
+        assert charged == [], "a rejected request charges nothing"
+
+    def test_another_http_error_is_also_reported_cleanly(self, monkeypatch):
+        import urllib.error
+
+        from fragrance_graph.semantic import OpenAIEmbeddings
+
+        def fail(*args, **kwargs):
+            raise urllib.error.HTTPError("u", 500, "Server Error", {}, None)
+
+        monkeypatch.setattr("urllib.request.urlopen", fail)
+        with pytest.raises(RuntimeError, match="returned 500"):
+            OpenAIEmbeddings(api_key="k", on_spend=lambda u, n: None).embed("x")
