@@ -71,6 +71,16 @@ USER_AGENT = (
 #: opposed to essays, scent-of-the-day posts and giveaways.
 NEW_RELEASE_MARKER = re.compile(r"\s*~\s*new (?:fragrance|perfume|flanker)s?\s*$", re.I)
 
+#: A headline announcing several products at once. The adapter emits one
+#: item per announcement, so "Calvin Klein Alpha and Beta ~ new
+#: fragrances" would otherwise become a single fabricated product called
+#: "Alpha and Beta". Splitting it is guesswork — "Eau de Parfum and Extrait"
+#: is one launch in two concentrations, "Alpha and Beta" is two — so it is
+#: refused and left for a person.
+PLURAL_ANNOUNCEMENT = re.compile(
+    r"\bnew (?:fragrance|perfume|flanker)s\b|,| and | & | \+ ", re.I
+)
+
 #: Titles that mention a product but are not announcing one.
 NOT_A_RELEASE = re.compile(
     r"\b(scent of the day|giveaway|winner|review|profiles in|"
@@ -179,6 +189,9 @@ class RSSSource:
                 continue
             product = NEW_RELEASE_MARKER.sub("", title).strip()
             if len(product) < 3:
+                continue
+            if PLURAL_ANNOUNCEMENT.search(title):
+                log.info("skipping multi-product announcement: %s", title)
                 continue
             published = _iso(_unescape(found["date"]))
             if since and published and published <= since:

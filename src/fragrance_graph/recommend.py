@@ -803,9 +803,15 @@ def _score_comparative(
                 f"{_sources(anchor_level.creators)} for {plan.anchor} "
                 f"({'fewer' if wants_less else 'more'} — which is why it "
                 "ranks here)"
+                + (
+                    ", some inferred from the video rather than named"
+                    if candidate_level.inferred or anchor_level.inferred
+                    else ""
+                )
             ),
             strength=Strength.OBSERVED,
             people=max(candidate_level.people, 1),
+            inferred=candidate_level.inferred or anchor_level.inferred,
         )
     )
     result.score += 2.0
@@ -819,6 +825,11 @@ class Level:
     people: int
     creators: int
     contested: bool
+    #: True when any contributing claim was attributed by machine. Carried
+    #: because `_prominence` used to drop it, and the comparative sentence
+    #: is the one path that then said "3 people across 2 channels" with
+    #: nothing to note that none of the three named the bottle.
+    inferred: bool = False
 
     @property
     def usable_as_baseline(self) -> bool:
@@ -861,6 +872,7 @@ def _prominence(
                 people=fact.supporting.people,
                 creators=fact.supporting.creators,
                 contested=fact.strength is Strength.CONTESTED,
+                inferred=fact.inferred,
             )
     return None
 

@@ -51,7 +51,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -64,6 +64,30 @@ from fragrance_graph.evidence import Attribution, attribute_facts
 log = logging.getLogger("fragrance_graph.experiments.attribute_gain")
 
 RESULTS = Path("data/experiments/attribute-gain.jsonl")
+
+#: What one bottle's enrichment is expected to cost, from the measured
+#: extraction rate of ~$0.42 per 1,000 comments against a 400-comment
+#: ceiling. Checked before the first bottle so the run refuses rather than
+#: trimming the cohort to fit.
+ESTIMATED_PER_BOTTLE = 0.17
+
+
+class _NullLog:
+    """A run log that discards. `enrich_one` needs somewhere to write."""
+
+    def write(self, row: dict) -> None:  # pragma: no cover - trivial
+        pass
+
+
+def _llm_client():
+    """The extraction client, built only inside `run`.
+
+    Imported at call time so that importing this module — which `plan`,
+    `before` and `report` all do — cannot construct anything that spends.
+    """
+    from fragrance_graph.extract.llm import build_client as build_llm
+
+    return build_llm()
 
 #: Ten bottles spanning the evidence range, chosen from the singleton
 #: census on 2026-08-15 rather than hand-picked. The spread is the point:
@@ -101,6 +125,10 @@ class BottleState:
     #: singleton became repeated rather than only counting them.
     singleton_keys: list = field(default_factory=list)
     repeated_keys: list = field(default_factory=list)
+    #: Kept separately so `diff` can report the second success criterion.
+    #: Without it, a singleton that reached SUPPORTED showed as
+    #: "0 ->supported" for a conversion that did happen.
+    supported_keys: list = field(default_factory=list)
 
 
 def _bottle_state(
@@ -136,6 +164,11 @@ def _bottle_state(
         ),
         repeated_keys=sorted(
             [f.attribute, f.value] for f in facts if f.supporting.people >= 2
+        ),
+        supported_keys=sorted(
+            [f.attribute, f.value]
+            for f in facts
+            if f.strength.name == "SUPPORTED"
         ),
     )
 
@@ -189,8 +222,15 @@ class BottleGain:
         return len(self.singleton_to_repeated)
 
     @property
-    def usd_per_conversion(self) -> float:
-        return self.usd / self.converted if self.converted else 0.0
+    def usd_per_conversion(self) -> float | None:
+        """Cost per singleton converted, or **None** when nothing converted.
+
+        Not 0.0. Money spent for no conversions is the worst possible
+        result, and returning zero made it read as the best possible unit
+        cost — in the one metric this experiment exists to decide on. The
+        original test pinned that behaviour, which is how it survived.
+        """
+        return self.usd / self.converted if self.converted else None
 
     def __str__(self) -> str:
         return (
@@ -214,10 +254,14 @@ def diff(before_state: BottleState, after_state: BottleState) -> BottleGain:
     known = was_singleton | {tuple(k) for k in before_state.repeated_keys}
     now_all = {tuple(k) for k in after_state.singleton_keys} | now_repeated
 
+    now_supported = {tuple(k) for k in after_state.supported_keys}
     return BottleGain(
         name=after_state.name,
         fragrance_id=after_state.fragrance_id,
         singleton_to_repeated=sorted(list(k) for k in was_singleton & now_repeated),
+        singleton_to_supported=sorted(
+            list(k) for k in was_singleton & now_supported
+        ),
         new_facts=sorted(list(k) for k in now_all - known),
         new_declarable=max(0, after_state.declarable - before_state.declarable),
         new_contested=max(0, after_state.contested - before_state.contested),
@@ -226,6 +270,90 @@ def diff(before_state: BottleState, after_state: BottleState) -> BottleGain:
         comments_before=before_state.comments,
         comments_after=after_state.comments,
     )
+
+
+def enrich_cohort(
+    conn: psycopg.Connection,
+    states: list[BottleState],
+    *,
+    run_one,
+    limit: int,
+) -> list[BottleGain]:
+    """Enrich each bottle and diff its evidence around the run.
+
+    `run_one(name)` does the buying and returns `(comments, usd, quota,
+    stop_reason)`. Injected so the whole measurement is exercisable
+    without a key, a quota or a cent — and so the thing being measured and
+    the thing doing the measuring are separable.
+
+    Baselines are re-read per bottle immediately before its own run rather
+    than taken from the file, because an earlier bottle's enrichment can
+    add evidence about a later one: they are discussed in the same
+    comments. Diffing a late bottle against a file written before any of
+    it would credit this run with conversions another bottle bought.
+    """
+    gains = []
+    for state in states[:limit]:
+        fresh = _bottle_state(conn, state.fragrance_id, state.name)
+        comments, usd, quota, stop = run_one(state.name)
+        after = _bottle_state(conn, state.fragrance_id, state.name)
+        gain = diff(fresh, after)
+        gain.usd = usd
+        gain.quota_units = quota
+        gain.stop_reason = stop
+        gain.comments_after = after.comments
+        gain.comments_before = fresh.comments
+        log.info("%s", gain)
+        gains.append(gain)
+    return gains
+
+
+def render_report(
+    gains: list[BottleGain], corpus_before: Snapshot, corpus_after: Snapshot
+) -> str:
+    """The answer, in the units the decision needs."""
+    converted = sum(g.converted for g in gains)
+    supported = sum(len(g.singleton_to_supported) for g in gains)
+    spent = sum(g.usd for g in gains)
+    comments = sum(g.comments_read for g in gains)
+
+    lines = ["per bottle:", ""]
+    for gain in gains:
+        unit = (
+            f"${gain.usd_per_conversion:.4f}/conversion"
+            if gain.usd_per_conversion is not None
+            else "no conversions"
+        )
+        lines.append(f"  {gain}  [{unit}]")
+
+    lines += [
+        "",
+        "corpus:",
+        corpus_before.render(corpus_after),
+        "",
+        "economics:",
+        f"  spent                       ${spent:.4f}",
+        f"  comments read               {comments}",
+        f"  singleton -> repeated       {converted}",
+        f"  singleton -> supported      {supported}",
+    ]
+    if converted:
+        lines.append(f"  cost per repeated fact      ${spent / converted:.4f}")
+    else:
+        lines.append(
+            "  cost per repeated fact      n/a — nothing converted, which "
+            "is the negative result this was built to be able to report"
+        )
+    gained = (
+        corpus_after.comparable_attributes - corpus_before.comparable_attributes
+    )
+    lines.append(f"  new comparable attributes   {gained:+}")
+    lines.append(
+        f"  relative cases answerable   "
+        f"{corpus_before.answerable_relative} -> "
+        f"{corpus_after.answerable_relative}"
+    )
+    return "\n".join(lines)
 
 
 def render_plan(states: list[BottleState]) -> str:
@@ -268,8 +396,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out", type=Path, default=Path("data/experiments/gain-before.json"))
     r = sub.add_parser("run", help="Enrich the cohort; SPENDS MONEY")
     r.add_argument("--limit", type=int, default=3)
-    r.add_argument("--baseline", type=Path,
-                   default=Path("data/experiments/gain-before.json"))
+    rep = sub.add_parser("report", help="Re-read recorded runs; spends nothing")
+    rep.add_argument("--results", type=Path, default=RESULTS)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -278,6 +406,29 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "plan":
             states, _ = before(conn)
             print(render_plan(states))
+            return 0
+        if args.command == "report":
+            if not args.results.exists():
+                print(f"No runs recorded at {args.results}.")
+                return 0
+            rows = [
+                json.loads(line)
+                for line in args.results.read_text().splitlines()
+                if line.strip()
+            ]
+            gains = [
+                BottleGain(
+                    **{
+                        k: v
+                        for k, v in row.items()
+                        if k in {f.name for f in fields(BottleGain)}
+                    }
+                )
+                for row in rows
+                if row.get("kind") == "gain"
+            ]
+            now = snapshot(conn)
+            print(render_report(gains, now, now))
             return 0
         if args.command == "before":
             states, overall = before(conn)
@@ -301,21 +452,83 @@ def main(argv: list[str] | None = None) -> int:
         # `run` spends. Everything it needs is imported here so that
         # `plan` and `before` cannot reach a paid path even by accident.
         from fragrance_graph.budget import Budget, BudgetExhausted
+        from fragrance_graph.frontier import (
+            Ceiling,
+            QuotaTracker,
+            Trial,
+            budgeted_extractor,
+            candidates,
+            enrich_one,
+            query_for,
+        )
+        from fragrance_graph.ingest.youtube import build_client
 
         budget = Budget.load(require_ledger=True)
         try:
-            budget.check(0.17)
+            budget.check(ESTIMATED_PER_BOTTLE)
         except BudgetExhausted as exc:
             print(f"Not running: {exc}")
             print(
-                "  The experiment needs roughly $0.17 per bottle. Re-run "
-                "after the UTC date rolls over, or with a fresh ledger day."
+                f"  The experiment needs roughly ${ESTIMATED_PER_BOTTLE} per "
+                "bottle. Re-run after the UTC date rolls over."
             )
             return 2
-        print(
-            "Budget available. Wire `frontier.enrich_one` with "
-            "`budgeted_extractor` and re-run; see the module docstring for "
-            "the metric this is judged on."
+
+        states, corpus_before = before(conn)
+        client, api_key = build_client()
+        quota = QuotaTracker()
+        extract_fn = budgeted_extractor(_llm_client(), budget)
+        ceiling = Ceiling()
+        run_id = f"attribute-gain-{datetime.now(UTC).date().isoformat()}"
+
+        def run_one(name: str):
+            """Buy comments about one bottle, broadly.
+
+            `query_for` produces "<name> fragrance review" — never "dupe",
+            because this job exists to learn what a bottle is like and the
+            corpus is already dupe-shaped.
+            """
+            pool = candidates(conn)
+            match = next((c for c in pool if c.text.lower() in name.lower()), None)
+            if match is None:
+                log.warning("%s has no candidate row; skipping", name)
+                return 0, 0.0, 0, "no-candidate"
+            trial = Trial(
+                text=match.text, claims_before=match.claims,
+                creators_before=match.creators,
+                started_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                query=query_for(match.text),
+            )
+            enrich_one(
+                conn, client, api_key, match, quota=quota, ceiling=ceiling,
+                run=run_id, extract_fn=extract_fn, trial=trial,
+            )
+            return (
+                trial.comments_seen, trial.usd, trial.quota_units,
+                trial.stop_reason,
+            )
+
+        try:
+            gains = enrich_cohort(
+                conn, states, run_one=run_one, limit=args.limit
+            )
+        except BudgetExhausted as exc:
+            print(f"Stopped at the cap: {exc}")
+            gains = []
+
+        corpus_after = snapshot(conn)
+        report = render_report(gains, corpus_before, corpus_after)
+        print(report)
+        write_results(
+            [
+                {
+                    "kind": "gain",
+                    "run": run_id,
+                    "at": datetime.now(UTC).isoformat(timespec="seconds"),
+                    **asdict(gain),
+                }
+                for gain in gains
+            ]
         )
         return 0
     finally:
