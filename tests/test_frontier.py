@@ -650,3 +650,58 @@ class TestWhatCannotBeSearched:
         assert found.unsearchable == ""
         assert found.skip_reason == "one-creator"
         assert not found.viable
+
+
+class TestProbingIsNotGatedOnTheCorpus:
+    """A bottle on one creator in 47 videos may have twenty in the world.
+
+    Measured on the committed corpus: every one of the 31 searchable
+    candidates came back with 16-25 creators available. Refusing to probe
+    the nine the corpus showed on a single creator would have made that
+    blind spot permanent by construction.
+    """
+
+    def test_a_one_creator_bottle_is_still_worth_searching(self, conn):
+        for i, author in enumerate(["p1", "p2", "p3", "p4"]):
+            say(conn, i, subject="perseus", obj=f"o{i}", channel="UC_one",
+                author=author, video=f"v{i}")
+        found = next(c for c in candidates(conn) if c.text == "perseus")
+        assert found.searchable, "the search is what tests the world"
+        assert not found.viable, "but money waits for the search's answer"
+
+    def test_an_unsearchable_string_is_worth_neither(self, conn):
+        for i, author in enumerate(["p1", "p2", "p3", "p4"]):
+            say(conn, i, subject="dupes", obj=f"o{i}", channel=f"UC_{i % 2}",
+                author=author, video=f"v{i}")
+        found = next(c for c in candidates(conn) if c.text == "dupes")
+        assert not found.searchable and not found.viable
+
+    def test_the_search_can_overturn_the_corpus_verdict(self, conn):
+        """One creator here, three out there -> enrichable."""
+        for i, author in enumerate(["p1", "p2", "p3", "p4"]):
+            say(conn, i, subject="perseus", obj=f"o{i}", channel="UC_one",
+                author=author, video=f"v{i}")
+        candidate = next(c for c in candidates(conn) if c.text == "perseus")
+        result, _ = probe(
+            FakeSearch([search_payload(("v7", "UC_new"), ("v8", "UC_other"))]),
+            "KEY", candidate, quota=QuotaTracker(), known=frozenset({"UC_one"}),
+        )
+        assert result.verdict == "enrichable"
+        assert result.reachable_creators == 3
+
+    def test_a_probe_never_reports_a_page_it_did_not_move(self, conn, tmp_path):
+        """It fetches no comments, so its page delta must be exactly zero
+        — including for bottles that already had a page before it ran."""
+        for i, (channel, author) in enumerate(
+            [("UC_a", "p1"), ("UC_a", "p2"), ("UC_b", "p3"), ("UC_b", "p4")]
+        ):
+            say(conn, i, subject="khamrah", obj="angel share", channel=channel,
+                author=author, video=f"v{i}")
+        candidate = next(c for c in candidates(conn) if c.text == "khamrah")
+        assert publishable_count(pairs(conn), "khamrah") == 1
+        trials = run_probe(
+            conn, FakeSearch([search_payload(("v9", "UC_new"))]), "KEY",
+            [candidate], quota=QuotaTracker(), run="r1",
+            log_to=RunLog(path=tmp_path / "r.jsonl"),
+        )
+        assert trials[0].newly_publishable == 0

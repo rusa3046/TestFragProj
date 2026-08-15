@@ -38,26 +38,38 @@ money attached. A bottle gets enough work to establish that it can or
 cannot produce independent evidence, and then it stops — on success, on
 futility, or on a hard per-bottle bound, whichever comes first.
 
-## The feasibility gate, and why it is a necessary condition
+## The feasibility gate, and the corpus-shaped mistake it nearly encoded
 
 `gate.MIN_SOURCES` requires a pair's commenters to span two distinct
 creators. A bottle only ever discussed by one creator therefore cannot
 appear in *any* publishable pair, no matter how many comments are bought.
-Nine of the 76 bottles with 4+ claims are in exactly that position.
-
 That makes creator count a **necessary** condition for publication, which
 is what licenses using it as a filter: failing it proves futility, while
-passing it proves nothing. The gate is per-pair and this test is per-bottle,
+passing it proves nothing. The gate is per-pair and the test is per-bottle,
 so a bottle can clear it and still have every individual pair stuck on one
 creator. `probe` therefore reports feasibility, never success.
 
-The filter is worth having because it is cheap in the resource that is
-actually scarce. One `search.list` costs 100 of the 10,000 daily quota
-units and returns both the video ids and the channel that uploaded each,
-so **the probe and the enrichment share a single search** — feasibility is
-established for free as a side effect of the call the enrichment needed
-anyway. A design that probes and then searches again would double the cost
-of the scarcest thing here.
+**The count that matters is the world's, not the corpus's**, and this
+module was first written the other way round. Nine of the 54 candidates
+appear on a single creator in our 47 videos, and it seemed obvious those
+nine could never publish. Probing them says otherwise: `br 540` has 21
+creators available, `dukhan` 21, `perseus` 20, `ultra male` 21. All nine
+came back enrichable, and so did every other searchable candidate — 40 of
+40, a median of 21 creators each, 13 of them new to the corpus.
+
+So `blocked_in_corpus` gates *spending money*, never *searching*. Gating
+the search on it would have made the corpus's blind spots permanent by
+construction: the bottles we know least about are exactly the ones a
+corpus-derived filter is most confident about. What the filter does screen
+is `unsearchable` — strings like `dupes` and `the og` that name no bottle
+at all, 14 of the 54, which is 1,400 quota units.
+
+The whole arrangement is affordable because one `search.list` costs 100 of
+the 10,000 daily units and returns the uploading channel alongside each
+video id, so **the probe and the enrichment share a single search** —
+feasibility is established as a side effect of the call the enrichment
+needed anyway. A design that probes and then searches again would double
+the cost of the scarcest thing here.
 
 ## What the run records
 
@@ -240,9 +252,21 @@ class Candidate:
         return self.creators < MIN_SOURCES
 
     @property
+    def searchable(self) -> bool:
+        """Worth spending a search on: the string names a bottle.
+
+        Deliberately *not* also `not blocked_in_corpus`. A bottle on one
+        creator in our 47 videos may have twenty in the world, and the
+        search is the only thing that can tell — gating the probe on the
+        corpus's own count would make the corpus's blind spots permanent.
+        """
+        return not self.unsearchable
+
+    @property
     def viable(self) -> bool:
-        """Worth a search: names a bottle, and could clear MIN_SOURCES."""
-        return not self.unsearchable and not self.blocked_in_corpus
+        """Worth spending money on: searchable, and not already known to
+        be stuck on one creator. Enrichment's filter, not the probe's."""
+        return self.searchable and not self.blocked_in_corpus
 
     @property
     def skip_reason(self) -> str:
@@ -728,6 +752,11 @@ def run_probe(
             pairs_before=len(pairs_for(before_pairs, candidate.text)),
             publishable_before=publishable_count(before_pairs, candidate.text),
         )
+        # A probe fetches no comments, so nothing it does can move a pair.
+        # Carrying `before` across keeps the delta at zero instead of
+        # reporting -1 for every bottle that already had a page.
+        trial.pairs_after = trial.pairs_before
+        trial.publishable_after = trial.publishable_before
         if quota.remaining < COST_SEARCH:
             trial.stop_reason = "quota-exhausted"
             trial.verdict = "unprobed"
@@ -917,7 +946,10 @@ def summarize(trials: Sequence[Trial]) -> str:
 def _cohort(conn: psycopg.Connection, args: argparse.Namespace) -> list[Candidate]:
     cohort = candidates(conn, low=args.low, high=args.high)
     if getattr(args, "viable_only", False):
-        cohort = [c for c in cohort if c.viable]
+        # The probe only needs the string to name a bottle; enrichment
+        # additionally skips bottles the corpus shows on one creator.
+        keep = "searchable" if args.command == "probe" else "viable"
+        cohort = [c for c in cohort if getattr(c, keep)]
     if args.limit:
         cohort = cohort[: args.limit]
     return cohort
