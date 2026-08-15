@@ -228,7 +228,7 @@ def subject_of(
 FLOATING_SQL = """
 SELECT cl.id, cl.claim_type, cl.raw_subject_text, cl.raw_object_text,
        c.video_id, c.body,
-       COALESCE(NULLIF(c.author_id, ''), c.id::text) AS person,
+       COALESCE(NULLIF(c.author_id, ''), 'author:unknown') AS person,
        c.source_channel AS creator
   FROM claims cl
   JOIN comments c ON c.id = cl.comment_id
@@ -492,7 +492,7 @@ class Fact:
 RESOLVED_SQL = """
 SELECT cl.subject_frag_id AS fragrance_id, cl.claim_type,
        cl.raw_object_text AS tag,
-       COALESCE(NULLIF(c.author_id, ''), c.id::text) AS person,
+       COALESCE(NULLIF(c.author_id, ''), 'author:unknown') AS person,
        c.source_channel AS creator
   FROM claims cl
   JOIN comments c ON c.id = cl.comment_id
