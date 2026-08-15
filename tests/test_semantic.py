@@ -285,3 +285,95 @@ class TestCodexPhase5Findings:
         assert conn.execute(
             "SELECT count(*) FROM evidence_embeddings"
         ).fetchone()[0] == 0
+
+
+class TestTheDistributionalArmWasMeasuredAndRejected:
+    """Kept for reproducibility, not in use.
+
+    The spot-checked pairs looked good and the measured eval did not. These
+    pin both halves so nobody re-adopts it from the encouraging half.
+    """
+
+    @pytest.fixture
+    def trained(self):
+        from fragrance_graph.semantic import CorpusDistributional
+
+        # A miniature corpus with the same structural property as the real
+        # one: every fragrance word appears near every other, because
+        # people discuss them together.
+        corpus = [
+            "the rose is lovely and the tobacco is smoky here",
+            "rose and tobacco together make a nice woody blend",
+            "is it airy or heavy on the skin",
+            "quite airy and light and fresh on me",
+            "heavy and thick and cloying after an hour",
+        ] * 6
+        return CorpusDistributional(dim=40).fit(corpus)
+
+    def test_it_does_connect_words_that_share_no_letters(self, trained):
+        """The thing it was built for, and it genuinely does it."""
+        from fragrance_graph.semantic import cosine
+
+        assert cosine(trained.embed("airy"), trained.embed("light")) > 0.2
+
+    def test_but_it_also_connects_words_that_are_unrelated(self, trained):
+        """Rose and tobacco smell nothing alike. They score highly because
+        they are discussed in the same sentences."""
+        from fragrance_graph.semantic import cosine
+
+        assert cosine(trained.embed("rose"), trained.embed("tobacco")) > 0.2
+
+    def test_an_unrelated_pair_can_outscore_a_related_one(self, trained):
+        """The defect in one line. Rose and tobacco are more alike to this
+        model than airy and light are, purely because they share more
+        sentences — and that ordering is what puts wrong terms above right
+        ones in a ranked list.
+
+        Asserted as an ordering rather than a threshold: the real corpus
+        put airy/heavy at 0.40, this fixture puts it at 0.18, and pinning a
+        number here would be fitting the test to the story rather than to
+        the mechanism.
+        """
+        from fragrance_graph.semantic import cosine
+
+        related = cosine(trained.embed("airy"), trained.embed("light"))
+        unrelated = cosine(trained.embed("rose"), trained.embed("tobacco"))
+        assert unrelated > related
+
+    def test_it_is_deterministic(self, trained):
+        text = "rose"
+        assert trained.embed(text) == trained.embed(text)
+
+    def test_an_unknown_word_yields_a_zero_vector_not_a_guess(self, trained):
+        assert not any(trained.embed("zzzzqqq"))
+
+    def test_the_default_embedder_is_still_the_lexical_one(self):
+        """The measured decision, pinned. `nearest` and `backfill` default
+        to the baseline; adopting the other requires passing it."""
+        import inspect
+
+        from fragrance_graph.semantic import HashedNGrams, backfill, nearest
+
+        for func in (backfill, nearest):
+            source = inspect.getsource(func)
+            assert "HashedNGrams()" in source
+        assert HashedNGrams().name == "hashed-ngrams-v1"
+
+
+class TestThePaidArmCannotSkipTheLedger:
+    def test_the_openai_embedder_charges_what_it_spends(self):
+        from fragrance_graph.semantic import OpenAIEmbeddings
+
+        charged = []
+        embedder = OpenAIEmbeddings(on_spend=lambda usd, n: charged.append(usd))
+        assert embedder.name.startswith("openai:")
+        assert embedder.on_spend is not None, (
+            "a paid embedder without a spend hook is a cap escape"
+        )
+
+    def test_it_refuses_without_a_key_rather_than_failing_oddly(self, monkeypatch):
+        from fragrance_graph.semantic import OpenAIEmbeddings
+
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+            OpenAIEmbeddings(api_key="").embed("rose")

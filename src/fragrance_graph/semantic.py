@@ -60,7 +60,7 @@ import hashlib
 import logging
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -129,6 +129,200 @@ class HashedNGrams:
         if norm == 0:
             return counts
         return [x / norm for x in counts]
+
+
+#: How many context words define the space for `CorpusDistributional`.
+#: Wide enough that two words rarely share a profile by accident, narrow
+#: enough that the whole matrix is a few hundred kilobytes of Python.
+CONTEXT_WORDS = 300
+
+#: Words either side of a target that count as its context. Five is the
+#: usual choice for capturing topical rather than syntactic similarity,
+#: which is what "airy is like light" needs.
+CONTEXT_WINDOW = 5
+
+#: A word has to appear this often before it gets a vector. Below it the
+#: co-occurrence profile is noise, and noise that looks like meaning is
+#: worse than no vector at all.
+MIN_WORD_COUNT = 4
+
+STOP = frozenset(
+    "the a an and or but if it its this that these those i you he she we they"
+    " is are was were be been being have has had do does did will would can"
+    " could should of to in on at for with from by as not no so very really"
+    " just too much more most me my your their his her our them him".split()
+)
+
+
+@dataclass
+class CorpusDistributional:
+    """Word vectors learned from how words are used *in this corpus*.
+
+    The hashed n-gram baseline is lexical by construction: "airy" and
+    "light" share no letters, so nothing can make them close. This is the
+    cheapest thing that can, and the mechanism is the oldest idea in
+    distributional semantics — a word is described by the company it
+    keeps. If "airy" and "light" both turn up near "fresh", "soft" and
+    "clean" in nine thousand comments, their profiles converge whether or
+    not they share a character.
+
+    Trained on the comment bodies rather than the extracted tags, because
+    tags are three words long and context needs sentences.
+
+    No dependency, no download, no API. It also cannot know anything the
+    corpus does not demonstrate, which is the honest limit: a word used
+    twice has no usable profile and is excluded rather than guessed at.
+
+    ## Measured and rejected, 2026-08-15
+
+    Kept for reproducibility, **not** in use. On the hand-reviewed fuzzy
+    set (`evals/fuzzy`, 18 cases, k=10) it lost to the lexical baseline
+    on every axis:
+
+                                recall  precision  adversarial cases hit
+        hashed-ngrams-v1         0.417      0.206                      1
+        corpus-distributional    0.339      0.167                      2
+
+    The spot-checked pairs that motivated it were real and misleading.
+    "airy"/"light" rose from 0.09 to 0.34 — and "rose"/"tobacco" rose from
+    0.00 to 0.51, and "airy"/"heavy" from 0.26 to 0.40. Co-occurrence
+    cannot separate *used together* from *similar*, and in a corpus about
+    one subject almost everything is used together. Antonyms fare worst of
+    all: "is it airy or heavy" puts both words in identical contexts, so
+    the model that finally connects airy to light connects it to heavy
+    just as firmly.
+
+    In the eval it retrieved **"masculine" for a query of "feminine"**,
+    which is the most actively wrong thing a fragrance recommender can do.
+    Adopting it on the good pairs alone would have bought worse retrieval
+    and a new way to be confidently wrong.
+    """
+
+    dim: int = CONTEXT_WORDS
+    name: str = "corpus-distributional-v1"
+    vectors: dict = field(default_factory=dict)
+    contexts: tuple = ()
+
+    def fit(self, documents) -> CorpusDistributional:
+        """Learn the space. Deterministic given the same corpus."""
+        counts: dict[str, int] = {}
+        tokenized = []
+        for text in documents:
+            words = [
+                w
+                for w in re.findall(r"[a-z]{3,}", (text or "").lower())
+                if w not in STOP
+            ]
+            tokenized.append(words)
+            for word in words:
+                counts[word] = counts.get(word, 0) + 1
+
+        self.contexts = tuple(
+            w for w, _ in sorted(
+                counts.items(), key=lambda kv: (-kv[1], kv[0])
+            )[:self.dim]
+        )
+        index = {w: i for i, w in enumerate(self.contexts)}
+
+        co: dict[str, list[float]] = {}
+        for words in tokenized:
+            for position, target in enumerate(words):
+                if counts[target] < MIN_WORD_COUNT:
+                    continue
+                row = co.setdefault(target, [0.0] * self.dim)
+                lo = max(0, position - CONTEXT_WINDOW)
+                hi = min(len(words), position + CONTEXT_WINDOW + 1)
+                for other in words[lo:position] + words[position + 1 : hi]:
+                    slot = index.get(other)
+                    if slot is not None:
+                        row[slot] += 1.0
+
+        # Sublinear weighting, then L2. Raw counts let one very common
+        # context word dominate every profile, which makes everything
+        # look similar to everything — the failure mode that produces
+        # confident nonsense rather than no answer.
+        self.vectors = {}
+        for word, row in co.items():
+            weighted = [math.log1p(x) for x in row]
+            norm = math.sqrt(sum(x * x for x in weighted))
+            if norm > 0:
+                self.vectors[word] = [x / norm for x in weighted]
+        log.info(
+            "%s: %d word vectors over %d contexts",
+            self.name, len(self.vectors), len(self.contexts),
+        )
+        return self
+
+    def embed(self, text: str) -> list[float]:
+        words = [
+            w
+            for w in re.findall(r"[a-z]{3,}", (text or "").lower())
+            if w not in STOP
+        ]
+        total = [0.0] * self.dim
+        found = 0
+        for word in words:
+            vector = self.vectors.get(word)
+            if vector is None:
+                continue
+            found += 1
+            for i, value in enumerate(vector):
+                total[i] += value
+        if not found:
+            return total
+        norm = math.sqrt(sum(x * x for x in total))
+        return [x / norm for x in total] if norm else total
+
+
+@dataclass
+class OpenAIEmbeddings:
+    """A genuinely semantic embedder, through the same protocol.
+
+    `text-embedding-3-small` at $0.02 per million tokens: embedding this
+    corpus costs a fraction of a cent. It is nonetheless a **paid model
+    call**, so it charges the same ledger as extraction — a cheap paid path
+    that skips the cap is exactly how the cap has been defeated three
+    times already.
+
+    Not the default. It is measured against the free alternatives first,
+    and adopted only if it earns the dependency and the spend.
+    """
+
+    api_key: str = ""
+    model: str = "text-embedding-3-small"
+    dim: int = 1536
+    on_spend: object = None
+
+    @property
+    def name(self) -> str:
+        return f"openai:{self.model}"
+
+    def embed(self, text: str) -> list[float]:
+        import json as _json
+        import urllib.request
+
+        key = self.api_key or __import__("os").environ.get("OPENAI_API_KEY", "")
+        if not key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set; this embedder cannot run."
+            )
+        payload = _json.dumps(
+            {"model": self.model, "input": text or " "}
+        ).encode()
+        request = urllib.request.Request(
+            "https://api.openai.com/v1/embeddings",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = _json.loads(response.read())
+        if self.on_spend is not None:
+            tokens = body.get("usage", {}).get("total_tokens", 0)
+            self.on_spend(tokens / 1_000_000 * 0.02, 1)
+        return body["data"][0]["embedding"]
 
 
 def cosine(a: list[float], b: list[float]) -> float:
