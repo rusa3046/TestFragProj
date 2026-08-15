@@ -228,6 +228,9 @@ NEGATIVE_PATTERNS = (
     r"\bbut (?:not|less|without|nothing) (?:too |so )?",
     r"\bwithout ",
     r"\bnot? (?:too|very|overly) ",
+    # Plain "not X". Without this "not loud" read `loud` positively and
+    # asked for the strongest projection in the corpus.
+    r"\bnot ",
     r"\bdoes ?n[o']?t smell (?:like )?",
     r"\bthat is ?n[o']?t ",
     r"\bthat does ?n[o']?t ",
@@ -243,7 +246,8 @@ TOO_MUCH = re.compile(
     # At most two words before "is too". An unbounded left edge captured
     # "delina but the rose" out of "I love Delina but the rose is too
     # strong", which then looked for bottles whose note is that sentence.
-    r"\b(?:the |its |it's |that )?((?:[a-z]+ )?[a-z]+) is (?:too|way too) "
+    r"(?:^|\b(?:but|and|though|however)\s+)?(?:the |its |it's |that )?"
+    r"((?:[a-z]+ )?[a-z]+) is (?:too|way too) "
     r"(?:much|strong|overpowering|dominant|intense|loud|heavy)\b"
 )
 
@@ -278,6 +282,17 @@ EXPLAIN_PATTERNS = (
 )
 
 
+#: Why each kind of request could not be planned. Phrased as something a
+#: person could act on rather than as an error code.
+REFUSALS = {
+    Intent.RECOMMEND: "nothing in this request maps to evidence the corpus holds",
+    Intent.EXPLAIN: "an explanation needs a recommendation to explain; ask for "
+                    "one first, or name the fragrance",
+    Intent.PROFILE: "no fragrance in the catalogue matches that name",
+    Intent.COMPARE: "both fragrances have to be in the catalogue to compare them",
+}
+
+
 def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower().strip())
 
@@ -290,14 +305,20 @@ def _negated_spans(text: str) -> list[tuple[int, int]]:
     wrong span here shows up as a preference pointing the wrong way, which
     a test catches immediately.
     """
+    # Boundary positions are found once for the whole string rather than
+    # rescanned per negation. The old shape did five suffix scans for every
+    # trigger, which is quadratic on input like "no no no no ...".
+    boundaries = sorted(
+        m.start()
+        for pattern in (r",", r"\band\b", r"\bbut\b", r"\.", r";")
+        for m in re.finditer(pattern, text)
+    )
     spans = []
     for pattern in NEGATIVE_PATTERNS:
         for match in re.finditer(pattern, text):
-            end = len(text)
-            for boundary in (",", " and ", " but ", ".", ";"):
-                found = text.find(boundary, match.end())
-                if found != -1:
-                    end = min(end, found)
+            end = next(
+                (b for b in boundaries if b >= match.end()), len(text)
+            )
             spans.append((match.start(), end))
     return spans
 
@@ -333,13 +354,23 @@ def parse(
     _read_words(cleaned, plan, negated)
     _read_notes(cleaned, plan, negated, notes, consumed)
 
-    if plan.intent is Intent.RECOMMEND and not plan.usable:
-        plan.refusal = "nothing in this request maps to evidence the corpus holds"
+    if not plan.usable and not plan.refusal:
+        # Every intent, not only RECOMMEND. An empty plan is not a plan
+        # that matches nothing — downstream it matches *everything*, so
+        # silence here is the dangerous default.
+        plan.refusal = REFUSALS.get(
+            plan.intent, "nothing in this request maps to evidence the corpus holds"
+        )
     return plan
 
 
 def _resolve(conn: psycopg.Connection | None, name: str) -> tuple[str | None, int | None]:
     name = name.strip(" ,.'\"")
+    # The catalogue really does carry "as" as an alias of Angels' Share, so
+    # "i like as, but less sweet" resolved to a bottle nobody named. An
+    # anchor has to look like a name before it is worth resolving.
+    if len(name) < 3 or name in STOPWORDS:
+        return None, None
     if not name:
         return None, None
     if conn is None:
@@ -402,15 +433,22 @@ def _read_complaints(text: str, plan: QueryPlan) -> list[tuple[int, int]]:
         # word as if it were an ingredient.
         consumed.append((match.start(), match.end()))
         term = match.group(1).strip()
-        term = re.sub(r"^(the|its|it's|that) ", "", term)
+        term = re.sub(r"^(the|its|it's|that|but|and|though|however) ", "", term)
         attribute = "note"
         if term in SENTIMENT_AXES or term in ATTRIBUTE_WORDS:
             attribute = ATTRIBUTE_WORDS.get(term, term)
+        # "Less rose" needs something to be less than. With an anchor the
+        # preference is comparative; without one it still means "avoid
+        # rose", which is a weaker but honest reading. Refusing outright
+        # would throw away a request the user stated perfectly clearly.
+        direction = (
+            Direction.LESS_THAN_ANCHOR if plan.anchor else Direction.LOW
+        )
         plan.soft.append(
             Preference(
                 attribute=attribute,
                 value=term,
-                direction=Direction.LESS_THAN_ANCHOR,
+                direction=direction,
                 said=match.group(0),
             )
         )
@@ -489,7 +527,7 @@ def note_vocabulary(conn: psycopg.Connection) -> frozenset[str]:
     counts: dict[str, int] = {}
     for row in rows:
         for word in set(re.findall(r"[a-z]{4,}", row["tag"] or "")):
-            if word not in STOPWORDS:
+            if word not in STOPWORDS and word not in INTENSITY_WORDS:
                 counts[word] = counts.get(word, 0) + 1
     return frozenset(w for w, n in counts.items() if n >= MIN_NOTE_CLAIMS)
 
@@ -511,6 +549,17 @@ STOPWORDS = frozenset({
     "recommend", "suggest", "buy", "wear", "wearing", "still", "even",
     "people", "someone", "anyone", "everyone", "thing", "things", "kind",
     "type", "sort", "look", "looking", "find", "finding", "know", "think",
+})
+
+#: Words that appear all over note text but describe *how much*, not *what
+#: of*. Admitting them turned "not loud" and "something heavy" into hard
+#: note filters. Measured: `strong` appears in 6 note tags, `heavy` in 4.
+INTENSITY_WORDS = frozenset({
+    "strong", "stronger", "strongest", "weak", "weaker", "heavy", "heavier",
+    "light", "lighter", "intense", "intensity", "loud", "louder", "soft",
+    "softer", "subtle", "faint", "powerful", "mild", "overpowering",
+    "dominant", "prominent", "overwhelming", "sharp", "smooth", "smoother",
+    "sweeter", "fresher", "deeper", "richer",
 })
 
 #: A word has to name a note in more than one claim before the planner will

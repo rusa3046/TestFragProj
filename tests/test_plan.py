@@ -228,3 +228,95 @@ class TestRendering:
     ])
     def test_every_plan_renders_without_error(self, sentence):
         assert plan(sentence).render()
+
+
+class TestCodexPhase2Findings:
+    """Six findings from the 2026-08-15 planner review, all confirmed."""
+
+    def test_plain_not_negates(self):
+        """P1. "not too loud" was handled; "not loud" read `loud`
+        positively and asked for the loudest thing in the corpus."""
+        (pref,) = plan("not loud").soft
+        assert (pref.value, pref.direction) == ("strong", Direction.LOW)
+
+    def test_plain_not_negates_a_concept_too(self):
+        assert ("cheap smelling", Direction.LOW) in {
+            (p.value, p.direction) for p in plan("not cheap smelling").soft
+        }
+
+    def test_an_intensity_word_is_not_a_note(self, conn):
+        """P1. `strong` and `heavy` occur often enough in note text to pass
+        the frequency floor, so "something heavy" became a hard filter for
+        a note nothing carries."""
+        from fragrance_graph.plan import note_vocabulary
+
+        add_fragrance(conn, "Parfums de Marly Delina")
+        vocabulary = note_vocabulary(conn)
+        assert not {"strong", "heavy", "loud", "intense"} & vocabulary
+
+    def test_an_intensity_request_is_refused_not_filtered(self, conn):
+        add_fragrance(conn, "Parfums de Marly Delina")
+        got = parse_with_corpus(conn, "something heavy")
+        assert not got.hard
+        assert got.refusal
+
+    def test_every_intent_can_be_refused_not_only_recommend(self):
+        """P1. Refusal was applied only to RECOMMEND, so an EXPLAIN with no
+        context came back empty and unrefused — and an empty plan matches
+        everything downstream rather than nothing."""
+        got = plan("how many people said that?")
+        assert got.intent is Intent.EXPLAIN
+        assert got.refusal
+        assert not got.usable
+
+    def test_a_refusal_says_what_would_help(self):
+        assert "recommendation" in plan("why did you recommend this?").refusal
+
+    def test_a_complaint_without_an_anchor_degrades_rather_than_lying(self):
+        """P2. `LESS_THAN_ANCHOR` with no anchor is uninterpretable. It
+        still clearly means "avoid rose", so it becomes that."""
+        (pref,) = plan("the rose is too strong").soft
+        assert pref.direction is Direction.LOW
+        assert not pref.relative_to_anchor
+
+    def test_the_same_complaint_with_an_anchor_stays_comparative(self, conn):
+        add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
+        (pref,) = parse_with_corpus(
+            conn, "i love delina but the rose is too strong"
+        ).soft
+        assert pref.direction is Direction.LESS_THAN_ANCHOR
+
+    def test_a_conjunction_is_not_part_of_the_complaint(self, conn):
+        """P2. Without "the", TOO_MUCH started at "but" and captured the
+        two-word note "but rose"."""
+        add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
+        (pref,) = parse_with_corpus(
+            conn, "i love delina but rose is too strong"
+        ).soft
+        assert pref.value == "rose"
+
+    def test_a_two_letter_alias_is_never_an_anchor(self, conn):
+        """P2. The catalogue really carries "as" as an alias of Angels'
+        Share, so "i like as, but less sweet" anchored on a bottle nobody
+        named."""
+        add_fragrance(conn, "Kilian Angels' Share", aliases=["AS"])
+        got = parse_with_corpus(conn, "i like as, but less sweet")
+        assert got.anchor is None
+
+    def test_a_real_short_name_still_resolves(self, conn):
+        """The floor is three characters, not "short names are suspicious"."""
+        add_fragrance(conn, "Maison Francis Kurkdjian Baccarat Rouge 540",
+                      aliases=["BR540"])
+        assert parse_with_corpus(
+            conn, "something like BR540"
+        ).anchor == "Maison Francis Kurkdjian Baccarat Rouge 540"
+
+    def test_negation_scanning_is_linear_enough_to_be_safe(self):
+        """P2 HYPOTHESIS, confirmed as a real shape and fixed cheaply.
+        Boundaries are found once for the string rather than rescanned per
+        trigger."""
+        import time
+
+        started = time.monotonic()
+        plan("no " * 400 + "rose")
+        assert time.monotonic() - started < 1.0
