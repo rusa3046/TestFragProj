@@ -33,10 +33,10 @@ def note(conn, i, *, frag, value, author, channel="chan_a", claim_type="NOTE_DES
              subject_frag_id, object_kind, raw_object_text, sentiment,
              confidence, evidence_span, evidence_verified, polarity,
              extraction_model, created_at)
-        VALUES (%s, %s, 'FRAGRANCE', 'it', %s, 'TAG', %s, 'POSITIVE', 0.9,
+        VALUES (%s, %s, 'FRAGRANCE', 'it', %s, %s, %s, 'POSITIVE', 0.9,
                 %s, 1, 'ASSERTED', 'test', '2026-01-01')
         """,
-        (cid, claim_type, frag, value, body),
+        (cid, claim_type, frag, "TAG" if value else "NONE", value, body),
     )
     conn.commit()
 
@@ -214,3 +214,39 @@ class TestEvidenceCounts:
         answer = recommend(conn, "something like Delina")
         (result,) = [r for r in answer.results if r.name == "Maison Alhambra Delilah"]
         assert result.people == 3
+
+
+class TestDisputesAreDisclosed:
+    """A fact people argue about must never be cited as flat agreement."""
+
+    def _contested(self, conn, frag, *, for_people, against_people):
+        for i, author in enumerate(for_people):
+            note(conn, i, frag=frag, value=None, author=author,
+                 channel=f"c{i}", claim_type="PROJECTION")
+        for i, author in enumerate(against_people, start=50):
+            note(conn, i, frag=frag, value=None, author=author,
+                 channel=f"c{i}", claim_type="PROJECTION")
+            conn.execute(
+                "UPDATE claims SET sentiment = 'NEGATIVE' WHERE id = "
+                "(SELECT max(id) FROM claims)"
+            )
+        conn.commit()
+
+    def test_a_dispute_is_stated_in_the_phrase(self, catalogue):
+        conn, a, _ = catalogue
+        note(conn, 90, frag=a, value="raspberry", author="p0")
+        self._contested(conn, a, for_people=["p1", "p2", "p3"],
+                        against_people=["p4", "p5"])
+        (result,) = recommend(conn, "a raspberry with strong projection").results
+        phrases = [r.phrase() for r in result.reasons + result.caveats]
+        assert any("disagree" in p for p in phrases)
+
+    def test_a_mostly_denied_preference_is_a_caveat_not_a_reason(self, catalogue):
+        """More against than for cannot be a reason to pick the bottle."""
+        conn, a, _ = catalogue
+        note(conn, 90, frag=a, value="raspberry", author="p0")
+        self._contested(conn, a, for_people=["p1", "p2"],
+                        against_people=["p3", "p4", "p5"])
+        (result,) = recommend(conn, "a raspberry with strong projection").results
+        assert not any("projection" in r.text for r in result.reasons)
+        assert any("projection" in c.text for c in result.caveats)

@@ -94,6 +94,10 @@ class Reason:
     claim_ids: tuple[int, ...] = ()
     #: True when any contributing attribution was machine-inferred.
     inferred: bool = False
+    #: How many people said the opposite. Carried so a disputed fact cannot
+    #: be cited as flat support — "14 people say it projects" read as
+    #: agreement when 8 of the 22 said the opposite.
+    against: int = 0
 
     @property
     def declarable(self) -> bool:
@@ -110,6 +114,11 @@ class Reason:
             return self.text
         if self.strength is Strength.CANONICAL:
             return f"{self.text} (official listing)"
+        if self.against:
+            return (
+                f"{self.text} — {_people(self.people)} say so and "
+                f"{self.against} disagree"
+            )
         if self.declarable:
             return f"{self.text} — {_people(self.people)} across {_sources(self.creators)}"
         if self.inferred:
@@ -234,6 +243,8 @@ def _fact_reason(fact: AttributeFact, kind: str) -> Reason:
         creators=fact.supporting.creators,
         claim_ids=fact.supporting.claim_ids,
         inferred=fact.inferred,
+        against=fact.opposing.people
+        if fact.strength is Strength.CONTESTED else 0,
     )
 
 
@@ -347,6 +358,13 @@ def _score(
             # caveat, and it costs the candidate rather than helping it.
             result.caveats.append(_fact_reason(fact, "avoid"))
             result.score -= 1.0 + _weight(fact)
+        elif fact.opposing.people > fact.supporting.people:
+            # Asked for strong projection, and more people say it is weak
+            # than strong. Citing that as a reason to pick the bottle
+            # inverts the evidence; it belongs in what the reader should
+            # know, and it costs rather than helps.
+            result.caveats.append(_fact_reason(fact, "disputed"))
+            result.score -= 0.5
         else:
             result.reasons.append(_fact_reason(fact, "prefer"))
             result.score += 1.0 + _weight(fact)
