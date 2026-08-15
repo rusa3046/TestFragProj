@@ -205,8 +205,29 @@ def backfill(
             },
         )
         written += 1
+    # Rows whose claim stopped qualifying are deleted rather than left to
+    # rot. `nearest` filters them too — belt and braces, because a stale
+    # vector that survives a corpus rebuild is invisible until it produces
+    # a wrong answer.
+    removed = conn.execute(
+        """
+        DELETE FROM evidence_embeddings e
+         WHERE e.kind = 'claim' AND e.model = %(model)s
+           AND NOT EXISTS (
+                 SELECT 1 FROM claims cl
+                  WHERE cl.id = e.ref_id
+                    AND cl.polarity = 'ASSERTED'
+                    AND cl.evidence_verified = 1
+                    AND cl.claim_type = ANY(%(types)s)
+               )
+        """,
+        {"model": embedder.name, "types": list(DESCRIPTIVE_TYPES)},
+    ).rowcount
     conn.commit()
-    log.info("embedded %d claim(s) with %s", written, embedder.name)
+    log.info(
+        "embedded %d claim(s) with %s; removed %d stale",
+        written, embedder.name, removed,
+    )
     return written
 
 
@@ -219,11 +240,24 @@ class Match:
     score: float
     fragrance_id: int | None
     canonical_name: str
+    #: True when the bottle was worked out by machine rather than named by
+    #: the commenter. Carried so the sentence built from this match can say
+    #: so — the same rule the evidence layer holds, in a second place that
+    #: reaches a reader.
+    inferred: bool = False
 
 
+#: Re-applied at *read* time, not only at embed time. An embedding row
+#: outlives the claim's eligibility: correct an extraction to DENIED, or
+#: fail its evidence check, and `backfill` will stop refreshing the row but
+#: never deletes it — so a denial came back as "someone described it as
+#: 'roses'". The stored text is likewise ignored in favour of the claim's
+#: current wording, so an edited claim cannot keep quoting words nobody
+#: wrote any more.
 NEAREST_SQL = """
-SELECT e.ref_id, e.text, e.vector,
+SELECT e.ref_id, cl.raw_object_text AS text, e.vector,
        cl.subject_frag_id,
+       att.review_status AS attribution_status,
        att.fragrance_id AS inferred_frag_id,
        f.canonical_name, fi.canonical_name AS inferred_name
   FROM evidence_embeddings e
@@ -234,6 +268,10 @@ SELECT e.ref_id, e.text, e.vector,
   LEFT JOIN fragrances f  ON f.id = cl.subject_frag_id
   LEFT JOIN fragrances fi ON fi.id = att.fragrance_id
  WHERE e.kind = 'claim' AND e.model = %(model)s
+   AND cl.polarity = 'ASSERTED'
+   AND cl.evidence_verified = 1
+   AND cl.raw_object_text IS NOT NULL
+   AND cl.claim_type = ANY(%(types)s)
 """
 
 #: Below this, a "match" is two strings that happen to share a few letters.
@@ -267,7 +305,10 @@ def nearest(
     embedder = embedder or HashedNGrams()
     query = embedder.embed(text)
     matches = []
-    for row in conn.execute(NEAREST_SQL, {"model": embedder.name}):
+    for row in conn.execute(
+        NEAREST_SQL,
+        {"model": embedder.name, "types": list(DESCRIPTIVE_TYPES)},
+    ):
         stored = list(row["vector"])
         if len(stored) != embedder.dim:
             # A row from another model. Skipped rather than compared:
@@ -284,6 +325,7 @@ def nearest(
                 score=score,
                 fragrance_id=row["subject_frag_id"] or row["inferred_frag_id"],
                 canonical_name=row["canonical_name"] or row["inferred_name"] or "",
+                inferred=row["subject_frag_id"] is None,
             )
         )
     matches.sort(key=lambda m: (-m.score, m.text))

@@ -74,7 +74,7 @@ HEDGES = (
     "rather than naming it",
     "the name contains",
     "someone described it as",
-    "no comment in this corpus",
+    "evidence recorded for it",
 )
 
 #: A phrase that states its own head count discloses just as completely as

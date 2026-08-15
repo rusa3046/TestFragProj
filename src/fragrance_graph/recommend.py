@@ -518,11 +518,19 @@ def _score(
         result.reasons.append(
             Reason(
                 kind="semantic",
-                text=f"someone described it as {semantic.text!r}",
+                text=(
+                    f"someone described it as {semantic.text!r}"
+                    + (
+                        ", on a video about this bottle rather than naming it"
+                        if semantic.inferred
+                        else ""
+                    )
+                ),
                 strength=Strength.OBSERVED,
                 people=1,
                 creators=1,
                 claim_ids=(semantic.claim_id,),
+                inferred=semantic.inferred,
             )
         )
         result.score += 0.5
@@ -576,7 +584,13 @@ def _score(
                     # stated so the reader can weigh how much silence is
                     # worth: silence from 21 people means more than silence
                     # from one.
-                    f"no comment in this corpus calls it {avoided}; "
+                    # "No evidence recorded for X" rather than "no comment
+                    # calls it X". The check behind this is token matching
+                    # over normalised values, so a commenter writing
+                    # "smoke" where the request said "smoky" is missed —
+                    # the sentence would have been false, not merely
+                    # cautious. What is true is that nothing matched.
+                    f"no {avoided} evidence recorded for it; "
                     f"{_people(best)} across {_sources(sources)} "
                     "have described it"
                 ),

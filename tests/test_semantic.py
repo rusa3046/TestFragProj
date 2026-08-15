@@ -189,3 +189,80 @@ class TestItRetrievesAndNeverAsserts:
             "SELECT count(*) FROM claims WHERE claim_type = 'SIMILAR_TO'"
         ).fetchone()[0]
         assert before == after == 0
+
+
+class TestCodexPhase5Findings:
+    """Four findings from the 2026-08-15 semantic review, all confirmed."""
+
+    def test_a_claim_corrected_to_denied_stops_being_retrievable(self, conn):
+        """P1. `backfill` embedded only eligible claims but `nearest` never
+        re-checked, and nothing deleted rows that stopped qualifying. A
+        denial came back as "someone described it as 'roses'"."""
+        frag = add_fragrance(conn, "Parfums de Marly Delina")
+        descriptor(conn, 1, frag=frag, value="roses")
+        backfill(conn)
+        assert nearest(conn, "rosy")
+
+        conn.execute("UPDATE claims SET polarity = 'DENIED'")
+        conn.commit()
+        assert nearest(conn, "rosy") == [], "a denial is not a description"
+
+    def test_backfill_deletes_rows_that_stopped_qualifying(self, conn):
+        frag = add_fragrance(conn, "Parfums de Marly Delina")
+        descriptor(conn, 1, frag=frag, value="roses")
+        backfill(conn)
+        conn.execute("UPDATE claims SET evidence_verified = 0")
+        conn.commit()
+        backfill(conn)
+        assert conn.execute(
+            "SELECT count(*) FROM evidence_embeddings"
+        ).fetchone()[0] == 0
+
+    def test_an_edited_claim_cannot_keep_quoting_its_old_wording(self, conn):
+        """The stored text was returned rather than the claim's current
+        text, so a correction left the old words on the page."""
+        frag = add_fragrance(conn, "Parfums de Marly Delina")
+        descriptor(conn, 1, frag=frag, value="roses")
+        backfill(conn)
+        conn.execute("UPDATE claims SET raw_object_text = 'rosewater'")
+        conn.commit()
+        (match,) = nearest(conn, "rosy")
+        assert match.text == "rosewater"
+
+    def test_an_inferred_attribution_discloses_itself(self, conn):
+        """P1. `nearest` accepts proposed attributions, and the sentence
+        built from one said "someone described it as X" with no hint that
+        nobody named the bottle."""
+        frag = add_fragrance(conn, "Parfums de Marly Delina")
+        descriptor(conn, 1, frag=None, value="roses")
+        conn.execute(
+            "INSERT INTO claim_attributions (claim_id, role, fragrance_id, "
+            "method, evidence, confidence, review_status, created_at) "
+            "VALUES ((SELECT max(id) FROM claims), 'subject', %s, "
+            "'video_subject', 'title', 0.95, 'proposed', '2026-01-01')",
+            (frag,),
+        )
+        conn.commit()
+        backfill(conn)
+        (match,) = nearest(conn, "rosy")
+        assert match.inferred
+
+    def test_the_never_asserts_test_actually_exercises_a_hit(self, conn):
+        """P3. The original assertion looped over hits and would pass with
+        zero of them, proving nothing about the wiring."""
+        from fragrance_graph.evidence import Strength
+        from fragrance_graph.recommend import recommend
+
+        frag = add_fragrance(conn, "Parfums de Marly Delina")
+        descriptor(conn, 1, frag=frag, value="roses")
+        backfill(conn)
+        # "rosy" scores 0.445 against "roses"; "rosies" scores 0.276 and
+        # falls below MIN_SCORE, which is the diluted-match limit pinned
+        # above rather than a bug.
+        answer = recommend(conn, "something like Rosy")
+        hits = [
+            r for c in answer.results for r in c.reasons if r.kind == "semantic"
+        ]
+        assert hits, "the wiring must actually produce a semantic reason"
+        assert all(h.strength is Strength.OBSERVED for h in hits)
+        assert all(not h.declarable for h in hits)
