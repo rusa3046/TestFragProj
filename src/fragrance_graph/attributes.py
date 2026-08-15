@@ -55,6 +55,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 import psycopg
 
@@ -259,6 +260,9 @@ class Attachment:
     canonical_name: str
     person: str
     creator: str
+    #: What the rule read to decide this, so a person auditing the row does
+    #: not have to re-derive it from a video id.
+    evidence: str = ""
 
 
 @dataclass
@@ -316,6 +320,7 @@ def attach_by_video(conn: psycopg.Connection) -> SubjectReport:
         if set(names_in(row["body"], forms)) - {subject.fragrance_id}:
             report.refused["the comment names a different bottle"] += 1
             continue
+        title, query = context.get(video, (None, None))
         report.attached.append(
             Attachment(
                 claim_id=row["id"],
@@ -325,9 +330,72 @@ def attach_by_video(conn: psycopg.Connection) -> SubjectReport:
                 canonical_name=subject.canonical_name,
                 person=row["person"],
                 creator=row["creator"],
+                evidence=f"video {video}: {(title or query or '')[:120]}",
             )
         )
     return report
+
+
+#: The sampled accuracy of `attach_by_video`, measured by hand-reading two
+#: samples of ~20 attachments on 2026-08-15. The first rule put 4 of 18 on
+#: the wrong bottle; refusing comparison videos and claims where the
+#: commenter named anything took it to about 1 in 20. It is written here
+#: rather than inferred because every row this method writes inherits it,
+#: and a confidence nobody measured is worse than none.
+VIDEO_SUBJECT_CONFIDENCE = 0.95
+
+#: The method name stored on every row this writes. Consumers filter on it,
+#: so it is a constant rather than a literal at the insert site.
+VIDEO_SUBJECT_METHOD = "video_subject"
+
+INSERT_ATTRIBUTION_SQL = """
+INSERT INTO claim_attributions
+    (claim_id, role, fragrance_id, method, evidence, confidence,
+     review_status, created_at)
+VALUES (%(claim_id)s, 'subject', %(fragrance_id)s, %(method)s, %(evidence)s,
+        %(confidence)s, 'proposed', %(created_at)s)
+ON CONFLICT (claim_id, role) DO UPDATE
+   SET fragrance_id = EXCLUDED.fragrance_id,
+       evidence     = EXCLUDED.evidence,
+       confidence   = EXCLUDED.confidence,
+       created_at   = EXCLUDED.created_at
+ WHERE claim_attributions.review_status = 'proposed'
+"""
+
+
+def record_inferences(conn: psycopg.Connection) -> int:
+    """Write what `attach_by_video` worked out, as *proposed* attributions.
+
+    Returns rows written. Nothing here touches `claims.subject_frag_id`:
+    this method is wrong about one time in twenty, and a guess written into
+    the column meaning "the commenter named this" is indistinguishable from
+    a person's own words forever after.
+
+    Idempotent, and it refuses to overwrite a row somebody has already
+    accepted or rejected — a re-run must not quietly undo a human decision.
+    Re-running after the rule improves updates only unruled rows.
+    """
+    report = attach_by_video(conn)
+    written = 0
+    for attachment in report.attached:
+        cur = conn.execute(
+            INSERT_ATTRIBUTION_SQL,
+            {
+                "claim_id": attachment.claim_id,
+                "fragrance_id": attachment.fragrance_id,
+                "method": VIDEO_SUBJECT_METHOD,
+                "evidence": attachment.evidence,
+                "confidence": VIDEO_SUBJECT_CONFIDENCE,
+                "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            },
+        )
+        written += cur.rowcount
+    conn.commit()
+    log.info(
+        "%d floating claims, %d attributable, %d rows written",
+        report.floating, report.recovered, written,
+    )
+    return written
 
 
 # --- what "sweet" meant ------------------------------------------------------
@@ -572,6 +640,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("subjects", help="How many floating claims a video could fill in")
     sub.add_parser("vocabulary", help="How much of the tag vocabulary is spelling")
     sub.add_parser("agreement", help="What either repair does to the gate")
+    sub.add_parser(
+        "infer",
+        help="Record video-subject attributions as proposed (writes; "
+             "never touches claims.subject_frag_id)",
+    )
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -579,6 +652,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "subjects":
             print(attach_by_video(conn).render())
+        elif args.command == "infer":
+            written = record_inferences(conn)
+            print(f"{written} proposed attribution(s) written.")
+            print("Excluded from every count until accepted; see "
+                  "evidence.Attribution")
         elif args.command == "vocabulary":
             print(vocabulary(conn).render())
         else:

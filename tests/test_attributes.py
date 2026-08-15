@@ -309,3 +309,76 @@ class TestWhetherPeopleAgree:
                    video_id="v1", author="p1", channel="UC_a")
         found = facts(conn, attach=True, collapse=True)
         assert [f.people for f in found] == [1]
+
+
+class TestRecordingInferences:
+    """Writing an inference must never look like something a person said."""
+
+    def _floating_claim(self, conn):
+        catalogue(conn)
+        video(conn, "v1", title="Parfums de Marly Layton Review")
+        remark(conn, 1, body="this is very sweet", subject="this",
+               tag="sweet", video_id="v1")
+        return conn.execute("SELECT max(id) FROM claims").fetchone()[0]
+
+    def test_it_writes_a_proposed_row_and_leaves_the_claim_alone(self, conn):
+        from fragrance_graph.attributes import record_inferences
+
+        claim_id = self._floating_claim(conn)
+        assert record_inferences(conn) == 1
+
+        row = conn.execute(
+            "SELECT * FROM claim_attributions WHERE claim_id = %s", (claim_id,)
+        ).fetchone()
+        assert row["role"] == "subject"
+        assert row["method"] == "video_subject"
+        assert row["review_status"] == "proposed"
+        assert row["confidence"] == 0.95
+        assert "v1" in row["evidence"], "the audit trail says what it read"
+
+        assert conn.execute(
+            "SELECT subject_frag_id FROM claims WHERE id = %s", (claim_id,)
+        ).fetchone()[0] is None, (
+            "the column meaning 'the commenter named this' is untouched"
+        )
+
+    def test_re_running_writes_nothing_new(self, conn):
+        from fragrance_graph.attributes import record_inferences
+
+        self._floating_claim(conn)
+        record_inferences(conn)
+        record_inferences(conn)
+        assert conn.execute(
+            "SELECT count(*) FROM claim_attributions"
+        ).fetchone()[0] == 1
+
+    def test_it_refuses_to_undo_a_human_decision(self, conn):
+        """A re-run after someone rejected a row must not quietly revive it."""
+        from fragrance_graph.attributes import record_inferences
+
+        claim_id = self._floating_claim(conn)
+        record_inferences(conn)
+        conn.execute(
+            "UPDATE claim_attributions SET review_status = 'rejected' "
+            "WHERE claim_id = %s", (claim_id,)
+        )
+        conn.commit()
+        record_inferences(conn)
+        assert conn.execute(
+            "SELECT review_status FROM claim_attributions WHERE claim_id = %s",
+            (claim_id,),
+        ).fetchone()[0] == "rejected"
+
+    def test_a_refused_claim_gets_no_row_at_all(self, conn):
+        """The refusals are the safety property; they must not leak through
+        as low-confidence rows."""
+        from fragrance_graph.attributes import record_inferences
+
+        catalogue(conn)
+        video(conn, "v1", title="Layton vs Khamrah")
+        remark(conn, 1, body="this is very sweet", subject="this",
+               tag="sweet", video_id="v1")
+        assert record_inferences(conn) == 0
+        assert conn.execute(
+            "SELECT count(*) FROM claim_attributions"
+        ).fetchone()[0] == 0
