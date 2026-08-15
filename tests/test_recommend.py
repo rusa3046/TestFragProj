@@ -201,11 +201,20 @@ class TestRefusalAndIntent:
         assert answer.results == []
         assert answer.note
 
-    def test_a_profile_request_is_not_answered_by_the_recommender(self, conn):
+    def test_a_profile_request_returns_a_profile(self, conn):
+        """Changed in phase 4: profile used to be declined outright. It is
+        now answered from the same evidence, led by what is contested."""
+        frag = add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
+        note(conn, 1, frag=frag, value="rose", author="p1")
+        answer = recommend(conn, "what do people disagree about for Delina?")
+        (result,) = answer.results
+        assert result.name == "Parfums de Marly Delina"
+
+    def test_a_profile_of_an_undescribed_bottle_says_so(self, conn):
         add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
         answer = recommend(conn, "what do people disagree about for Delina?")
         assert answer.results == []
-        assert "profile" in answer.note
+        assert "Nothing in the corpus describes" in answer.note
 
     def test_the_anchor_is_never_recommended_back(self, conn):
         anchor = add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
@@ -290,7 +299,17 @@ class TestCodexPhase3Findings:
 
     def test_a_mostly_denied_fact_cannot_satisfy_a_requirement(self, catalogue):
         """P1. `_satisfies_hard` accepted any retrievable strength, so a
-        bottle three people call weak satisfied a demand for strong."""
+        bottle three people call weak satisfied a demand for strong.
+
+        Asserted against `_satisfies_hard` directly: "strong projection"
+        parses to a soft preference, not a hard constraint, so going
+        through `recommend` would exercise the soft path instead — which
+        has its own test below.
+        """
+        from fragrance_graph.evidence import attribute_facts
+        from fragrance_graph.plan import Constraint
+        from fragrance_graph.recommend import _satisfies_hard
+
         conn, a, _ = catalogue
         for i, author in enumerate(["p1", "p2"]):
             note(conn, i, frag=a, value=None, author=author, channel=f"c{i}",
@@ -303,8 +322,27 @@ class TestCodexPhase3Findings:
                 "WHERE id = (SELECT max(id) FROM claims)"
             )
         conn.commit()
-        answer = recommend(conn, "strong projection")
-        assert answer.results == []
+        facts = attribute_facts(conn, fragrance_id=a)
+        assert _satisfies_hard(facts, Constraint("projection", "strong")) is None
+
+    def test_a_mostly_denied_preference_is_a_caveat(self, catalogue):
+        """The soft path equivalent, through the whole recommender."""
+        conn, a, _ = catalogue
+        note(conn, 80, frag=a, value="raspberry", author="p0")
+        for i, author in enumerate(["p1", "p2"]):
+            note(conn, i, frag=a, value=None, author=author, channel=f"c{i}",
+                 claim_type="PROJECTION")
+        for i, author in enumerate(["p3", "p4", "p5"], start=50):
+            note(conn, i, frag=a, value=None, author=author, channel=f"c{i}",
+                 claim_type="PROJECTION")
+            conn.execute(
+                "UPDATE claims SET sentiment = 'NEGATIVE' "
+                "WHERE id = (SELECT max(id) FROM claims)"
+            )
+        conn.commit()
+        (result,) = recommend(conn, "a raspberry with strong projection").results
+        assert not any("projection" in r.text for r in result.reasons)
+        assert any("projection" in c.text for c in result.caveats)
 
     def test_graph_evidence_respects_creator_independence(self, conn):
         """P1. Three commenters in one creator's section were graded
