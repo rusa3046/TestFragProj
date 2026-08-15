@@ -312,6 +312,7 @@ def enrich_cohort(
     *,
     run_one,
     limit: int,
+    ledger_spend=None,
 ) -> list[BottleGain]:
     """Enrich each bottle and diff its evidence around the run.
 
@@ -331,6 +332,13 @@ def enrich_cohort(
     gains = []
     for state in states[:limit]:
         fresh = _bottle_state(conn, state.fragrance_id, state.name)
+        # Read from the ledger around each bottle, not from what the runner
+        # reports. On the first real run the cap landed mid-bottle, the
+        # exception escaped before `trial.usd` was read, and $0.082 of
+        # charged spend vanished from the per-bottle totals — understating
+        # cost by 21% and flattering the one number the experiment exists
+        # to produce. The ledger is what was actually billed.
+        spend_before = ledger_spend() if ledger_spend else None
         try:
             comments, usd, quota, stop = run_one(state.name)
         except BudgetExhausted as exc:
@@ -344,11 +352,17 @@ def enrich_cohort(
             partial.stop_reason = "daily-cap"
             partial.comments_before = fresh.comments
             partial.comments_after = after.comments
+            if ledger_spend and spend_before is not None:
+                partial.usd = round(ledger_spend() - spend_before, 6)
             gains.append(partial)
             break
         after = _bottle_state(conn, state.fragrance_id, state.name)
         gain = diff(fresh, after)
-        gain.usd = usd
+        gain.usd = (
+            round(ledger_spend() - spend_before, 6)
+            if ledger_spend and spend_before is not None
+            else usd
+        )
         gain.quota_units = quota
         gain.stop_reason = stop
         gain.comments_after = after.comments
@@ -575,7 +589,18 @@ def main(argv: list[str] | None = None) -> int:
                 trial.stop_reason,
             )
 
-        gains = enrich_cohort(conn, states, run_one=run_one, limit=args.limit)
+        def ledger_spend() -> float:
+            """Today's charged total, re-read each time.
+
+            `budget.spent_usd` accumulates in this process as `guard`
+            records, so it is authoritative without re-reading the file.
+            """
+            return budget.spent_usd
+
+        gains = enrich_cohort(
+            conn, states, run_one=run_one, limit=args.limit,
+            ledger_spend=ledger_spend,
+        )
 
         corpus_after = snapshot(conn)
         report = render_report(gains, corpus_before, corpus_after)

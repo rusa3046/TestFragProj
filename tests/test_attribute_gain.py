@@ -354,3 +354,62 @@ class TestTheCohortIsActuallyEnrichable:
         assert gains[0].converted == 1
         assert gains[0].usd == 0.08
         assert gains[1].stop_reason == "daily-cap"
+
+    def test_spend_is_read_from_the_ledger_not_the_runner(self, conn):
+        """On the first real run the cap landed mid-bottle, the exception
+        escaped before the trial's spend was read, and $0.082 of charged
+        money vanished from the totals — understating cost by 21% in the
+        one number the experiment exists to produce."""
+        from fragrance_graph.budget import BudgetExhausted
+        from fragrance_graph.experiments.attribute_gain import enrich_cohort
+
+        frag = add_fragrance(conn, "Lattafa Khamrah")
+        add_fragrance(conn, "Parfums de Marly Layton")
+        note(conn, 1, frag=frag, value="rose", author="p1", channel="c1")
+        states, _ = before(conn, ("Lattafa Khamrah", "Parfums de Marly Layton"))
+
+        charged = [0.0]
+
+        def ledger_spend():
+            return charged[0]
+
+        calls = []
+
+        def run_one(name):
+            calls.append(name)
+            if len(calls) == 1:
+                charged[0] += 0.11
+                note(conn, 2, frag=frag, value="rose", author="p2",
+                     channel="c2")
+                return 40, 0.11, 100, "target-met"
+            # Money is spent, then the cap raises before it is returned.
+            charged[0] += 0.082
+            raise BudgetExhausted("daily cap reached")
+
+        gains = enrich_cohort(
+            conn, states, run_one=run_one, limit=2, ledger_spend=ledger_spend
+        )
+        assert gains[1].usd == pytest.approx(0.082), (
+            "the interrupted bottle's charged spend is still attributed"
+        )
+        assert sum(g.usd for g in gains) == pytest.approx(0.192)
+
+    def test_the_ledger_wins_when_the_runner_disagrees(self, conn):
+        """The runner reports what it thinks it spent; the ledger reports
+        what was billed. Where they differ the ledger is right."""
+        from fragrance_graph.experiments.attribute_gain import enrich_cohort
+
+        frag = add_fragrance(conn, "Lattafa Khamrah")
+        note(conn, 1, frag=frag, value="rose", author="p1")
+        states, _ = before(conn, ("Lattafa Khamrah",))
+        charged = [0.0]
+
+        def run_one(name):
+            charged[0] += 0.20
+            return 10, 0.05, 100, "target-met"   # under-reports
+
+        (gain,) = enrich_cohort(
+            conn, states, run_one=run_one, limit=1,
+            ledger_spend=lambda: charged[0],
+        )
+        assert gain.usd == pytest.approx(0.20)

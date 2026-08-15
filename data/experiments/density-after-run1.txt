@@ -1,0 +1,41 @@
+=== ATTRIBUTE DENSITY, after enrichment run 1 (3 bottles, $0.3909) ===
+
+  distinct attribute values             472
+    on exactly 1 bottle                 383
+    on >= 2 bottles                      89
+    on >= 3 bottles                      39
+    on >= 5 bottles                      13
+
+  attribute family          values  bottles
+  note                         328       49
+  longevity                      1       32
+  projection                     1       26
+  occasion                      64       26
+  vibe                          76       24
+  development                    1        9
+  reformulation                  1        2
+
+=== BENCHMARK COMPARISON REACHABILITY ===
+
+  Parfums de Marly Delina / rose                 baseline usable; 4 comparable, 73 silent (5.2%)
+  Maison Francis Kurkdjian Baccarat Rouge 540 / sweet baseline thin; 15 comparable, 62 silent (19.5%)
+  Babycat / smoky                                not in the catalogue
+  Libre / vanilla                                not in the catalogue
+  Parfums de Marly Layton / vanilla              baseline usable; 8 comparable, 69 silent (10.4%)
+
+=== CORPUS ===
+
+  fragrances                     78
+  comments processed             10006
+  creators                       62
+  facts                          699
+    singleton (1 person)         604
+    repeated (2+)                95
+    supported                    21
+    contested                    22
+  declarable facts               15
+  bottles with any fact          64
+  bottles declarable             6
+  distinct attribute values      472
+  attributes on 2+ bottles       89
+  answerable 'less X' cases      2
