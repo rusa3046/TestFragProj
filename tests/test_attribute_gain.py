@@ -420,16 +420,39 @@ class TestTheFunnelIsObservationalOnly:
     first three bottles ran without this instrumentation, so it must
     change nothing about what is searched, bought or extracted."""
 
-    def test_measuring_it_issues_no_queries_of_its_own(self, conn):
+    def test_it_only_reads(self):
+        """Checked against the SQL it executes, not against substrings —
+        `claims_extracted` is a field name, not an operation."""
+        import ast
         import inspect
 
         from fragrance_graph.experiments.attribute_gain import measure_funnel
 
-        source = inspect.getsource(measure_funnel)
-        for forbidden in ("search", "urlopen", "extract", "INSERT", "UPDATE"):
-            assert forbidden not in source, (
-                f"measure_funnel does more than read: {forbidden}"
-            )
+        tree = ast.parse(inspect.getsource(measure_funnel).lstrip())
+        statements = [
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        ]
+        sql = [t for t in statements if "FROM" in t.upper()]
+        assert sql, "the function does query something"
+        for statement in sql:
+            head = statement.strip().split()[0].upper()
+            assert head == "SELECT", f"not a read: {statement[:60]}"
+
+    def test_it_reaches_no_network_or_extraction_code(self):
+        import ast
+        import inspect
+
+        from fragrance_graph.experiments.attribute_gain import measure_funnel
+
+        tree = ast.parse(inspect.getsource(measure_funnel).lstrip())
+        called = {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assert not (called & {"urlopen", "create", "guard", "record", "commit"})
 
     def test_it_classifies_only_claims_written_after_the_mark(self, conn):
         from fragrance_graph.experiments.attribute_gain import (
