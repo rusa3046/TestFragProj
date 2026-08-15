@@ -597,3 +597,132 @@ def test_the_shrink_guard_tells_you_something_you_can_actually_run(conn, tmp_pat
     assert "rm data/" not in advice, "no file to delete any more"
     assert "corpus import" in advice
     assert "--force" in advice
+
+
+class TestImportIsCaseInsensitiveAboutNames:
+    """Migration 0009 made `canonical_name` unique on `lower(...)`.
+
+    The importer's own lookup stayed exact-match, so it disagreed with the
+    index that guards the table it writes to: a database holding
+    "Pineapple vintage intense" against a corpus saying "Pineapple Vintage
+    Intense" found no existing row, took the INSERT branch, and was
+    rejected by the constraint. `corpus import` — the command whose entire
+    job is reconciling a database with the corpus — failed outright on a
+    difference of two capital letters.
+    """
+
+    def test_a_recased_name_updates_rather_than_collides(self, conn, tmp_path):
+        from fragrance_graph.corpus import export_corpus, import_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Pineapple Vintage Intense", brand="Pineapple Vintage")
+        conn.commit()
+        export_corpus(conn, tmp_path)
+
+        # The database drifts to the commenter's phrasing, as ours did.
+        conn.execute(
+            "UPDATE fragrances SET canonical_name = 'Pineapple vintage intense'"
+        )
+        conn.commit()
+
+        import_corpus(conn, tmp_path)
+
+        rows = conn.execute("SELECT canonical_name FROM fragrances").fetchall()
+        assert len(rows) == 1, "one bottle, not two"
+        assert rows[0]["canonical_name"] == "Pineapple Vintage Intense", (
+            "the corpus is the authority on spelling"
+        )
+
+    def test_a_recased_name_is_not_reported_as_drift(self, conn, tmp_path):
+        """`extra_fragrances` compared exactly too, so the same row was
+        announced as absent from a corpus that contains it."""
+        from fragrance_graph.corpus import export_corpus, extra_fragrances
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Parfums de Marly Layton", brand="Parfums de Marly")
+        conn.commit()
+        export_corpus(conn, tmp_path)
+        conn.execute(
+            "UPDATE fragrances SET canonical_name = 'parfums de marly layton'"
+        )
+        conn.commit()
+
+        assert extra_fragrances(conn, tmp_path) == []
+
+    def test_a_genuinely_absent_fragrance_is_still_reported(self, conn, tmp_path):
+        """The case-insensitivity must not swallow real drift."""
+        from fragrance_graph.corpus import export_corpus, extra_fragrances
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Parfums de Marly Layton", brand="Parfums de Marly")
+        conn.commit()
+        export_corpus(conn, tmp_path)
+        add_fragrance(conn, "Something Never Exported", brand="Nobody")
+        conn.commit()
+
+        assert extra_fragrances(conn, tmp_path) == ["Something Never Exported"]
+
+    def test_import_is_still_idempotent(self, conn, tmp_path):
+        from fragrance_graph.corpus import export_corpus, import_corpus
+        from fragrance_graph.resolve.entities import add_fragrance
+
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa")
+        conn.commit()
+        export_corpus(conn, tmp_path)
+        import_corpus(conn, tmp_path)
+        import_corpus(conn, tmp_path)
+        assert conn.execute("SELECT count(*) FROM fragrances").fetchone()[0] == 1
+
+
+def test_a_claim_resolves_to_a_differently_cased_fragrance(conn, tmp_path, second_db):
+    """The same case bug one layer down, and the more expensive half.
+
+    A claim names its fragrance by text. When the recorded spelling drifted
+    from the curated one the lookup missed, the link imported as NULL, and
+    the claim quietly stopped being an edge — reported as "dangling" but
+    against a corpus that does define the bottle. Four claims were in that
+    state on the committed corpus.
+    """
+    populate(conn)
+    export_corpus(conn, tmp_path)
+
+    # The claim records the commenter's casing; the corpus keeps the
+    # curator's. Both name one bottle.
+    lines = (tmp_path / CLAIMS_FILE).read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        record = json.loads(line)
+        if record.get("object_fragrance") == "Baccarat Rouge 540":
+            record["object_fragrance"] = "baccarat rouge 540"
+        rewritten.append(json.dumps(record, sort_keys=True))
+    (tmp_path / CLAIMS_FILE).write_text("\n".join(rewritten) + "\n")
+
+    fresh = get_connection(second_db)
+    migrate(fresh)
+    stats = import_corpus(fresh, tmp_path)
+
+    assert stats.dangling_fragrances == {}, "the corpus does define this bottle"
+    row = fresh.execute(
+        "SELECT f.canonical_name FROM claims c "
+        "JOIN fragrances f ON f.id = c.object_frag_id"
+    ).fetchone()
+    assert row is not None, "the claim must still be an edge"
+    assert row["canonical_name"] == "Baccarat Rouge 540"
+    fresh.close()
+
+
+def test_a_genuinely_undefined_fragrance_is_still_reported(conn, tmp_path, second_db):
+    """Case-insensitivity must not silence the warning it was added for."""
+    populate(conn)
+    export_corpus(conn, tmp_path)
+    lines = (tmp_path / CLAIMS_FILE).read_text().splitlines()
+    record = json.loads(lines[0])
+    record["object_fragrance"] = "Something Nobody Curated"
+    (tmp_path / CLAIMS_FILE).write_text(json.dumps(record, sort_keys=True) + "\n")
+
+    fresh = get_connection(second_db)
+    migrate(fresh)
+    stats = import_corpus(fresh, tmp_path)
+
+    assert stats.dangling_fragrances == {"Something Nobody Curated": 1}
+    fresh.close()

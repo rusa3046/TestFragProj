@@ -388,14 +388,14 @@ def extra_fragrances(conn: psycopg.Connection, directory: Path) -> list[str]:
     extras might equally be curation someone has not exported yet.
     """
     committed = {
-        record["canonical_name"]
+        record["canonical_name"].lower()
         for record in _read_jsonl(Path(directory) / FRAGRANCES_FILE)
     }
     return sorted(
         {
             row["canonical_name"]
             for row in conn.execute("SELECT canonical_name FROM fragrances")
-            if row["canonical_name"] not in committed
+            if row["canonical_name"].lower() not in committed
         }
     )
 
@@ -463,15 +463,33 @@ def import_corpus(
 
     for record in _read_jsonl(directory / FRAGRANCES_FILE):
         aliases = json.dumps(sorted(set(record.get("aliases") or [])))
+        # Case-insensitively, because migration 0009 made uniqueness
+        # case-insensitive and this lookup decides whether the next
+        # statement is an UPDATE or an INSERT. An exact-match lookup finds
+        # nothing when a database holds "Pineapple vintage intense" and
+        # the corpus says "Pineapple Vintage Intense", takes the INSERT
+        # branch, and is rejected by the very index it disagreed with —
+        # `import` then fails outright on a database that was merely
+        # spelled differently, which is exactly the case import exists to
+        # reconcile.
         existing = conn.execute(
-            "SELECT id FROM fragrances WHERE canonical_name = %s",
+            "SELECT id FROM fragrances WHERE lower(canonical_name) = lower(%s)",
             (record["canonical_name"],),
         ).fetchone()
         if existing:
+            # canonical_name is updated too: the corpus is the authority
+            # on spelling, so importing is how a database adopts a
+            # recasing rather than a second reason to fail.
             conn.execute(
-                "UPDATE fragrances SET brand = %s, house_year = %s, aliases = %s "
-                "WHERE id = %s",
-                (record.get("brand"), record.get("house_year"), aliases, existing["id"]),
+                "UPDATE fragrances SET canonical_name = %s, brand = %s, "
+                "house_year = %s, aliases = %s WHERE id = %s",
+                (
+                    record["canonical_name"],
+                    record.get("brand"),
+                    record.get("house_year"),
+                    aliases,
+                    existing["id"],
+                ),
             )
         else:
             conn.execute(
@@ -543,8 +561,15 @@ def import_corpus(
         )
         stats.discoveries += 1
 
+    # Keyed case-insensitively, for the reason the upsert above is: a
+    # claim names its fragrance by text, and migration 0009 says two
+    # bottles cannot differ only by case — so lowering the key cannot
+    # merge distinct bottles, while not lowering it silently unresolves
+    # every claim whose recorded spelling drifted from the curated one.
+    # Four `Pineapple vintage intense` claims were being dropped this way
+    # against a corpus that spells it `Pineapple Vintage Intense`.
     fragrance_ids = {
-        row["canonical_name"]: row["id"]
+        row["canonical_name"].lower(): row["id"]
         for row in conn.execute("SELECT id, canonical_name FROM fragrances")
     }
     comment_ids = {
@@ -575,7 +600,7 @@ def import_corpus(
 
         for key_name in ("subject_fragrance", "object_fragrance"):
             named = record.get(key_name)
-            if named and named not in fragrance_ids:
+            if named and named.lower() not in fragrance_ids:
                 # Editing fragrances.jsonl by hand leaves these behind, and
                 # the import resolves them to NULL without complaint — the
                 # claim silently stops being an edge. Five were committed
@@ -593,8 +618,8 @@ def import_corpus(
             # it becomes a KeyError.
             *(record.get(field, CLAIM_FIELD_DEFAULTS.get(field))
               for field in CLAIM_FIELDS),
-            fragrance_ids.get(record.get("subject_fragrance")),
-            fragrance_ids.get(record.get("object_fragrance")),
+            fragrance_ids.get((record.get("subject_fragrance") or "").lower()),
+            fragrance_ids.get((record.get("object_fragrance") or "").lower()),
         ]
         conn.execute(
             f"INSERT INTO claims ({', '.join(columns)}) "
