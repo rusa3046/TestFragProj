@@ -111,7 +111,7 @@ class Reason:
         never sees a `Strength`; they see "8 people across 4 channels say"
         or "one commenter said", and those must not be interchangeable.
         """
-        if self.kind == "graph":
+        if self.kind in ("graph", "semantic", "absence"):
             return self.text
         if self.strength is Strength.CANONICAL:
             return f"{self.text} (official listing)"
@@ -302,6 +302,11 @@ def recommend(
         )
         return answer
 
+    # Words the rules could not place go to the vector layer. It retrieves
+    # and never asserts: what comes back is a *claim*, which is then graded
+    # and worded by the ordinary evidence path like anything else.
+    semantic = _semantic_candidates(conn, plan)
+
     grouped = _facts_by_fragrance(conn, attribution)
     names = {
         row["id"]: row["canonical_name"]
@@ -315,14 +320,21 @@ def recommend(
     # even when nobody has described it, because that connection is itself
     # the best-evidenced thing in the corpus. Iterating only over bottles
     # with attribute facts dropped them entirely.
-    considered = set(grouped) | set(neighbours)
+    considered = set(grouped) | set(neighbours) | set(semantic)
     for frag_id in considered:
         facts = grouped.get(frag_id, [])
         if frag_id == plan.anchor_id:
             continue  # nobody asks for the bottle they already named
-        if len(facts) < MIN_FACTS_TO_RECOMMEND and frag_id not in neighbours:
+        if (
+            len(facts) < MIN_FACTS_TO_RECOMMEND
+            and frag_id not in neighbours
+            and frag_id not in semantic
+        ):
             continue
-        result = _score(frag_id, names.get(frag_id, "?"), facts, plan, neighbours)
+        result = _score(
+            frag_id, names.get(frag_id, "?"), facts, plan, neighbours,
+            semantic.get(frag_id),
+        )
         if result is None:
             rejected_by_hard += 1
             continue
@@ -432,12 +444,33 @@ def _anchor_neighbours(conn: psycopg.Connection, plan: QueryPlan) -> dict[int, i
     }
 
 
+def _semantic_candidates(conn: psycopg.Connection, plan: QueryPlan) -> dict:
+    """Bottles the vector layer points at for words the rules could not.
+
+    Only for `unparsed` terms. A word the structured layer understood is
+    better served by the structured layer — it knows the attribute, the
+    direction and the strength, and a vector knows none of those.
+    """
+    if not plan.unparsed:
+        return {}
+    from fragrance_graph.semantic import candidates_for
+
+    found = {}
+    for term in plan.unparsed:
+        for frag_id, match in candidates_for(conn, term).items():
+            best = found.get(frag_id)
+            if best is None or match.score > best.score:
+                found[frag_id] = match
+    return found
+
+
 def _score(
     frag_id: int,
     name: str,
     facts: list[AttributeFact],
     plan: QueryPlan,
     neighbours: dict[int, int],
+    semantic=None,
 ) -> Recommendation | None:
     result = Recommendation(fragrance_id=frag_id, name=name)
 
@@ -476,6 +509,24 @@ def _score(
             result.reasons.append(_fact_reason(fact, "prefer"))
             result.score += 1.0 + _weight(fact)
 
+    # Stage 3b — what the vector layer found, quoting the human's words.
+    # Capped at OBSERVED whatever the underlying fact scores: a phrase
+    # being close to another phrase is not people agreeing, and letting a
+    # similarity score raise a Strength is the exact laundering the
+    # evidence model forbids.
+    if semantic is not None:
+        result.reasons.append(
+            Reason(
+                kind="semantic",
+                text=f"someone described it as {semantic.text!r}",
+                strength=Strength.OBSERVED,
+                people=1,
+                creators=1,
+                claim_ids=(semantic.claim_id,),
+            )
+        )
+        result.score += 0.5
+
     # Stage 4 — what the comparison graph already says about the anchor.
     if frag_id in neighbours:
         support, sources = neighbours[frag_id]
@@ -500,12 +551,41 @@ def _score(
         result.score += 1.0 + min(support, 5) * 0.2
 
     # A request made only of things to avoid still has candidates: the
-    # bottles with no evidence of the avoided trait. Requiring a positive
-    # reason meant "Babycat but less smoky" and "not loud" returned
-    # nothing, which reads as "no such fragrance" rather than "here are
-    # the ones nobody called smoky".
-    if not result.reasons and not plan.hard and not plan.soft:
-        return None
+    # bottles nobody has called smoky. But a bottle nobody has said
+    # *anything* about is not one of them — returning it ranks the unknown
+    # above the known and produces a list ordered by nothing.
+    if not result.reasons and not result.caveats:
+        described = [f for f in facts if not f.from_name and f.strength.may_retrieve]
+        if not described or not plan.soft:
+            return None
+        avoided = ", ".join(
+            p.value
+            for p in plan.soft
+            if p.direction in (Direction.LOW, Direction.LESS_THAN_ANCHOR)
+        )
+        best = max(f.supporting.people for f in described)
+        sources = max(f.supporting.creators for f in described)
+        result.reasons.append(
+            Reason(
+                kind="absence",
+                text=(
+                    # Deliberately "no comment in this corpus calls it X"
+                    # rather than "it is not X". The corpus is a sample of
+                    # 57 creators, not a census, and the difference is the
+                    # whole absence-is-not-evidence rule. The counts are
+                    # stated so the reader can weigh how much silence is
+                    # worth: silence from 21 people means more than silence
+                    # from one.
+                    f"no comment in this corpus calls it {avoided}; "
+                    f"{_people(best)} across {_sources(sources)} "
+                    "have described it"
+                ),
+                strength=Strength.OBSERVED,
+                people=best,
+                creators=sources,
+            )
+        )
+        result.score += len([f for f in described if f.strength.may_declare]) * 0.3
 
     # Stage 5 — independence breaks ties.
     # Graph reasons count too: "3 people compared this with Delina" is
@@ -565,11 +645,16 @@ def _note(
         # being nine people, and the note used to call that a single
         # observation — contradicting the result printed directly beneath
         # it, which honestly said "9 people across 1 channel".
-        lone = all(
-            max((x.people for x in c.reasons + c.caveats), default=0) <= 1
+        people = [
+            max((x.people for x in c.reasons + c.caveats), default=0)
             for c in candidates
-        )
-        if lone:
+        ]
+        if max(people, default=0) == 0:
+            return (
+                "Nothing below has evidence bearing on this request. These "
+                "are bottles the corpus describes that nobody has ruled out."
+            )
+        if all(n <= 1 for n in people):
             return (
                 "Every match below rests on a single person's remark. They "
                 "are worth looking at, not worth trusting as consensus."
