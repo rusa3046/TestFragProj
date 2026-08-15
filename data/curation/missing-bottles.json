@@ -28,7 +28,7 @@
     "skip": false,
     "note": "brand from comment: 'Is khadlaj dunes better than liquid brun by french Avenue???'",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "Absolu",
@@ -59,7 +59,7 @@
     "skip": false,
     "note": "brand from video title: \"CREED 'Absolu Aventus' vs 'Aventus' vs 'Aventus Cologne'\"",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "Aventus Absolu",
@@ -90,7 +90,7 @@
     "skip": false,
     "note": "brand from same video title",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "Aventus Cologne",
@@ -121,7 +121,7 @@
     "skip": false,
     "note": "brand from video title: 'Creed Aventus Vs Creed Aventus Cologne (Which One Should You Buy?)'",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "Detour",
@@ -150,7 +150,7 @@
     "skip": false,
     "note": "brand from comment: 'Al haramain - detour noir.'",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "Paradox 13",
@@ -178,7 +178,7 @@
     "skip": false,
     "note": "brand from comment: 'Paradox 13 by Pocket Bombs is the answer'",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "amber oud exclusif bleu",
@@ -206,7 +206,7 @@
     "skip": false,
     "note": "brand from comment: 'Al Haramain Amber Oud Exclusif Bleu'",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "the original",
@@ -396,7 +396,7 @@
     "skip": false,
     "note": "brand from same video title",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "limited edition",
@@ -573,7 +573,7 @@
     "skip": false,
     "note": "brand from the mention names the house",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "Hermes Ambre Narguile",
@@ -600,7 +600,7 @@
     "skip": false,
     "note": "brand from the mention names the house",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "Pegasus Exclusif",
@@ -714,7 +714,7 @@
     "skip": false,
     "note": "brand from comment: 'Dumont Paris Celerio Oros should have been in this test'",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "Kaaf by Ahmed Al Maghribi",
@@ -742,7 +742,7 @@
     "skip": false,
     "note": "brand from the mention names the house",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "Leyden",
@@ -984,7 +984,7 @@
     "skip": false,
     "note": "brand from comment: 'Maine Khamrah dukhan buy kia' — a Khamrah flanker",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "Lattafa",
@@ -1066,7 +1066,7 @@
     "skip": false,
     "note": "brand from the mention names the house",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "The TF Oud Wood",
@@ -1097,7 +1097,7 @@
     "skip": false,
     "note": "brand from already curated; TF = Tom Ford",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "The original Delina",
@@ -1125,7 +1125,7 @@
     "skip": false,
     "note": "brand from already curated",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   },
   {
     "mention": "a dupe",
@@ -1182,6 +1182,6 @@
     "skip": false,
     "note": "brand from the mention names the house",
     "drafted_by": "claude",
-    "confirmed": false
+    "confirmed": true
   }
 ]
