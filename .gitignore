@@ -31,3 +31,8 @@ labels*.json
 todraft*.json
 review*.json
 blind*.json
+
+# Codex review output. Ignored so `git status --porcelain` stays empty —
+# scripts/codex-agent.sh refuses to run on a dirty tree, and findings written
+# into the repo would otherwise block the next review.
+.codex-findings/
