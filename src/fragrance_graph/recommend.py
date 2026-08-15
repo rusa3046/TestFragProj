@@ -68,7 +68,7 @@ from fragrance_graph.plan import (
     QueryPlan,
     parse_with_corpus,
 )
-from fragrance_graph.query import similar_to
+from fragrance_graph.query import pair_stats, similar_to
 
 log = logging.getLogger("fragrance_graph.recommend")
 
@@ -292,10 +292,13 @@ def recommend(
     if plan.refusal:
         answer.note = plan.refusal
         return answer
+    if plan.intent is Intent.PROFILE:
+        return _profile(conn, plan)
+    if plan.intent is Intent.COMPARE:
+        return _compare(conn, plan)
     if plan.intent is not Intent.RECOMMEND:
-        answer.note = (
-            f"{plan.intent} requests are answered by `query {plan.intent}`, "
-            "not by the recommender"
+        answer.note = plan.refusal or (
+            "an explanation needs a recommendation to explain"
         )
         return answer
 
@@ -328,6 +331,89 @@ def recommend(
     candidates.sort(key=lambda r: (-r.score, -r.people, r.name))
     answer.results = candidates[:limit]
     answer.note = _note(plan, candidates, rejected_by_hard, grouped)
+    return answer
+
+
+def _profile(conn: psycopg.Connection, plan: QueryPlan) -> Answer:
+    """Everything the corpus supports about one bottle, graded.
+
+    Contested facts lead. "What do people disagree about for Delina" is a
+    question the corpus can answer better than most, and burying the
+    disputes under the agreements would waste the one thing this evidence
+    model does that a note list cannot.
+    """
+    answer = Answer(plan=plan)
+    facts = attribute_facts(conn, fragrance_id=plan.anchor_id,
+                            attribution=Attribution.PROPOSED)
+    if not facts:
+        answer.note = f"Nothing in the corpus describes {plan.anchor}."
+        return answer
+
+    result = Recommendation(fragrance_id=plan.anchor_id or 0, name=plan.anchor or "?")
+    for fact in facts:
+        reason = _fact_reason(fact, "profile")
+        if fact.strength is Strength.CONTESTED:
+            result.caveats.append(reason)
+        elif fact.strength.may_retrieve:
+            result.reasons.append(reason)
+    result.reasons.sort(key=lambda x: (-x.people, x.text))
+    result.people = max((x.people for x in result.reasons + result.caveats), default=0)
+    result.creators = max(
+        (x.creators for x in result.reasons + result.caveats), default=0
+    )
+    answer.results = [result]
+    if not result.caveats:
+        answer.note = f"Nothing in the corpus is contested about {plan.anchor}."
+    return answer
+
+
+def _compare(conn: psycopg.Connection, plan: QueryPlan) -> Answer:
+    """What the corpus says connects two bottles, from the pair evidence.
+
+    Delegates to `query.pair_stats` rather than reimplementing it: the pair
+    product has been right about this since before the recommender existed,
+    and a second counter would be a second answer.
+    """
+    answer = Answer(plan=plan)
+    if plan.anchor_id is None or plan.other_id is None:
+        answer.note = "both fragrances have to be in the catalogue to compare them"
+        return answer
+
+    evidence = pair_stats(conn, plan.anchor_id, plan.other_id)
+    result = Recommendation(
+        fragrance_id=plan.other_id,
+        name=f"{plan.anchor} vs {plan.other}",
+        people=evidence.commenters,
+        creators=evidence.creators,
+    )
+    if evidence.commenters:
+        result.reasons.append(
+            Reason(
+                kind="graph",
+                text=(
+                    f"{_people(evidence.commenters)} across "
+                    f"{_sources(evidence.creators)} connected these two"
+                ),
+                strength=Strength.SUPPORTED
+                if evidence.commenters >= MIN_COMMENTERS
+                and evidence.creators >= MIN_SOURCES
+                else Strength.OBSERVED,
+                people=evidence.commenters,
+                creators=evidence.creators,
+            )
+        )
+    for frag_id, label in ((plan.anchor_id, plan.anchor), (plan.other_id, plan.other)):
+        for fact in attribute_facts(conn, fragrance_id=frag_id,
+                                    attribution=Attribution.PROPOSED):
+            if fact.strength.may_declare or fact.strength is Strength.CONTESTED:
+                reason = _fact_reason(fact, "profile")
+                result.reasons.append(
+                    Reason(**{**reason.__dict__, "text": f"{label}: {reason.text}"})
+                )
+    if not result.reasons:
+        answer.note = "Nobody in the corpus has connected or described these two."
+        return answer
+    answer.results = [result]
     return answer
 
 
@@ -413,7 +499,12 @@ def _score(
         # Capped below the avoidance penalty on purpose; see `_score`.
         result.score += 1.0 + min(support, 5) * 0.2
 
-    if not result.reasons and not plan.hard:
+    # A request made only of things to avoid still has candidates: the
+    # bottles with no evidence of the avoided trait. Requiring a positive
+    # reason meant "Babycat but less smoky" and "not loud" returned
+    # nothing, which reads as "no such fragrance" rather than "here are
+    # the ones nobody called smoky".
+    if not result.reasons and not plan.hard and not plan.soft:
         return None
 
     # Stage 5 — independence breaks ties.

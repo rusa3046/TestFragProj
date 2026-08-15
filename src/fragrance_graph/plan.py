@@ -196,6 +196,9 @@ ATTRIBUTE_WORDS = {
 #: Phrases that set an attribute's direction outright.
 PERFORMANCE_PHRASES = {
     "strong projection": ("projection", "strong", Direction.HIGH),
+    "stronger projection": ("projection", "strong", Direction.HIGH),
+    "better projection": ("projection", "strong", Direction.HIGH),
+    "more projection": ("projection", "strong", Direction.HIGH),
     "good projection": ("projection", "strong", Direction.HIGH),
     "beast mode": ("projection", "strong", Direction.HIGH),
     "loud": ("projection", "strong", Direction.HIGH),
@@ -359,7 +362,7 @@ def parse(
     negated = _negated_spans(cleaned)
     _read_intent_and_anchor(conn, cleaned, plan)
     consumed = _read_complaints(cleaned, plan)
-    _read_concepts(cleaned, plan, negated)
+    _read_concepts(cleaned, plan, negated, consumed)
     _read_performance(cleaned, plan, negated)
     _read_words(cleaned, plan, negated)
     _read_notes(cleaned, plan, negated, notes, consumed)
@@ -473,7 +476,9 @@ def _add(plan: QueryPlan, pref: Preference | Constraint) -> None:
         existing.append(pref)
 
 
-def _read_concepts(text: str, plan: QueryPlan, negated: list) -> None:
+def _read_concepts(
+    text: str, plan: QueryPlan, negated: list, consumed: list
+) -> None:
     for concept in CONCEPTS:
         position = text.find(concept)
         if position == -1:
@@ -491,6 +496,10 @@ def _read_concepts(text: str, plan: QueryPlan, negated: list) -> None:
                 said=concept,
             ),
         )
+        # The words the concept is spelled with are spoken for. Without
+        # this, "expensive-smelling and airy" also produced a hard filter
+        # for a note called "expensive".
+        consumed.append((position, position + len(concept)))
 
 
 def _read_performance(text: str, plan: QueryPlan, negated: list) -> None:
@@ -565,6 +574,7 @@ STOPWORDS = frozenset({
     "better", "great", "nice", "well", "make", "makes", "made", "will",
     "from", "into", "over", "only", "same", "other", "another",
     "recommend", "suggest", "buy", "wear", "wearing", "still", "even",
+    "older", "newer", "starting", "compare", "compared", "comparing",
     "people", "someone", "anyone", "everyone", "thing", "things", "kind",
     "type", "sort", "look", "looking", "find", "finding", "know", "think",
 })
