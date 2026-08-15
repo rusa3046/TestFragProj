@@ -119,3 +119,86 @@ def test_summary_flags_the_days_that_hit_the_cap(ledger):
     assert "2026-08-10" in text and "at cap" in text
     assert "2026-08-11" in text
     assert text.index("2026-08-11") < text.index("2026-08-10")  # newest first
+
+
+class TestEveryPaidPathIsGuarded:
+    """Found during phase-9 readiness, not by a reviewer.
+
+    `evals/autolabel` computed its own cost and printed it for months
+    without ever telling the ledger, so drafting eval labels was a normal
+    paid CLI path that walked past the daily cap. The cap has now been
+    defeated three times: by a path-resolution escape, by recording
+    without raising, and by a module nobody checked.
+    """
+
+    def test_autolabel_charges_the_ledger(self, tmp_path):
+        from fragrance_graph.budget import Budget
+        from fragrance_graph.evals.autolabel import draft
+
+        ledger = tmp_path / "spend.jsonl"
+        budget = Budget(cap_usd=10.0, ledger=ledger)
+
+        class FakeClient:
+            def __init__(self):
+                self.messages = self
+
+            def create(self, **kw):
+                class R:
+                    stop_reason = "end_turn"
+                    content = [
+                        type("T", (), {"type": "text",
+                                       "text": '{"0": {"claims": []}}'})()
+                    ]
+                    usage = type("U", (), {"input_tokens": 1000,
+                                           "output_tokens": 500})()
+                return R()
+
+        entries = [{"comment_id": 1, "body": "x", "claims": []}]
+        draft(FakeClient(), entries, on_spend=budget.guard("autolabel"))
+        assert ledger.exists(), "the run reached the ledger"
+        assert budget.spent_usd > 0
+
+    def test_autolabel_stops_at_the_cap(self, tmp_path):
+        from fragrance_graph.budget import Budget, BudgetExhausted
+        from fragrance_graph.evals.autolabel import draft
+
+        budget = Budget(cap_usd=0.0001, ledger=tmp_path / "spend.jsonl")
+
+        class FakeClient:
+            def __init__(self):
+                self.messages = self
+
+            def create(self, **kw):
+                class R:
+                    stop_reason = "end_turn"
+                    content = [
+                        type("T", (), {"type": "text",
+                                       "text": '{"0": {"claims": []}}'})()
+                    ]
+                    usage = type("U", (), {"input_tokens": 100_000,
+                                           "output_tokens": 100_000})()
+                return R()
+
+        entries = [{"comment_id": i, "body": "x", "claims": []} for i in range(20)]
+        with pytest.raises(BudgetExhausted):
+            draft(FakeClient(), entries, batch_size=1,
+                  on_spend=budget.guard("autolabel"))
+
+    def test_no_paid_module_calls_the_model_without_an_on_spend_hook(self):
+        """Structural: every function that calls `client.messages.create`
+        must accept a spend callback, so a caller cannot spend silently."""
+        import ast
+        import pathlib as _p
+
+        for name in ("extract/llm.py", "evals/autolabel.py"):
+            path = _p.Path("src/fragrance_graph") / name
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.FunctionDef):
+                    continue
+                body = ast.dump(node)
+                if "messages" in body and "create" in body:
+                    continue  # the low-level caller itself
+            assert "on_spend" in path.read_text(), (
+                f"{name} has no spend hook"
+            )
