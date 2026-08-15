@@ -326,10 +326,26 @@ def enrich_cohort(
     comments. Diffing a late bottle against a file written before any of
     it would credit this run with conversions another bottle bought.
     """
+    from fragrance_graph.budget import BudgetExhausted
+
     gains = []
     for state in states[:limit]:
         fresh = _bottle_state(conn, state.fragrance_id, state.name)
-        comments, usd, quota, stop = run_one(state.name)
+        try:
+            comments, usd, quota, stop = run_one(state.name)
+        except BudgetExhausted as exc:
+            # Stop the cohort, keep everything already bought. Wrapping the
+            # whole loop instead discarded six completed bottles when the
+            # cap landed on the seventh — paying for measurements and then
+            # throwing them away, which is the worst of both.
+            log.warning("cap reached during %s: %s", state.name, exc)
+            after = _bottle_state(conn, state.fragrance_id, state.name)
+            partial = diff(fresh, after)
+            partial.stop_reason = "daily-cap"
+            partial.comments_before = fresh.comments
+            partial.comments_after = after.comments
+            gains.append(partial)
+            break
         after = _bottle_state(conn, state.fragrance_id, state.name)
         gain = diff(fresh, after)
         gain.usd = usd
@@ -559,13 +575,7 @@ def main(argv: list[str] | None = None) -> int:
                 trial.stop_reason,
             )
 
-        try:
-            gains = enrich_cohort(
-                conn, states, run_one=run_one, limit=args.limit
-            )
-        except BudgetExhausted as exc:
-            print(f"Stopped at the cap: {exc}")
-            gains = []
+        gains = enrich_cohort(conn, states, run_one=run_one, limit=args.limit)
 
         corpus_after = snapshot(conn)
         report = render_report(gains, corpus_before, corpus_after)

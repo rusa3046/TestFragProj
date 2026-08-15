@@ -326,3 +326,31 @@ class TestTheCohortIsActuallyEnrichable:
 
         add_fragrance(conn, "Lattafa Khamrah")
         assert _candidate_for(conn, "lattafa khamrah") is not None
+
+    def test_the_cap_landing_mid_cohort_keeps_what_was_bought(self, conn):
+        """Wrapping the whole loop discarded six completed bottles when the
+        cap landed on the seventh — paying for measurements and throwing
+        them away, which is the worst of both outcomes."""
+        from fragrance_graph.budget import BudgetExhausted
+        from fragrance_graph.experiments.attribute_gain import enrich_cohort
+
+        first = add_fragrance(conn, "Lattafa Khamrah")
+        add_fragrance(conn, "Parfums de Marly Layton")
+        note(conn, 1, frag=first, value="rose", author="p1", channel="c1")
+        states, _ = before(conn, ("Lattafa Khamrah", "Parfums de Marly Layton"))
+
+        calls = []
+
+        def run_one(name):
+            calls.append(name)
+            if len(calls) == 1:
+                note(conn, 2, frag=first, value="rose", author="p2",
+                     channel="c2")
+                return 40, 0.08, 100, "target-met"
+            raise BudgetExhausted("daily cap reached")
+
+        gains = enrich_cohort(conn, states, run_one=run_one, limit=2)
+        assert len(gains) == 2, "the completed bottle is kept"
+        assert gains[0].converted == 1
+        assert gains[0].usd == 0.08
+        assert gains[1].stop_reason == "daily-cap"
