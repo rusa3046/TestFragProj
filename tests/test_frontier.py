@@ -40,6 +40,7 @@ from fragrance_graph.frontier import (
 from fragrance_graph.ingest.store import ingest
 from fragrance_graph.ingest.youtube import QuotaTracker
 from fragrance_graph.models import Claim
+from fragrance_graph.resolve.entities import add_fragrance
 
 # --- fixtures ---------------------------------------------------------------
 
@@ -808,3 +809,71 @@ class TestTheDailyCapIsEnforcedNotJustRecorded:
         from fragrance_graph.frontier import STOP_REASONS
 
         assert "daily-cap" in STOP_REASONS
+
+
+class TestPagesAreCountedTheWayThePageBuilderCountsThem:
+    """`pairs` groups by the words people typed; `pages.py` groups by the
+    fragrance those words resolve to. The first experiment reported only
+    the former and read it as pages, which under-counted the run."""
+
+    def _candidate(self, conn):
+        seeded(conn)
+        return next(c for c in candidates(conn) if c.text == "oajan")
+
+    def _enrich(self, conn, extract_fn):
+        candidate = self._candidate(conn)
+        store_hits(conn, [VideoHit("vA", "UC_x", "X")], query_for("oajan"), run="r1")
+        trial = Trial(text="oajan", claims_before=4, creators_before=2,
+                      started_at="now")
+        enrich_one(conn, FakeComments({"vA": []}), "KEY", candidate,
+                   quota=QuotaTracker(), ceiling=Ceiling(), run="r1",
+                   extract_fn=extract_fn, trial=trial)
+        return trial
+
+    def test_it_resolves_mentions_before_measuring(self, conn):
+        """Extraction stores raw text. Until a mention is matched to a
+        fragrance, `pages.py` cannot see it, so a run that never resolves
+        reports zero pages however much it extracted."""
+        # Aliases, because commenters type "Oajan" and the catalogue
+        # stores "Parfums de Marly Oajan". Without them the resolver
+        # matches nothing and this test would pass for the wrong reason.
+        add_fragrance(conn, "Parfums de Marly Oajan", aliases=["Oajan"])
+        add_fragrance(conn, "Kilian Angels' Share", aliases=["Angels' Share"])
+
+        def extract_fn(conn, *, limit):
+            for i, (channel, author) in enumerate(
+                [("UC_x", "n1"), ("UC_y", "n2"), ("UC_z", "n3")]
+            ):
+                say(conn, 600 + i, subject="Oajan", obj="Angels' Share",
+                    channel=channel, author=author, video="vA")
+            return 0.01
+
+        trial = self._enrich(conn, extract_fn)
+
+        assert trial.mentions_resolved > 0, "the resolver ran"
+        assert trial.new_site_pages == 1, "and the page it unlocked was counted"
+
+    def test_the_two_page_counts_are_recorded_separately(self, conn):
+        """A gap between them is a resolution problem. Reporting one as
+        the other is how that problem stays invisible."""
+        def extract_fn(conn, *, limit):
+            for i, (channel, author) in enumerate(
+                [("UC_x", "n1"), ("UC_y", "n2"), ("UC_z", "n3")]
+            ):
+                say(conn, 700 + i, subject="oajan", obj="rifaaqat",
+                    channel=channel, author=author, video="vA")
+            return 0.01
+
+        trial = self._enrich(conn, extract_fn)
+
+        assert trial.newly_publishable == 1, "one new pair of strings"
+        assert trial.new_site_pages == 0, (
+            "but neither string is a known fragrance, so nothing renders"
+        )
+
+    def test_a_probe_reports_no_page_movement(self, conn):
+        """A probe buys no comments, so it cannot move a page. The field
+        must read 0 rather than a negative delta against an unset before."""
+        trial = Trial(text="oajan", claims_before=4, creators_before=2,
+                      started_at="now")
+        assert trial.new_site_pages == 0

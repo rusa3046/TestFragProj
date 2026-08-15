@@ -109,6 +109,7 @@ from fragrance_graph.ingest.youtube import (
     iter_video_comments,
     record_discovery,
 )
+from fragrance_graph.resolve.entities import backfill
 from fragrance_graph.resolve.names import normalize_name
 
 log = logging.getLogger("fragrance_graph.frontier")
@@ -627,17 +628,40 @@ class Trial:
     comments_seen: int = 0
     comments_new: int = 0
     claims_added: int = 0
+    mentions_resolved: int = 0
     pairs_before: int = 0
     pairs_after: int = 0
     publishable_before: int = 0
     publishable_after: int = 0
+    site_pages_before: int = 0
+    site_pages_after: int = 0
     usd: float = 0.0
     stop_reason: str = ""
     note: str = ""
 
     @property
     def newly_publishable(self) -> int:
+        """Movement in *string* pairs — `pairs` groups by the words people
+        typed, so "delina" and "the original delina" are two bottles here."""
         return self.publishable_after - self.publishable_before
+
+    @property
+    def new_site_pages(self) -> int:
+        """Movement in pages a stranger could actually open.
+
+        Not the same number as `newly_publishable`, and the difference is
+        the point. `pages.qualifying_pairs` counts *resolved fragrances*,
+        so it pools every spelling of a bottle into one and applies the
+        flanker rule; `pairs` counts distinct strings and does neither.
+        The first experiment reported `newly_publishable` alone and read
+        it as pages, which under-counted: pooling spellings puts more
+        people behind one pair, and pairs sitting one person short of the
+        gate cross it when their two halves are recognised as the same
+        bottle. Both are recorded because a gap between them is a
+        resolution problem, and silently reporting one as the other is
+        how that problem stays invisible.
+        """
+        return self.site_pages_after - self.site_pages_before
 
     def as_row(self) -> dict[str, Any]:
         return {"kind": "trial", **self.__dict__}
@@ -645,6 +669,21 @@ class Trial:
 
 def publishable_count(all_pairs: dict[tuple[str, str], Pair], text: str) -> int:
     return sum(1 for p in pairs_for(all_pairs, text) if p.publishable)
+
+
+def site_pages(conn: psycopg.Connection) -> int:
+    """How many pair pages the site would build from the corpus right now.
+
+    Imported here rather than at module scope because `pages` pulls in the
+    whole rendering stack, and `frontier` is also used to plan runs on a
+    machine that never builds a site. Whole-corpus rather than per-bottle:
+    during a serial experiment the delta across one bottle *is* that
+    bottle's effect, and the alternative — reimplementing the flanker rule
+    here — would recreate the divergence this field exists to expose.
+    """
+    from fragrance_graph.pages import qualifying_pairs
+
+    return len(qualifying_pairs(conn))
 
 
 @dataclass
@@ -825,6 +864,8 @@ def enrich_one(
     trial.creators_found = len(ordered)
     trial.fresh_creators = len({h.channel_id for h in ordered} - known)
     claims_before = conn.execute("SELECT count(*) FROM claims").fetchone()[0]
+    trial.site_pages_before = site_pages(conn)
+    trial.site_pages_after = trial.site_pages_before
 
     for hit in ordered:
         if trial.comments_seen >= ceiling.max_comments:
@@ -851,6 +892,15 @@ def enrich_one(
         spent = extract_fn(conn, limit=room)
         trial.usd += spent
 
+        # Extraction stores the *text* a commenter typed; `subject_frag_id`
+        # stays NULL until a mention is matched to a fragrance. `pairs`
+        # below does not care — it groups by text — but `pages.py` counts
+        # only resolved ids, so an unresolved corpus renders nothing no
+        # matter how much was extracted. Running it here rather than at the
+        # end of the experiment is what lets `site_pages` be measured per
+        # bottle. Idempotent: re-running only does the new work.
+        trial.mentions_resolved += backfill(conn).total
+
         # The stop that matters: has this bottle's evidence crossed the bar?
         now = pairs(conn)
         if publishable_count(now, candidate.text) > trial.publishable_before:
@@ -865,6 +915,7 @@ def enrich_one(
     after = pairs(conn)
     trial.pairs_after = len(pairs_for(after, candidate.text))
     trial.publishable_after = publishable_count(after, candidate.text)
+    trial.site_pages_after = site_pages(conn)
     return trial
 
 
