@@ -67,10 +67,25 @@ die() { echo "codex-agent: $*" >&2; exit 1; }
 
 # The whole point of the script. Resolves symlinks on both sides — a sibling
 # that is a symlink back to the repo would otherwise pass a string compare.
+#
+# **Call this before touching the path in any way.** The first version only
+# called it just before `codex`, by which point `pin_review_worktree` had
+# already run `git checkout --detach`, `reset --hard` and `clean -fd`
+# against it. Pointing the sibling at the repo by symlink therefore detached
+# HEAD in the real repository — the exact outcome the guard exists to
+# prevent, reached through the guard's own script. A path that has not been
+# checked is not a path you may run git against either.
+#
+# A non-existent target is fine and returns cleanly: the lane creates it,
+# and the caller checks again once it exists.
 assert_outside_repo() {
   local target="$1" resolved
-  [[ -d "$target" ]] || die "internal error: $target does not exist yet"
-  resolved="$(cd "$target" && pwd -P)"
+  if [[ ! -e "$target" ]]; then
+    resolved="$(cd "$(dirname "$target")" && pwd -P)/$(basename "$target")"
+  else
+    [[ -d "$target" ]] || die "REFUSING: $target exists and is not a directory."
+    resolved="$(cd "$target" && pwd -P)"
+  fi
   if [[ "$resolved" == "$REPO_ROOT" ]]; then
     die "REFUSING: codex workdir resolved to this repo ($resolved).
      Single-writer is broken if Codex runs here. Nothing was executed."
@@ -113,6 +128,7 @@ require_prompt() {
 # always describes the commit you are actually on.
 pin_review_worktree() {
   local head="$1"
+  assert_outside_repo "$REVIEW_DIR"
   if [[ ! -d "$REVIEW_DIR" ]]; then
     git -C "$REPO_ROOT" worktree add --detach --quiet "$REVIEW_DIR" "$head"
   else
@@ -126,6 +142,7 @@ pin_review_worktree() {
 # genuinely its own on disk and nothing Codex does can touch ours.
 prepare_work_clone() {
   local branch="$1" head="$2"
+  assert_outside_repo "$WORK_DIR"
   if [[ ! -d "$WORK_DIR/.git" ]]; then
     git clone --no-hardlinks --quiet "$REPO_ROOT" "$WORK_DIR"
   else
