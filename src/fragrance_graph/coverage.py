@@ -268,6 +268,186 @@ def density(
     return rows[:limit]
 
 
+#: Bottle-count thresholds the density report buckets by. Two is the
+#: minimum for a comparison to exist at all; three and five mark the point
+#: where an attribute starts being able to *rank* rather than merely
+#: distinguish a pair.
+DENSITY_BUCKETS = (1, 2, 3, 5)
+
+
+@dataclass
+class DensityProfile:
+    """How the attribute vocabulary is distributed across the catalogue.
+
+    The single most decision-relevant shape in the corpus. A vocabulary
+    where every value sits on one bottle supports no comparison at all,
+    however many values there are.
+    """
+
+    total_values: int = 0
+    #: value count at each threshold, keyed by minimum bottles
+    at_least: dict = field(default_factory=dict)
+    exactly_one: int = 0
+    #: (attribute, bottles) — coverage by attribute family rather than value
+    by_attribute: dict = field(default_factory=dict)
+
+    def render(self) -> str:
+        lines = [f"  {'distinct attribute values':<34}{self.total_values:>7}"]
+        lines.append(f"  {'  on exactly 1 bottle':<34}{self.exactly_one:>7}")
+        for threshold in sorted(self.at_least):
+            if threshold == 1:
+                continue
+            lines.append(
+                f"  {f'  on >= {threshold} bottles':<34}"
+                f"{self.at_least[threshold]:>7}"
+            )
+        lines += ["", f"  {'attribute family':<24}{'values':>8}{'bottles':>9}"]
+        for attribute, (values, bottles) in sorted(
+            self.by_attribute.items(), key=lambda kv: -kv[1][1]
+        ):
+            lines.append(f"  {attribute:<24}{values:>8}{bottles:>9}")
+        return "\n".join(lines)
+
+
+def density_profile(
+    conn: psycopg.Connection,
+    *,
+    attribution: Attribution = Attribution.PROPOSED,
+) -> DensityProfile:
+    """Bucket the vocabulary by how many bottles carry each value."""
+    shared: dict[tuple[str, str], set[int]] = {}
+    families: dict[str, tuple[set[str], set[int]]] = {}
+    for fact in attribute_facts(conn, attribution=attribution):
+        if fact.supporting.people == 0:
+            continue
+        shared.setdefault((fact.attribute, fact.value), set()).add(
+            fact.fragrance_id
+        )
+        values, bottles = families.setdefault(fact.attribute, (set(), set()))
+        values.add(fact.value)
+        bottles.add(fact.fragrance_id)
+
+    counts = [len(ids) for ids in shared.values()]
+    return DensityProfile(
+        total_values=len(shared),
+        at_least={
+            threshold: sum(1 for n in counts if n >= threshold)
+            for threshold in DENSITY_BUCKETS
+        },
+        exactly_one=sum(1 for n in counts if n == 1),
+        by_attribute={
+            attribute: (len(values), len(bottles))
+            for attribute, (values, bottles) in families.items()
+        },
+    )
+
+
+#: The comparisons the benchmark and the product are judged on. Two of
+#: these name bottles the catalogue does not have, which is itself the
+#: answer for those rows rather than a gap in the measurement.
+BENCHMARK_COMPARISONS = (
+    ("Parfums de Marly Delina", "rose"),
+    ("Maison Francis Kurkdjian Baccarat Rouge 540", "sweet"),
+    ("Babycat", "smoky"),
+    ("Libre", "vanilla"),
+    ("Parfums de Marly Layton", "vanilla"),
+)
+
+
+@dataclass
+class ComparisonCoverage:
+    """For one anchor and attribute: how many bottles can be *compared*.
+
+    Comparable means the corpus has evidence for that attribute on the
+    other bottle — enough to say more, less, or indistinguishable. It
+    deliberately excludes bottles the corpus is silent about, because
+    silence is not a low score and counting it as one would make every
+    sparse catalogue look fully covered.
+    """
+
+    anchor: str
+    attribute: str
+    in_catalogue: bool = True
+    anchor_evidence: bool = False
+    baseline_usable: bool = False
+    comparable: int = 0
+    silent: int = 0
+    catalogue: int = 0
+
+    @property
+    def coverage(self) -> float:
+        return self.comparable / self.catalogue if self.catalogue else 0.0
+
+    def render(self) -> str:
+        label = f"{self.anchor} / {self.attribute}"
+        if not self.in_catalogue:
+            return f"  {label:<46} not in the catalogue"
+        if not self.anchor_evidence:
+            return f"  {label:<46} anchor has no {self.attribute} evidence"
+        state = "usable" if self.baseline_usable else "thin"
+        return (
+            f"  {label:<46} baseline {state}; {self.comparable} comparable, "
+            f"{self.silent} silent ({self.coverage:.1%})"
+        )
+
+
+def comparison_coverage(
+    conn: psycopg.Connection,
+    cases: tuple[tuple[str, str], ...] = BENCHMARK_COMPARISONS,
+    *,
+    attribution: Attribution = Attribution.PROPOSED,
+) -> list[ComparisonCoverage]:
+    """How much of the catalogue each benchmark comparison can reach."""
+    names = {
+        row["id"]: row["canonical_name"]
+        for row in conn.execute("SELECT id, canonical_name FROM fragrances")
+    }
+    lookup = {n.lower(): i for i, n in names.items()}
+    by_id: dict[int, list[AttributeFact]] = {}
+    for fact in attribute_facts(conn, attribution=attribution):
+        by_id.setdefault(fact.fragrance_id, []).append(fact)
+
+    results = []
+    for anchor_name, attribute in cases:
+        anchor_id = lookup.get(anchor_name.lower())
+        if anchor_id is None:
+            anchor_id = next(
+                (i for n, i in lookup.items() if anchor_name.lower() in n), None
+            )
+        row = ComparisonCoverage(
+            anchor=anchor_name,
+            attribute=attribute,
+            in_catalogue=anchor_id is not None,
+            catalogue=len(names) - 1,
+        )
+        if anchor_id is None:
+            results.append(row)
+            continue
+        anchor = next(
+            (f for f in by_id.get(anchor_id, []) if _matches(f, "note", attribute)),
+            None,
+        )
+        row.anchor_evidence = anchor is not None
+        row.baseline_usable = _baseline_problem(anchor)[0]
+        for frag_id in names:
+            if frag_id == anchor_id:
+                continue
+            candidate = next(
+                (
+                    f
+                    for f in by_id.get(frag_id, [])
+                    if _matches(f, "note", attribute)
+                ),
+                None,
+            )
+            if candidate is None:
+                row.silent += 1
+            else:
+                row.comparable += 1
+        results.append(row)
+    return results
+
+
 @dataclass
 class Snapshot:
     """Everything an acquisition experiment should be judged against.
@@ -393,6 +573,8 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("density", help="Attributes shared across bottles")
     d.add_argument("--limit", type=int, default=25)
     sub.add_parser("snapshot", help="Everything an experiment could move")
+    sub.add_parser("profile", help="How the vocabulary spreads over bottles")
+    sub.add_parser("comparisons", help="Benchmark comparison reachability")
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -412,6 +594,14 @@ def main(argv: list[str] | None = None) -> int:
                 label = f"{row.attribute} = {row.value}"
                 print(f"  {label:<34}{row.bottles:>9}{row.bottles_repeated:>11}"
                       f"{row.bottles_declarable:>12}")
+        elif args.command == "profile":
+            print(density_profile(conn).render())
+        elif args.command == "comparisons":
+            rows = comparison_coverage(conn)
+            for row in rows:
+                print(row.render())
+            reachable = sum(1 for r in rows if r.baseline_usable and r.comparable)
+            print(f"\n  {reachable}/{len(rows)} benchmark comparisons reachable")
         else:
             print(snapshot(conn).render())
     finally:

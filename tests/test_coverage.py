@@ -163,3 +163,94 @@ class TestDensityIsTheMetricThatMatters:
         rendered = before.render(after)
         assert "before" in rendered and "after" in rendered
         assert "+1" in rendered
+
+
+class TestDensityProfile:
+    """How the vocabulary spreads over bottles — the shape that decides
+    whether comparisons are possible at all."""
+
+    def test_a_value_on_one_bottle_is_counted_apart(self, anchor_and_others):
+        from fragrance_graph.coverage import density_profile
+
+        conn, anchor, others = anchor_and_others
+        note(conn, 1, frag=anchor, value="rose", author="p1")
+        profile = density_profile(conn)
+        assert profile.exactly_one == 1
+        assert profile.at_least[2] == 0
+
+    def test_thresholds_are_cumulative(self, anchor_and_others):
+        conn, anchor, others = anchor_and_others
+        from fragrance_graph.coverage import density_profile
+
+        for i, frag in enumerate([anchor, *others]):
+            note(conn, i, frag=frag, value="rose", author=f"p{i}")
+        profile = density_profile(conn)
+        assert profile.at_least[2] >= profile.at_least[3] >= profile.at_least[5]
+
+    def test_it_reports_coverage_by_attribute_family(self, anchor_and_others):
+        from fragrance_graph.coverage import density_profile
+
+        conn, anchor, others = anchor_and_others
+        note(conn, 1, frag=anchor, value="rose", author="p1")
+        note(conn, 2, frag=others[0], value="lychee", author="p2")
+        values, bottles = density_profile(conn).by_attribute["note"]
+        assert (values, bottles) == (2, 2)
+
+
+class TestComparisonCoverage:
+    """How much of the catalogue a given "less X" question can reach."""
+
+    def test_silence_is_counted_as_silence_not_as_less(self, anchor_and_others):
+        from fragrance_graph.coverage import comparison_coverage
+
+        conn, anchor, others = anchor_and_others
+        for i, (author, chan) in enumerate([("p1", "c1"), ("p2", "c2")]):
+            note(conn, i, frag=anchor, value="rose", author=author, channel=chan)
+        (row,) = comparison_coverage(
+            conn, (("Parfums de Marly Delina", "rose"),)
+        )
+        assert row.comparable == 0
+        assert row.silent == 3
+        assert row.coverage == 0.0
+
+    def test_a_bottle_with_evidence_is_comparable_either_way(
+        self, anchor_and_others
+    ):
+        """Comparable means the corpus can say more, less *or*
+        indistinguishable — not that it happens to say less."""
+        from fragrance_graph.coverage import comparison_coverage
+
+        conn, anchor, others = anchor_and_others
+        for i, (author, chan) in enumerate([("p1", "c1"), ("p2", "c2")]):
+            note(conn, i, frag=anchor, value="rose", author=author, channel=chan)
+        note(conn, 20, frag=others[0], value="rose", author="z1")
+        (row,) = comparison_coverage(
+            conn, (("Parfums de Marly Delina", "rose"),)
+        )
+        assert row.comparable == 1
+        assert row.silent == 2
+
+    def test_a_bottle_outside_the_catalogue_says_so(self, conn):
+        """Babycat and Libre are named in the benchmark and are not in the
+        catalogue. That is the answer for those rows, not a measurement
+        gap to paper over."""
+        from fragrance_graph.coverage import comparison_coverage
+
+        (row,) = comparison_coverage(conn, (("Babycat", "smoky"),))
+        assert not row.in_catalogue
+        assert "not in the catalogue" in row.render()
+
+    def test_a_thin_anchor_is_distinguished_from_a_usable_one(
+        self, anchor_and_others
+    ):
+        from fragrance_graph.coverage import comparison_coverage
+
+        conn, anchor, others = anchor_and_others
+        note(conn, 1, frag=anchor, value="rose", author="p1")
+        note(conn, 2, frag=others[0], value="rose", author="z1")
+        (row,) = comparison_coverage(
+            conn, (("Parfums de Marly Delina", "rose"),)
+        )
+        assert row.anchor_evidence
+        assert not row.baseline_usable
+        assert "thin" in row.render()
