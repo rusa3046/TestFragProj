@@ -421,7 +421,12 @@ class TestAComparativeIsNotAnAvoidance:
         ]
         comparative = [r for r in result.reasons if r.kind == "comparative"]
         assert comparative, "the comparison is the reason, not an avoidance"
-        assert "less rose than Parfums de Marly Delina" in comparative[0].text
+        # Reworded in the final review: the sentence reports the two counts
+        # rather than asserting "less rose than Delina", which is a
+        # conclusion nobody wrote and the system inferred from mentions.
+        assert "rose mentioned by" in comparative[0].text
+        assert "Parfums de Marly Delina" in comparative[0].text
+        assert "fewer" in comparative[0].text
 
     def test_a_similar_level_is_not_a_difference(self, conn):
         """Two against three is noise dressed as a comparison."""
@@ -560,7 +565,7 @@ class TestCodexPhase6ComparativeFindings:
             ).results if r.name == "Lattafa Khamrah"
         ]
         (comparative,) = [r for r in result.reasons if r.kind == "comparative"]
-        assert "less rose" in comparative.text
+        assert "rose mentioned by" in comparative.text
         assert "across 5 channels" in comparative.text, (
             "and the sentence shows the baseline's independence"
         )

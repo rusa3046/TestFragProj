@@ -132,3 +132,40 @@ class TestDisclosure:
 
     def test_a_flat_claim_does_not(self):
         assert not discloses("smells of rose")
+
+
+class TestCodexFinalFindings:
+    """Three findings from the final review, all confirmed."""
+
+    def test_the_audit_reaches_composed_output_not_only_phrases(self, corpus):
+        """P2. It checked `Reason.phrase`, where wording is chosen, and
+        never the surfaces that compose sentences around those phrases."""
+        report = audit(corpus)
+        for surface in ("recommendation.explain", "answer.render",
+                        "release status", "semantic search"):
+            assert report.checked.get(surface), f"{surface} unchecked"
+
+    def test_an_unexercised_surface_is_not_a_pass(self):
+        """P2. `clean` ignored `unexercised`, so the CLI exited zero when a
+        surface produced nothing to look at. That reads exactly like
+        clearing it."""
+        from fragrance_graph.audit import AuditReport
+
+        report = AuditReport(checked={"x": 1})
+        assert report.clean
+        report.unexercised.append("y produced no output")
+        assert not report.clean
+
+    def test_a_comparative_reports_counts_not_a_conclusion(self, corpus):
+        """P1. "less rose than Delina" is a sentence nobody wrote — it is
+        inferred from mention counts, which are a coarse proxy for
+        prominence. The evidence is stated; the reader draws the
+        comparison."""
+        from fragrance_graph.recommend import recommend
+
+        answer = recommend(corpus, "i love Delina but the rose is too strong")
+        for candidate in answer.results:
+            for reason in candidate.reasons:
+                if reason.kind == "comparative":
+                    assert "mentioned by" in reason.text
+                    assert not reason.text.startswith("less ")

@@ -137,6 +137,11 @@ class Related:
     #: the £200 bottle imitates the £30 one. A caller that wants to quote
     #: the claim rather than count it needs to know which way it ran.
     outbound_claims: int
+    #: Distinct *people* who made the claim in the outbound direction.
+    #: Separate from `outbound_claims` because direction must be decided by
+    #: people and not by rows: one person repeating themselves four times
+    #: could otherwise choose which way the sentence reads for everybody.
+    outbound_commenters: int
     sentiment: str
     sentiment_counts: dict[str, int]
     evidence: list[Evidence] = field(default_factory=list)
@@ -433,6 +438,9 @@ def similar_to(
                 pair_sources=len(per_pair_sources.get(other_id, ())),
                 claims=len(group),
                 outbound_claims=sum(1 for r in group if r["outbound"]),
+                outbound_commenters=len(
+                    {_commenter_key(r) for r in group if r["outbound"]}
+                ),
                 sentiment=aggregate_sentiment(counts),
                 sentiment_counts=dict(counts),
                 evidence=_pick_evidence(group, quotes),

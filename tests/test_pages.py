@@ -919,7 +919,7 @@ class TestReadsLikeEnglish:
             fragrance_id=1, canonical_name="B", brand=None,
             claim_type="DUPE_OF", commenters=1, pair_commenters=1, sources=1,
             creators=1, pair_sources=1, claims=1, outbound_claims=1,
-            sentiment="POSITIVE", sentiment_counts={},
+            outbound_commenters=1, sentiment="POSITIVE", sentiment_counts={},
         )
         assert Statement("A", "B", row).sentence == "calls A a dupe of B"
         assert replace(
@@ -1489,3 +1489,50 @@ class TestSiteWiring:
         path = tmp_path / "analytics.html"
         path.write_text("<!--\n  nothing here yet\n-->\n", encoding="utf-8")
         assert load_analytics(path) == ""
+
+
+class TestDirectionIsDecidedByPeopleNotRows:
+    """Found in the final review, 2026-08-15.
+
+    `Statement.subject` compared `outbound_claims` against `claims` — both
+    row counts — while the sentence beneath printed `commenters`, a head
+    count. One person writing "A is a dupe of B" four times outvoted three
+    separate people writing the reverse, and the page then reported all
+    four as supporting the direction one of them chose.
+    """
+
+    def _row(self, **kw):
+        from fragrance_graph.query import Related
+
+        base = dict(
+            fragrance_id=1, canonical_name="B", brand=None,
+            claim_type="DUPE_OF", commenters=4, pair_commenters=4, sources=2,
+            creators=2, pair_sources=2, claims=7, outbound_claims=4,
+            outbound_commenters=1, sentiment="POSITIVE", sentiment_counts={},
+        )
+        base.update(kw)
+        return Related(**base)
+
+    def test_one_prolific_person_does_not_flip_the_direction(self):
+        from fragrance_graph.pages import Statement
+
+        # 1 person said it outbound four times; 3 said the reverse once each.
+        statement = Statement("A", "B", self._row())
+        assert statement.subject == "B", (
+            "the three separate people decide, not the one who repeated"
+        )
+
+    def test_a_genuine_majority_still_decides(self):
+        from fragrance_graph.pages import Statement
+
+        statement = Statement("A", "B", self._row(outbound_commenters=3))
+        assert statement.subject == "A"
+
+    def test_a_tie_keeps_the_asked_end_in_front(self):
+        """So the sentence does not depend on which end built the page."""
+        from fragrance_graph.pages import Statement
+
+        statement = Statement(
+            "A", "B", self._row(commenters=4, outbound_commenters=2)
+        )
+        assert statement.subject == "A"

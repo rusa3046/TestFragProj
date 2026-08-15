@@ -732,10 +732,18 @@ def _score_comparative(
         Reason(
             kind="comparative",
             text=(
-                f"{'less' if wants_less else 'more'} {preference.value} than "
-                f"{plan.anchor}: {_people(candidate_level.people)} here "
-                f"against {_people(anchor_level.people)} across "
-                f"{_sources(anchor_level.creators)} there"
+                # Reports the evidence, not the conclusion drawn from it.
+                # "Less rose than Delina" is a sentence nobody wrote — it
+                # is inferred from how many people mentioned rose on each
+                # side, which is a coarse proxy for prominence. Stating the
+                # two counts lets the reader draw the comparison the system
+                # used for ranking without the system asserting it.
+                f"{preference.value} mentioned by "
+                f"{_people(candidate_level.people)} here, "
+                f"{_people(anchor_level.people)} across "
+                f"{_sources(anchor_level.creators)} for {plan.anchor} "
+                f"({'fewer' if wants_less else 'more'} — which is why it "
+                "ranks here)"
             ),
             strength=Strength.OBSERVED,
             people=max(candidate_level.people, 1),

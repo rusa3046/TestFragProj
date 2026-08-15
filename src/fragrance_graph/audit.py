@@ -129,7 +129,14 @@ class AuditReport:
 
     @property
     def clean(self) -> bool:
-        return not self.violations
+        """Clean means checked *and* unviolated.
+
+        `unexercised` used to be ignored, so the CLI exited successfully
+        whenever no violation was found — including when a surface produced
+        nothing to look at. An audit that skips a surface reads exactly
+        like one that cleared it.
+        """
+        return not self.violations and not self.unexercised
 
     def render(self) -> str:
         lines = ["cross-surface provenance audit", ""]
@@ -242,11 +249,55 @@ def audit(conn: psycopg.Connection) -> AuditReport:
             for reason in candidate.reasons + candidate.caveats:
                 _check_reason(report, surface, reason)
 
+    _audit_rendered_text(conn, report)
     _audit_structured(conn, report)
     _audit_name_facts(conn, report)
     _audit_releases(conn, report)
     _audit_pages(conn, report)
     return report
+
+
+#: Every rendering entry point. The audit used to check `Reason.phrase`
+#: only, which is where wording is *chosen* — but a surface that composes
+#: sentences around those phrases can still overstate, and three of them
+#: were never looked at.
+RENDERERS = (
+    "recommendation.explain",
+    "answer.render",
+    "release status",
+    "semantic search",
+)
+
+
+def _audit_rendered_text(conn: psycopg.Connection, report: AuditReport) -> None:
+    """The composed output, not only the individual phrases."""
+    from fragrance_graph.releases import render_status
+    from fragrance_graph.semantic import nearest
+
+    blocks: list[tuple[str, str]] = []
+    for _, query in PROBES:
+        answer = recommend(conn, query)
+        blocks.append(("answer.render", answer.render()))
+        for candidate in answer.results:
+            blocks.append(("recommendation.explain", candidate.explain()))
+    blocks.append(("release status", render_status(conn)))
+    blocks.append((
+        "semantic search",
+        "\n".join(f"{m.score:.2f} {m.text} {m.canonical_name}"
+                   for m in nearest(conn, "rosy", limit=5)),
+    ))
+
+    for surface, text in blocks:
+        report.checked[surface] = report.checked.get(surface, 0) + 1
+        for phrase in FORBIDDEN:
+            if phrase in text.lower():
+                report.violations.append(
+                    Violation(surface, "forbidden phrasing in rendered text",
+                              f"...{phrase!r}...")
+                )
+    for name in RENDERERS:
+        if name not in report.checked:
+            report.unexercised.append(f"{name} produced no output to check")
 
 
 def _audit_structured(conn: psycopg.Connection, report: AuditReport) -> None:
@@ -349,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         print(report.render())
     finally:
         conn.close()
-    return 1 if report.violations else 0
+    return 0 if report.clean else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

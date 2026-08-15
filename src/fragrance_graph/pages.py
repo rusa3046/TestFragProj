@@ -286,10 +286,17 @@ class Statement:
 
         A tie keeps `asked` in front, so the sentence does not depend on
         which end the page was built from.
+
+        Decided by **people, not rows**. It used to compare
+        `outbound_claims` against `claims`, both row counts, while the
+        sentence beneath printed `commenters`, a head count. One person
+        writing "A is a dupe of B" four times therefore outvoted three
+        separate people writing the reverse, and the page then reported all
+        four of them as supporting the direction one of them chose.
         """
         if self.row.claim_type == "BETTER_THAN":
             return self.asked
-        if self.row.outbound_claims * 2 < self.row.claims:
+        if self.row.outbound_commenters * 2 < self.row.commenters:
             return self.other
         return self.asked
 
