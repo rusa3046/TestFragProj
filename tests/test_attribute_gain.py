@@ -413,3 +413,120 @@ class TestTheCohortIsActuallyEnrichable:
             ledger_spend=lambda: charged[0],
         )
         assert gain.usd == pytest.approx(0.20)
+
+
+class TestTheFunnelIsObservationalOnly:
+    """The cohort is only comparable if the treatment is identical. The
+    first three bottles ran without this instrumentation, so it must
+    change nothing about what is searched, bought or extracted."""
+
+    def test_measuring_it_issues_no_queries_of_its_own(self, conn):
+        import inspect
+
+        from fragrance_graph.experiments.attribute_gain import measure_funnel
+
+        source = inspect.getsource(measure_funnel)
+        for forbidden in ("search", "urlopen", "extract", "INSERT", "UPDATE"):
+            assert forbidden not in source, (
+                f"measure_funnel does more than read: {forbidden}"
+            )
+
+    def test_it_classifies_only_claims_written_after_the_mark(self, conn):
+        from fragrance_graph.experiments.attribute_gain import (
+            _high_water,
+            measure_funnel,
+        )
+
+        frag = add_fragrance(conn, "Lattafa Khamrah")
+        note(conn, 1, frag=frag, value="rose", author="p1")
+        marks = _high_water(conn)
+        note(conn, 2, frag=frag, value="lychee", author="p2")
+
+        funnel = measure_funnel(
+            conn, frag, queries=["q"], videos=1, creators=1, **marks
+        )
+        assert funnel.claims_extracted == 1, "the earlier claim is not counted"
+        assert funnel.target_claims == 1
+
+    def test_it_separates_target_from_other_and_floating(self, conn):
+        from fragrance_graph.experiments.attribute_gain import (
+            _high_water,
+            measure_funnel,
+        )
+
+        target = add_fragrance(conn, "Lattafa Khamrah")
+        other = add_fragrance(conn, "Parfums de Marly Layton")
+        marks = _high_water(conn)
+        note(conn, 1, frag=target, value="rose", author="p1")
+        note(conn, 2, frag=other, value="vanilla", author="p2")
+        note(conn, 3, frag=None, value="sweet", author="p3")
+
+        funnel = measure_funnel(
+            conn, target, queries=["q"], videos=2, creators=2, **marks
+        )
+        assert funnel.claims_extracted == 3
+        assert funnel.target_claims == 1
+        assert funnel.other_bottle_claims == 1
+        assert funnel.floating_claims == 1
+        assert funnel.target_share == pytest.approx(1 / 3)
+
+    def test_a_pairwise_target_claim_is_counted_apart_from_unary(self, conn):
+        """"Khamrah is like Layton" is evidence about Khamrah and is not an
+        attribute of it. Merging them would hide that a run bought
+        comparisons when it was sent to learn descriptions."""
+        from fragrance_graph.experiments.attribute_gain import (
+            _high_water,
+            measure_funnel,
+        )
+
+        target = add_fragrance(conn, "Lattafa Khamrah")
+        other = add_fragrance(conn, "Parfums de Marly Layton")
+        marks = _high_water(conn)
+        note(conn, 1, frag=target, value="rose", author="p1")
+        conn.execute(
+            """
+            INSERT INTO claims
+                (comment_id, claim_type, subject_kind, raw_subject_text,
+                 subject_frag_id, object_kind, raw_object_text, object_frag_id,
+                 sentiment, confidence, evidence_span, evidence_verified,
+                 polarity, extraction_model, created_at)
+            VALUES ((SELECT max(id) FROM comments), 'SIMILAR_TO', 'FRAGRANCE',
+                    'it', %s, 'FRAGRANCE', 'other', %s, 'POSITIVE', 0.9, 'x',
+                    1, 'ASSERTED', 'test', '2026-01-01')
+            """,
+            (target, other),
+        )
+        conn.commit()
+
+        funnel = measure_funnel(
+            conn, target, queries=["q"], videos=1, creators=1, **marks
+        )
+        assert funnel.target_unary == 1
+        assert funnel.target_pairwise == 1
+
+
+class TestDensitySegmentation:
+    def test_bottles_are_banded_by_pre_experiment_evidence(self):
+        from fragrance_graph.experiments.attribute_gain import band_of
+
+        assert band_of(6) == "sparse"
+        assert band_of(33) == "medium"
+        assert band_of(103) == "dense"
+
+    def test_the_report_never_shows_only_an_aggregate(self):
+        """A mechanism behaving differently by density is not described by
+        its mean."""
+        from fragrance_graph.experiments.attribute_gain import (
+            BottleGain,
+            render_segmented,
+        )
+
+        rows = [
+            BottleGain(name="dense", fragrance_id=1, density_before=103,
+                       usd=0.19, singleton_to_repeated=[]),
+            BottleGain(name="sparse", fragrance_id=2, density_before=6,
+                       usd=0.10, singleton_to_repeated=[["note", "oud"]]),
+        ]
+        text = render_segmented(rows)
+        assert "sparse" in text and "dense" in text
+        assert "n/a" in text, "the band with no conversions has no unit cost"

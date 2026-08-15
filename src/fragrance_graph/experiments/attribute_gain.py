@@ -253,6 +253,136 @@ def before(
 
 
 @dataclass
+class Funnel:
+    """Where one bottle's money went, stage by stage.
+
+    Purely observational. Every field is read from database state around
+    an otherwise unchanged run — no query is altered, no ceiling moved, no
+    video chosen differently — because the first three bottles ran without
+    this and the cohort is only comparable if the treatment is identical.
+    Improvements suggested by what it shows are recorded and **not
+    applied** until the cohort completes.
+
+    The stage that matters is `target_claims`. Layton cost $0.1941 and
+    produced zero Layton-attributed facts, and only a per-stage count can
+    say whether that was a search that found the wrong videos, comments
+    that discussed other bottles, or an attribution step that could not
+    tell which bottle "it" meant.
+    """
+
+    queries: list = field(default_factory=list)
+    videos_selected: int = 0
+    creators: int = 0
+    comments_seen: int = 0
+    comments_new: int = 0
+    #: Every claim this bottle's run wrote, before any filtering.
+    claims_extracted: int = 0
+    claims_invalid: int = 0
+    #: Of those, how they landed.
+    target_claims: int = 0
+    target_unary: int = 0
+    target_pairwise: int = 0
+    other_bottle_claims: int = 0
+    floating_claims: int = 0
+
+    @property
+    def target_share(self) -> float:
+        return (
+            self.target_claims / self.claims_extracted
+            if self.claims_extracted
+            else 0.0
+        )
+
+    def render(self) -> str:
+        def pct(n: int, of: int) -> str:
+            return f"{n / of:.0%}" if of else "  -"
+
+        return (
+            f"      search {len(self.queries)} -> {self.videos_selected} videos"
+            f" / {self.creators} creators -> {self.comments_seen} comments"
+            f" -> {self.claims_extracted} claims"
+            f" -> {self.target_claims} on target ({pct(self.target_claims, self.claims_extracted)})"
+            f" [{self.target_unary} unary, {self.target_pairwise} pair]"
+            f" | {self.other_bottle_claims} other, {self.floating_claims} floating,"
+            f" {self.claims_invalid} invalid"
+        )
+
+
+def _high_water(conn: psycopg.Connection) -> dict:
+    """The last id in each table this run will append to.
+
+    Everything written after these marks belongs to the bottle about to
+    run, which makes the funnel exact rather than estimated. Safe because
+    nothing else writes during a run — and the cross-process budget race
+    documented in `budget.py` is the reason concurrent workers must not be
+    used, which this relies on too.
+    """
+    return {
+        "since_claim_id": conn.execute(
+            "SELECT COALESCE(max(id), 0) FROM claims"
+        ).fetchone()[0],
+        "since_comment_id": conn.execute(
+            "SELECT COALESCE(max(id), 0) FROM comments"
+        ).fetchone()[0],
+        "since_reject_id": conn.execute(
+            "SELECT COALESCE(max(id), 0) FROM rejected_claims"
+        ).fetchone()[0],
+    }
+
+
+def measure_funnel(
+    conn: psycopg.Connection,
+    fragrance_id: int,
+    *,
+    since_claim_id: int,
+    since_comment_id: int,
+    since_reject_id: int,
+    queries: list,
+    videos: int,
+    creators: int,
+) -> Funnel:
+    """Classify everything one bottle's run produced.
+
+    Keyed on autoincrement ids captured before the run, which is exact:
+    every claim written during the run has a higher id, and nothing else
+    was writing.
+    """
+    rows = conn.execute(
+        "SELECT cl.id, cl.claim_type, cl.subject_frag_id, cl.object_frag_id"
+        "  FROM claims cl WHERE cl.id > %s",
+        (since_claim_id,),
+    ).fetchall()
+    comparisons = {"SIMILAR_TO", "DUPE_OF", "BETTER_THAN"}
+
+    funnel = Funnel(
+        queries=list(queries),
+        videos_selected=videos,
+        creators=creators,
+        claims_extracted=len(rows),
+        comments_new=conn.execute(
+            "SELECT count(*) FROM comments WHERE id > %s", (since_comment_id,)
+        ).fetchone()[0],
+        claims_invalid=conn.execute(
+            "SELECT count(*) FROM rejected_claims WHERE id > %s",
+            (since_reject_id,),
+        ).fetchone()[0],
+    )
+    for row in rows:
+        on_target = fragrance_id in (row["subject_frag_id"], row["object_frag_id"])
+        if on_target:
+            funnel.target_claims += 1
+            if row["claim_type"] in comparisons:
+                funnel.target_pairwise += 1
+            else:
+                funnel.target_unary += 1
+        elif row["subject_frag_id"] is None and row["object_frag_id"] is None:
+            funnel.floating_claims += 1
+        else:
+            funnel.other_bottle_claims += 1
+    return funnel
+
+
+@dataclass
 class BottleGain:
     """What one bottle's enrichment actually converted."""
 
@@ -270,6 +400,11 @@ class BottleGain:
     usd: float = 0.0
     quota_units: int = 0
     stop_reason: str = ""
+    #: Pre-experiment evidence density, so results can be segmented rather
+    #: than averaged. A mechanism that behaves differently on sparse and
+    #: dense bottles is not described by its mean.
+    density_before: int = 0
+    funnel: dict = field(default_factory=dict)
 
     @property
     def comments_read(self) -> int:
@@ -337,6 +472,7 @@ def enrich_cohort(
     run_one,
     limit: int,
     ledger_spend=None,
+    last_run: dict | None = None,
 ) -> list[BottleGain]:
     """Enrich each bottle and diff its evidence around the run.
 
@@ -353,6 +489,7 @@ def enrich_cohort(
     """
     from fragrance_graph.budget import BudgetExhausted
 
+    last_run = {} if last_run is None else last_run
     gains = []
     for state in states[:limit]:
         fresh = _bottle_state(conn, state.fragrance_id, state.name)
@@ -363,6 +500,7 @@ def enrich_cohort(
         # cost by 21% and flattering the one number the experiment exists
         # to produce. The ledger is what was actually billed.
         spend_before = ledger_spend() if ledger_spend else None
+        marks = _high_water(conn)
         try:
             comments, usd, quota, stop = run_one(state.name)
         except BudgetExhausted as exc:
@@ -378,6 +516,14 @@ def enrich_cohort(
             partial.comments_after = after.comments
             if ledger_spend and spend_before is not None:
                 partial.usd = round(ledger_spend() - spend_before, 6)
+            partial.density_before = fresh.facts
+            partial.funnel = asdict(
+                measure_funnel(
+                    conn, state.fragrance_id, queries=last_run.get("queries", []),
+                    videos=last_run.get("videos", 0),
+                    creators=last_run.get("creators", 0), **marks,
+                )
+            )
             gains.append(partial)
             break
         after = _bottle_state(conn, state.fragrance_id, state.name)
@@ -394,6 +540,98 @@ def enrich_cohort(
         log.info("%s", gain)
         gains.append(gain)
     return gains
+
+
+#: Pre-experiment fact counts that separate the cohort into bands. A
+#: mechanism behaving differently on sparse and dense bottles is not
+#: described by its mean, and the cohort was chosen to span this range
+#: precisely so the difference could be seen.
+DENSITY_BANDS = (("sparse", 0, 19), ("medium", 20, 49), ("dense", 50, 10**6))
+
+
+def band_of(facts: int) -> str:
+    for name, low, high in DENSITY_BANDS:
+        if low <= facts <= high:
+            return name
+    return "dense"
+
+
+def render_segmented(gains: list[BottleGain]) -> str:
+    """Results by pre-experiment density, never only as an aggregate."""
+    bands: dict[str, list[BottleGain]] = {}
+    for gain in gains:
+        bands.setdefault(band_of(gain.density_before), []).append(gain)
+
+    lines = [
+        f"  {'band':<10}{'bottles':>8}{'spend':>10}{'conv':>6}"
+        f"{'new facts':>11}{'$/conv':>10}"
+    ]
+    for name, _, _ in DENSITY_BANDS:
+        rows = bands.get(name, [])
+        if not rows:
+            lines.append(f"  {name:<10}{'—':>8}")
+            continue
+        spend = sum(g.usd for g in rows)
+        conv = sum(g.converted for g in rows)
+        new = sum(len(g.new_facts) for g in rows)
+        unit = f"${spend / conv:.4f}" if conv else "n/a"
+        lines.append(
+            f"  {name:<10}{len(rows):>8}{spend:>10.4f}{conv:>6}{new:>11}{unit:>10}"
+        )
+    return "\n".join(lines)
+
+
+def render_funnel(gains: list[BottleGain]) -> str:
+    """Where the money went, summed over the cohort.
+
+    Drop-off per stage is the diagnostic: a search that returns the wrong
+    videos, comments that discuss other bottles, and an attribution step
+    that cannot place "it" are three different problems with three
+    different fixes, and they are indistinguishable from the totals alone.
+    """
+    totals = Funnel()
+    for gain in gains:
+        if not gain.funnel:
+            continue
+        one = Funnel(**gain.funnel)
+        totals.videos_selected += one.videos_selected
+        totals.creators += one.creators
+        totals.comments_new += one.comments_new
+        totals.claims_extracted += one.claims_extracted
+        totals.claims_invalid += one.claims_invalid
+        totals.target_claims += one.target_claims
+        totals.target_unary += one.target_unary
+        totals.target_pairwise += one.target_pairwise
+        totals.other_bottle_claims += one.other_bottle_claims
+        totals.floating_claims += one.floating_claims
+        totals.queries.extend(one.queries)
+
+    def stage(label: str, value: int, of: int | None) -> str:
+        share = f"{value / of:.0%}" if of else ""
+        return f"  {label:<34}{value:>8}  {share:>5}"
+
+    conversions = sum(g.converted for g in gains)
+    supported = sum(len(g.singleton_to_supported) for g in gains)
+    return "\n".join([
+        stage("searches issued", len(totals.queries), None),
+        stage("videos returned", totals.videos_selected, None),
+        stage("distinct creators", totals.creators, None),
+        stage("comments newly ingested", totals.comments_new, None),
+        stage("claims extracted", totals.claims_extracted, None),
+        stage("  invalid / filtered", totals.claims_invalid,
+              totals.claims_extracted),
+        stage("  about the target bottle", totals.target_claims,
+              totals.claims_extracted),
+        stage("    target, unary", totals.target_unary, totals.target_claims),
+        stage("    target, pairwise", totals.target_pairwise,
+              totals.target_claims),
+        stage("  about another bottle", totals.other_bottle_claims,
+              totals.claims_extracted),
+        stage("  unattributed / floating", totals.floating_claims,
+              totals.claims_extracted),
+        stage("singleton -> repeated", conversions, totals.target_claims),
+        stage("repeated -> supported", supported, totals.target_claims),
+    ])
 
 
 def render_report(
@@ -415,6 +653,12 @@ def render_report(
         lines.append(f"  {gain}  [{unit}]")
 
     lines += [
+        "",
+        "by pre-experiment density:",
+        render_segmented(gains),
+        "",
+        "funnel (where the money went):",
+        render_funnel(gains),
         "",
         "corpus:",
         corpus_before.render(corpus_after),
@@ -570,6 +814,8 @@ def main(argv: list[str] | None = None) -> int:
         ceiling = Ceiling()
         run_id = f"attribute-gain-{datetime.now(UTC).date().isoformat()}"
 
+        observed: dict = {}
+
         def run_one(name: str):
             """Buy comments about one bottle, broadly.
 
@@ -604,6 +850,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             store_hits(conn, hits, trial.query, run=run_id)
             trial.searches = 1
+            # Recorded, not acted on. The query, the videos and the
+            # creators are exactly what they would have been without this.
+            observed["queries"] = [trial.query]
+            observed["videos"] = len(hits)
+            observed["creators"] = len({h.channel_id for h in hits})
             enrich_one(
                 conn, client, api_key, match, quota=quota, ceiling=ceiling,
                 run=run_id, extract_fn=extract_fn, trial=trial,
@@ -623,7 +874,7 @@ def main(argv: list[str] | None = None) -> int:
 
         gains = enrich_cohort(
             conn, states, run_one=run_one, limit=args.limit,
-            ledger_spend=ledger_spend,
+            ledger_spend=ledger_spend, last_run=observed,
         )
 
         corpus_after = snapshot(conn)
