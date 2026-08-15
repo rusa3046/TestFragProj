@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -91,9 +92,14 @@ class ArmResult:
 
     case: FuzzyCase
     retrieved: list[str] = field(default_factory=list)
+    #: Relevant *labels* that were found. The recall numerator.
     hits: list[str] = field(default_factory=list)
     misses: list[str] = field(default_factory=list)
     forbidden_hits: list[str] = field(default_factory=list)
+    #: Retrieved *results* that matched some relevant label. The precision
+    #: numerator, and a different number: one result can satisfy two
+    #: labels, and counting labels over results gave precision above 1.0.
+    relevant_results: list[str] = field(default_factory=list)
 
     @property
     def recall(self) -> float:
@@ -101,7 +107,11 @@ class ArmResult:
 
     @property
     def precision(self) -> float:
-        return len(self.hits) / len(self.retrieved) if self.retrieved else 0.0
+        return (
+            len(self.relevant_results) / len(self.retrieved)
+            if self.retrieved
+            else 0.0
+        )
 
 
 @dataclass
@@ -162,15 +172,26 @@ def descriptor_vocabulary(conn: psycopg.Connection) -> list[str]:
     return sorted({r["value"] for r in rows if r["value"]})
 
 
-def _contains(retrieved: list[str], term: str) -> bool:
-    """Whether a hand-listed term was found.
+def _matches_label(candidate: str, term: str) -> bool:
+    """Whether one retrieved descriptor satisfies one hand-listed term.
 
-    Substring, because the corpus writes "coffee note" and "rosy-fruity"
-    for what a person listing relevant terms writes as "coffee" and
-    "rosy". Requiring equality would score every arm against the
-    normaliser rather than against retrieval.
+    Word-boundary rather than bare substring. The corpus writes "coffee
+    note" and "rosy-fruity" for what a reviewer lists as "coffee" and
+    "rosy", so equality would score the normaliser rather than retrieval —
+    but a bare substring also credits "rosewood" for "rose" and
+    "lightweight" for "light", which inflates every arm and inflates the
+    one with the noisiest vocabulary most.
     """
-    return any(term in candidate for candidate in retrieved)
+    words = re.split(r"[^a-z0-9]+", candidate.lower())
+    target = term.lower().strip()
+    if " " in target or "-" in target:
+        return target in candidate.lower()
+    return target in words
+
+
+def _contains(retrieved: list[str], term: str) -> bool:
+    """Whether a hand-listed term was found anywhere in the results."""
+    return any(_matches_label(candidate, term) for candidate in retrieved)
 
 
 def run_arm(
@@ -200,6 +221,11 @@ def run_arm(
         result.misses = [t for t in case.relevant if not _contains(retrieved, t)]
         result.forbidden_hits = [
             t for t in case.forbidden if _contains(retrieved, t)
+        ]
+        result.relevant_results = [
+            candidate
+            for candidate in retrieved
+            if any(_matches_label(candidate, term) for term in case.relevant)
         ]
         report.results.append(result)
     return report

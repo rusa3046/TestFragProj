@@ -291,11 +291,25 @@ class OpenAIEmbeddings:
     api_key: str = ""
     model: str = "text-embedding-3-small"
     dim: int = 1536
+    #: **Required.** Not optional, because an optional spend hook is a
+    #: spend hook somebody forgets: `OpenAIEmbeddings(api_key=k).embed(x)`
+    #: used to make a real paid call and record nothing. That is the
+    #: fourth escape of this exact class — after a path-resolution one, a
+    #: record-without-raise one, and an eval module nobody checked — and
+    #: the pattern is always that the cap held everywhere it was applied.
     on_spend: object = None
 
     @property
     def name(self) -> str:
         return f"openai:{self.model}"
+
+    def __post_init__(self) -> None:
+        if self.on_spend is None:
+            raise ValueError(
+                "OpenAIEmbeddings needs an on_spend callback: every paid "
+                "model call charges the daily ledger. Pass "
+                "budget.guard('embeddings')."
+            )
 
     def embed(self, text: str) -> list[float]:
         import json as _json
@@ -319,9 +333,11 @@ class OpenAIEmbeddings:
         )
         with urllib.request.urlopen(request, timeout=30) as response:
             body = _json.loads(response.read())
-        if self.on_spend is not None:
-            tokens = body.get("usage", {}).get("total_tokens", 0)
-            self.on_spend(tokens / 1_000_000 * 0.02, 1)
+        # Charged from the provider's own usage figure rather than an
+        # estimate. The caller's projection is a pre-flight check; this is
+        # what actually happened.
+        tokens = body.get("usage", {}).get("total_tokens", 0)
+        self.on_spend(tokens / 1_000_000 * 0.02, 1)
         return body["data"][0]["embedding"]
 
 
