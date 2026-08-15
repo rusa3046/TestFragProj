@@ -61,7 +61,25 @@ log = logging.getLogger("fragrance_graph.budget")
 #: Catalogue lookups bill through this ledger too, at a flat
 #: $0.05 per request, and at that price they dominated:
 #: 20 lookups cost as much as 2,000 comments of extraction.
-DAILY_CAP_USD = 1.00
+#:
+#: **Raised from $1.00 to $1.50 on 2026-08-15**, authorized for the
+#: attribute-enrichment experiment. Three things this change is not:
+#:
+#: - It is not a reset. The ledger is untouched and the $1.1104 already
+#:   spent on 2026-08-15 counts against the new figure, leaving $0.3896
+#:   for that day. Raising a ceiling and clearing the meter are different
+#:   acts, and only the first was authorized.
+#: - It is not an exemption. Every paid path still charges the same
+#:   ledger through `Budget.guard`, and the experiment is refused at
+#:   $1.50 exactly as it was at $1.00.
+#: - It is not a precedent for raising it again. The number is a
+#:   configured ceiling, and moving it is a decision a person makes.
+#:
+#: A cap raised by editing this constant stays testable, because every
+#: enforcement path reads it. A cap raised by special-casing a caller
+#: would not, which is the whole reason the change is here rather than in
+#: the experiment.
+DAILY_CAP_USD = 1.50
 
 def _repo_root() -> Path:
     """The directory holding pyproject.toml, found from this file.

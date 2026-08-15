@@ -41,14 +41,18 @@ def test_spend_accumulates_across_processes(ledger):
     the database resets each time and "$1 per day" quietly becomes "$1 per
     run" — useless exactly when something is looping.
     """
+    # Expressed against the configured ceiling rather than a hardcoded
+    # 0.60/0.40, so raising the cap does not silently turn this into a
+    # test of arithmetic that no longer applies.
+    most_of_it = DAILY_CAP_USD * 0.6
     first = Budget.load(ledger, today="2026-08-11")
-    first.record(0.60, "extract")
+    first.record(most_of_it, "extract")
 
     second = Budget.load(ledger, today="2026-08-11")
-    assert second.spent_usd == pytest.approx(0.60)
-    assert second.remaining_usd == pytest.approx(0.40)
+    assert second.spent_usd == pytest.approx(most_of_it)
+    assert second.remaining_usd == pytest.approx(DAILY_CAP_USD - most_of_it)
     with pytest.raises(BudgetExhausted):
-        second.check(0.50)
+        second.check(DAILY_CAP_USD * 0.5)
 
 
 def test_yesterdays_spend_does_not_count_against_today(ledger):
@@ -202,3 +206,111 @@ class TestEveryPaidPathIsGuarded:
             assert "on_spend" in path.read_text(), (
                 f"{name} has no spend hook"
             )
+
+
+class TestTheConfiguredCeiling:
+    """Raised from $1.00 to $1.50 on 2026-08-15.
+
+    The change had to be a *configuration* change rather than an exemption
+    for the experiment that wanted it, and these pin the difference. A cap
+    raised by editing the constant stays enforced everywhere and stays
+    testable; a cap raised by special-casing a caller is neither.
+    """
+
+    def test_the_configured_ceiling_is_the_authorized_figure(self):
+        assert DAILY_CAP_USD == pytest.approx(1.50)
+
+    def test_it_is_enforced_at_the_new_figure(self, ledger):
+        budget = Budget.load(ledger, today="2026-08-16")
+        budget.record(1.49, "extract")
+        budget.check(0.005)
+        with pytest.raises(BudgetExhausted):
+            budget.check(0.02)
+
+    def test_spend_already_on_the_ledger_counts_against_it(self, ledger):
+        """The authorization was to raise the ceiling, not to clear the
+        meter. $1.1104 already spent leaves $0.3896, not $1.50."""
+        Budget.load(ledger, today="2026-08-15").record(1.1104, "earlier-run")
+        after = Budget.load(ledger, today="2026-08-15")
+        assert after.spent_usd == pytest.approx(1.1104)
+        assert after.remaining_usd == pytest.approx(0.3896)
+
+    def test_raising_the_ceiling_does_not_reset_the_ledger(self, ledger):
+        """Simulated directly: the same ledger read under two ceilings has
+        the same spend and only a different remainder."""
+        Budget.load(ledger, today="2026-08-16").record(1.10, "extract")
+        low = Budget.load(ledger, cap_usd=1.00, today="2026-08-16")
+        high = Budget.load(ledger, cap_usd=1.50, today="2026-08-16")
+        assert low.spent_usd == high.spent_usd == pytest.approx(1.10)
+        assert low.remaining_usd == pytest.approx(0.0)
+        assert high.remaining_usd == pytest.approx(0.40)
+
+    def test_exceeding_the_new_ceiling_is_refused_by_the_guard(self, ledger):
+        """Not only by `check`. `guard` is what stops a run mid-batch, and
+        it is the path every paid caller actually uses."""
+        budget = Budget.load(ledger, today="2026-08-16")
+        charge = budget.guard("extract")
+        charge(1.40, 1000)
+        with pytest.raises(BudgetExhausted):
+            charge(0.20, 200)
+        assert budget.spent_usd == pytest.approx(1.60), (
+            "the overshooting batch is still recorded; the ledger records "
+            "what was spent, not what was permitted"
+        )
+
+    def test_yesterdays_spend_still_does_not_carry_over(self, ledger):
+        Budget.load(ledger, today="2026-08-15").record(1.49, "extract")
+        assert Budget.load(
+            ledger, today="2026-08-16"
+        ).remaining_usd == pytest.approx(DAILY_CAP_USD)
+
+
+class TestEveryPaidPathStillUsesTheSameGuard:
+    """The invariant the cap change must not disturb: every paid path ->
+    the same guarded ledger -> one configured ceiling."""
+
+    PAID_MODULES = (
+        "extract/llm.py",
+        "frontier.py",
+        "daily.py",
+        "evals/autolabel.py",
+    )
+
+    def test_each_paid_module_charges_through_the_guard(self):
+        import pathlib
+
+        for name in self.PAID_MODULES:
+            text = (pathlib.Path("src/fragrance_graph") / name).read_text()
+            assert "on_spend" in text, f"{name} has no spend hook"
+
+    def test_none_of_them_hardcodes_a_ceiling(self):
+        """A module carrying its own number is a module that keeps the old
+        one after a configuration change."""
+        import pathlib
+        import re
+
+        for name in (*self.PAID_MODULES, "experiments/attribute_gain.py"):
+            text = (pathlib.Path("src/fragrance_graph") / name).read_text()
+            assert not re.search(r"cap_usd\s*=\s*[0-9]", text), (
+                f"{name} hardcodes a cap"
+            )
+
+    def test_the_paid_embedder_still_requires_a_hook(self):
+        from fragrance_graph.semantic import OpenAIEmbeddings
+
+        with pytest.raises(ValueError, match="on_spend"):
+            OpenAIEmbeddings(api_key="k")
+
+    def test_the_scheduler_still_cannot_charge_anything(self):
+        import ast
+        import pathlib
+
+        import fragrance_graph.scheduler as module
+
+        tree = ast.parse(pathlib.Path(module.__file__).read_text())
+        called = {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assert "guard" not in called and "record" not in called
