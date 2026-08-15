@@ -219,9 +219,22 @@ def backfill(
                     AND cl.polarity = 'ASSERTED'
                     AND cl.evidence_verified = 1
                     AND cl.claim_type = ANY(%(types)s)
+                    -- The same length cap the insert applies. Without it a
+                    -- database updated incrementally kept 18 rows a clean
+                    -- rebuild does not produce, so the two disagreed about
+                    -- what was retrievable — a reproducibility failure that
+                    -- only shows up when somebody rebuilds.
+                    AND array_length(
+                          regexp_split_to_array(trim(cl.raw_object_text), %(sep)s), 1
+                        ) <= %(max_words)s
                )
         """,
-        {"model": embedder.name, "types": list(DESCRIPTIVE_TYPES)},
+        {
+            "model": embedder.name,
+            "types": list(DESCRIPTIVE_TYPES),
+            "sep": r"\s+",
+            "max_words": MAX_DESCRIPTOR_WORDS,
+        },
     ).rowcount
     conn.commit()
     log.info(

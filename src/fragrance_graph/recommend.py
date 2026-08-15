@@ -115,13 +115,28 @@ class Reason:
             return self.text
         if self.strength is Strength.CANONICAL:
             return f"{self.text} (official listing)"
+        # Inference is disclosed in *every* branch. It used to be handled
+        # only where the evidence was too weak to declare, so a contested
+        # or well-supported fact whose counts included machine-attributed
+        # contributors read as "14 people say so" with nothing to say some
+        # of the fourteen never named the bottle. Found by the audit in
+        # `audit.py`, which is the seventh instance of a rule holding in
+        # one branch and not its neighbours.
+        inferred_note = (
+            ", some inferred from the video rather than named"
+            if self.inferred
+            else ""
+        )
         if self.against:
             return (
                 f"{self.text} — {_people(self.people)} say so and "
-                f"{self.against} disagree"
+                f"{self.against} disagree{inferred_note}"
             )
         if self.declarable:
-            return f"{self.text} — {_people(self.people)} across {_sources(self.creators)}"
+            return (
+                f"{self.text} — {_people(self.people)} across "
+                f"{_sources(self.creators)}{inferred_note}"
+            )
         if self.inferred:
             # Disclosure is not conditional on the head count. Three
             # inferred contributors phrased as "3 people said" hides

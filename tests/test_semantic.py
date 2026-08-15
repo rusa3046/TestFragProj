@@ -266,3 +266,22 @@ class TestCodexPhase5Findings:
         assert hits, "the wiring must actually produce a semantic reason"
         assert all(h.strength is Strength.OBSERVED for h in hits)
         assert all(not h.declarable for h in hits)
+
+    def test_a_rebuild_and_an_update_agree_on_what_is_embedded(self, conn):
+        """Found by the phase-9 rebuild. The stale-row delete did not apply
+        the six-word cap the insert does, so a database updated
+        incrementally kept 18 rows a clean rebuild never produces — the two
+        disagreed about what was retrievable, which only shows up when
+        somebody rebuilds."""
+        frag = add_fragrance(conn, "Parfums de Marly Delina")
+        descriptor(conn, 1, frag=frag, value="roses")
+        backfill(conn)
+        conn.execute(
+            "UPDATE claims SET raw_object_text = %s",
+            ("a very long personal memory about a ski lodge in winter",),
+        )
+        conn.commit()
+        backfill(conn)
+        assert conn.execute(
+            "SELECT count(*) FROM evidence_embeddings"
+        ).fetchone()[0] == 0
