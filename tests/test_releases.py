@@ -54,10 +54,11 @@ def searcher(*channels):
     return search
 
 
-def claim_about(conn, i, frag, value="rose"):
+def claim_about(conn, i, frag, value="rose", channel="fragrance"):
     body = f"comment {i}: {value}"
-    ingest(conn, [make_comment(i, body=body, raw_json=json.dumps(
-        {"author": f"p{i}", "videoId": "v1"}))])
+    ingest(conn, [make_comment(i, body=body, source_channel=channel,
+                               raw_json=json.dumps(
+                                   {"author": f"p{i}", "videoId": "v1"}))])
     cid = conn.execute(
         "SELECT id FROM comments WHERE source_id = %s", (f"t1_fake{i:05d}",)
     ).fetchone()[0]
@@ -354,9 +355,10 @@ class TestTheLifecycleEndToEnd:
         probe(conn, searcher(*channels), now="2030-01-01T00:00:00+00:00")
         assert status() == Status.ENRICHABLE
 
-        # 6. Enrichment runs and claims attach.
+        # 6. Enrichment runs and claims attach, from separate creators —
+        #    EVIDENCED holds the same independence bar readiness does.
         for i in range(3):
-            claim_about(conn, i, frag, value="dates")
+            claim_about(conn, i, frag, value="dates", channel=f"chan_{i}")
         assert mark_evidenced(conn) == 1
         assert status() == Status.EVIDENCED
 
@@ -390,3 +392,74 @@ class TestTheLifecycleEndToEnd:
             assert "fixture" not in body.lower(), (
                 f"{name} special-cases the fixture source"
             )
+
+
+class TestCodexPhase6ReleaseFindings:
+    """Two P2s from the 2026-08-15 review, both confirmed."""
+
+    def test_a_concentration_suffix_is_not_a_new_product(self, conn, fixture_file):
+        """`best_match` compares whole strings, so "Khamrah Rouge" against
+        "Khamrah Rouge EDP" can fall below the fuzzy threshold and quietly
+        create a duplicate. Every count the launch earns then splits."""
+        source = fixture_file(
+            {"source_id": "rss-1", "name": "Khamrah Rouge", "brand": "Lattafa",
+             "announced_at": "2026-08-01"},
+            {"source_id": "shop-2", "name": "Khamrah Rouge Eau de Parfum",
+             "brand": "Lattafa", "announced_at": "2026-08-02"},
+        )
+        discover(conn, source)
+        verify(conn)
+        assert conn.execute("SELECT count(*) FROM fragrances").fetchone()[0] == 1
+        ids = {
+            row["fragrance_id"]
+            for row in conn.execute("SELECT fragrance_id FROM release_candidates")
+        }
+        assert len(ids) == 1
+
+    def test_a_real_flanker_is_still_its_own_product(self, conn, fixture_file):
+        """The fix must not merge bottles that genuinely smell different.
+        "Elixir" and "Intense" name real flankers and are deliberately not
+        treated as concentration words."""
+        source = fixture_file(
+            {"source_id": "rss-1", "name": "Khamrah", "brand": "Lattafa",
+             "announced_at": "2026-08-01"},
+            {"source_id": "rss-2", "name": "Khamrah Elixir", "brand": "Lattafa",
+             "announced_at": "2026-08-02"},
+        )
+        discover(conn, source)
+        verify(conn)
+        assert conn.execute("SELECT count(*) FROM fragrances").fetchone()[0] == 2
+
+    def test_one_stray_claim_does_not_make_a_release_evidenced(
+        self, conn, fixture_file
+    ):
+        """A row could jump CATALOGED -> EVIDENCED on a single claim, which
+        made the status useless as proof the readiness gate ever ran."""
+        source = fixture_file({
+            "source_id": "rss-1", "name": "Khamrah Rouge", "brand": "Lattafa",
+            "announced_at": "2026-08-01",
+        })
+        discover(conn, source)
+        verify(conn)
+        frag = conn.execute(
+            "SELECT fragrance_id FROM release_candidates"
+        ).fetchone()[0]
+        claim_about(conn, 1, frag)
+        assert mark_evidenced(conn) == 0
+        assert conn.execute(
+            "SELECT status FROM release_candidates"
+        ).fetchone()[0] == Status.CATALOGED
+
+    def test_claims_from_enough_creators_do(self, conn, fixture_file):
+        source = fixture_file({
+            "source_id": "rss-1", "name": "Khamrah Rouge", "brand": "Lattafa",
+            "announced_at": "2026-08-01",
+        })
+        discover(conn, source)
+        verify(conn)
+        frag = conn.execute(
+            "SELECT fragrance_id FROM release_candidates"
+        ).fetchone()[0]
+        for i in range(READY_CREATORS):
+            claim_about(conn, i, frag, channel=f"chan_{i}")
+        assert mark_evidenced(conn) == 1

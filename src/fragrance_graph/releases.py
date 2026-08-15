@@ -267,6 +267,54 @@ class VerifyStats:
         )
 
 
+#: Words that name a *concentration*, not a different perfume. "Khamrah
+#: Rouge" and "Khamrah Rouge EDP" are one bottle announced twice; letting
+#: the second create its own row splits every count the launch will ever
+#: earn. Kept apart from `HARMLESS_SUFFIX` in `attributes` because that
+#: list guards the opposite mistake — merging a genuine flanker into its
+#: base.
+CONCENTRATION_WORDS = frozenset({
+    "edp", "edt", "edc", "parfum", "extrait", "eau", "de", "toilette",
+    "cologne", "spray",
+})
+
+
+def _identity(name: str) -> str:
+    """A name reduced to what makes it a distinct product.
+
+    Concentration words come off; everything else stays. "Elixir" and
+    "Intense" deliberately do *not* come off — those name real flankers
+    that smell different, and stripping them would merge bottles the
+    corpus works hard to keep apart.
+    """
+    import re as _re
+
+    words = [
+        w
+        for w in _re.findall(r"[a-z0-9]+", name.lower())
+        if w not in CONCENTRATION_WORDS
+    ]
+    return " ".join(words)
+
+
+def _existing_by_identity(conn: psycopg.Connection, full_name: str) -> int | None:
+    """A catalogue row naming the same product, ignoring concentration.
+
+    A second line of defence behind `best_match`. Fuzzy matching compares
+    whole strings, so "Khamrah Rouge" against "Khamrah Rouge EDP" can fall
+    below the threshold and quietly create a duplicate — and the release
+    table has no uniqueness constraint on resolved product identity to
+    catch it.
+    """
+    wanted = _identity(full_name)
+    if not wanted:
+        return None
+    for row in conn.execute("SELECT id, canonical_name FROM fragrances"):
+        if _identity(row["canonical_name"]) == wanted:
+            return row["id"]
+    return None
+
+
 def _catalogue(conn: psycopg.Connection):
     from fragrance_graph.resolve.entities import load_candidates
 
@@ -327,6 +375,19 @@ def verify(conn: psycopg.Connection, *, dry_run: bool = False) -> VerifyStats:
                     "UPDATE release_candidates SET status_reason = %s"
                     " WHERE id = %s",
                     ("no brand given; cannot tell which product this is",
+                     row["id"]),
+                )
+            continue
+
+        twin = _existing_by_identity(conn, full_name)
+        if twin is not None:
+            stats.verified += 1
+            stats.merged += 1
+            if not dry_run:
+                conn.execute(
+                    "UPDATE release_candidates SET status = 'CATALOGED',"
+                    " fragrance_id = %s, status_reason = %s WHERE id = %s",
+                    (twin, "same product, different concentration wording",
                      row["id"]),
                 )
             continue
@@ -436,20 +497,30 @@ def mark_evidenced(conn: psycopg.Connection) -> int:
     — which is the same boundary the rest of the file keeps, stated once
     more at the only point where the two tables meet.
     """
+    # EVIDENCED means the bottle carries evidence the rest of the system
+    # would take seriously — the same independent-creator bar readiness
+    # uses. One stray claim used to be enough, which let a row jump
+    # straight from CATALOGED to EVIDENCED and made the status useless as
+    # proof that the readiness gate ever ran.
     updated = conn.execute(
         """
         UPDATE release_candidates rc
            SET status = 'EVIDENCED',
-               status_reason = 'community claims are attached to it'
+               status_reason = 'community claims from '
+                               || %(needed)s || '+ creators are attached'
          WHERE rc.status IN ('ENRICHABLE', 'WAITING_FOR_DISCUSSION', 'CATALOGED')
            AND rc.fragrance_id IS NOT NULL
-           AND EXISTS (
-                 SELECT 1 FROM claims c
+           AND (
+                 SELECT count(DISTINCT co.source_channel)
+                   FROM claims c
+                   JOIN comments co ON co.id = c.comment_id
                   WHERE c.subject_frag_id = rc.fragrance_id
                     AND c.polarity = 'ASSERTED'
                     AND c.evidence_verified = 1
-               )
-        """
+                    AND co.source_channel <> ''
+               ) >= %(needed)s
+        """,
+        {"needed": READY_CREATORS},
     ).rowcount
     conn.commit()
     return updated

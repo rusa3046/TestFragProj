@@ -478,5 +478,89 @@ class TestAComparativeIsNotAnAvoidance:
         pref = Preference("note", "vanilla", Direction.MORE_THAN_ANCHOR)
         from fragrance_graph.evidence import attribute_facts
 
-        assert _prominence(attribute_facts(conn, fragrance_id=other), pref) == 4
-        assert _prominence(attribute_facts(conn, fragrance_id=anchor), pref) == 1
+        assert _prominence(
+            attribute_facts(conn, fragrance_id=other), pref
+        ).people == 4
+        assert _prominence(
+            attribute_facts(conn, fragrance_id=anchor), pref
+        ).people == 1
+
+
+class TestCodexPhase6ComparativeFindings:
+    """Two P1s from the 2026-08-15 release review, both confirmed.
+
+    The independence rule held everywhere except the one path that
+    produces a comparative sentence.
+    """
+
+    def _pair(self, conn):
+        anchor = add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
+        return anchor, add_fragrance(conn, "Lattafa Khamrah")
+
+    def test_a_disputed_baseline_cannot_ground_a_comparison(self, conn):
+        """3 say Delina is rosy, 10 say it is not. "Less rose than Delina"
+        has no agreed left-hand side, and the dissenters were vanishing
+        from both the arithmetic and the sentence."""
+        anchor, other = self._pair(conn)
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            note(conn, i, frag=anchor, value="rose", author=author,
+                 channel=f"c{i}")
+        for i, author in enumerate([f"q{n}" for n in range(10)], start=20):
+            note(conn, i, frag=anchor, value="rose", author=author,
+                 channel=f"d{i}")
+            conn.execute(
+                "UPDATE claims SET polarity = 'DENIED' "
+                "WHERE id = (SELECT max(id) FROM claims)"
+            )
+        conn.commit()
+        note(conn, 60, frag=other, value="rose", author="z1")
+        note(conn, 61, frag=other, value="dates", author="z2")
+
+        results = recommend(
+            conn, "i love Delina but the rose is too strong"
+        ).results
+        for result in results:
+            assert not any(
+                r.kind == "comparative" and "less rose" in r.text
+                for r in result.reasons
+            )
+
+    def test_one_creators_audience_cannot_establish_a_difference(self, conn):
+        """Three commenters in one channel is one room, everywhere else in
+        this system. It was establishing "less rose" and earning a ranking
+        bonus for it."""
+        anchor, other = self._pair(conn)
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            note(conn, i, frag=anchor, value="rose", author=author,
+                 channel="one_room")
+        note(conn, 60, frag=other, value="rose", author="z1")
+        note(conn, 61, frag=other, value="dates", author="z2")
+
+        results = recommend(
+            conn, "i love Delina but the rose is too strong"
+        ).results
+        for result in results:
+            assert not any(r.kind == "comparative" for r in result.reasons)
+        khamrah = [r for r in results if r.name == "Lattafa Khamrah"]
+        if khamrah:
+            assert any("no usable baseline" in u for u in khamrah[0].unmatched)
+
+    def test_a_properly_independent_baseline_still_works(self, conn):
+        """The fix must not disable comparatives, only unfounded ones."""
+        anchor, other = self._pair(conn)
+        for i, author in enumerate(["p1", "p2", "p3", "p4", "p5"]):
+            note(conn, i, frag=anchor, value="rose", author=author,
+                 channel=f"c{i}")
+        note(conn, 60, frag=other, value="rose", author="z1")
+        note(conn, 61, frag=other, value="dates", author="z2")
+
+        (result,) = [
+            r for r in recommend(
+                conn, "i love Delina but the rose is too strong"
+            ).results if r.name == "Lattafa Khamrah"
+        ]
+        (comparative,) = [r for r in result.reasons if r.kind == "comparative"]
+        assert "less rose" in comparative.text
+        assert "across 5 channels" in comparative.text, (
+            "and the sentence shows the baseline's independence"
+        )

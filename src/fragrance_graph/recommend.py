@@ -659,6 +659,16 @@ def _score_comparative(
             "baseline to compare against"
         )
         return
+    if not anchor_level.usable_as_baseline:
+        why = (
+            "people disagree about it"
+            if anchor_level.contested
+            else f"the evidence comes from {_sources(anchor_level.creators)}"
+        )
+        result.unmatched.append(
+            f"{preference.value} vs {plan.anchor}: no usable baseline — {why}"
+        )
+        return
     if candidate_level is None:
         # Absence is not a low score. Nobody having mentioned rose here is
         # not evidence there is less of it, so this neither helps nor
@@ -669,8 +679,22 @@ def _score_comparative(
         )
         return
 
+    if candidate_level.contested:
+        result.caveats.append(
+            Reason(
+                kind="comparative",
+                text=(
+                    f"{preference.value}: people disagree about this bottle, "
+                    "so it cannot be compared"
+                ),
+                strength=Strength.CONTESTED,
+                people=candidate_level.people,
+            )
+        )
+        return
+
     wants_less = preference.direction is Direction.LESS_THAN_ANCHOR
-    difference = anchor_level - candidate_level
+    difference = anchor_level.people - candidate_level.people
     if not wants_less:
         difference = -difference
     if difference < COMPARATIVE_MARGIN:
@@ -678,12 +702,12 @@ def _score_comparative(
             Reason(
                 kind="comparative",
                 text=(
-                    f"{preference.value}: {_people(candidate_level)} here "
-                    f"against {_people(anchor_level)} for {plan.anchor} — "
-                    "not a clear difference"
+                    f"{preference.value}: {_people(candidate_level.people)} "
+                    f"here against {_people(anchor_level.people)} for "
+                    f"{plan.anchor} — not a clear difference"
                 ),
                 strength=Strength.OBSERVED,
-                people=candidate_level,
+                people=candidate_level.people,
             )
         )
         result.score -= 1.0
@@ -694,32 +718,68 @@ def _score_comparative(
             kind="comparative",
             text=(
                 f"{'less' if wants_less else 'more'} {preference.value} than "
-                f"{plan.anchor}: {_people(candidate_level)} here against "
-                f"{_people(anchor_level)} there"
+                f"{plan.anchor}: {_people(candidate_level.people)} here "
+                f"against {_people(anchor_level.people)} across "
+                f"{_sources(anchor_level.creators)} there"
             ),
             strength=Strength.OBSERVED,
-            people=max(candidate_level, 1),
+            people=max(candidate_level.people, 1),
         )
     )
     result.score += 2.0
 
 
+@dataclass(frozen=True)
+class Level:
+    """How prominent something is for one bottle, and whether that is
+    solid enough to compare with."""
+
+    people: int
+    creators: int
+    contested: bool
+
+    @property
+    def usable_as_baseline(self) -> bool:
+        """A baseline has to be at least as well established as anything
+        else this system states.
+
+        Two ways it fails. A **contested** fact cannot ground a comparison:
+        if three people say Delina is rosy and ten say it is not, "less
+        rose than Delina" has no agreed left-hand side, and the ten
+        dissenters vanish from both the arithmetic and the sentence.
+
+        A fact confined to **one creator's audience** cannot either. The
+        whole system treats one channel as one room, and letting that room
+        establish a directional difference — while handing the result a
+        ranking bonus — is the independence rule holding everywhere except
+        the one place that produces a comparative sentence.
+        """
+        return not self.contested and self.creators >= MIN_SOURCES
+
+
 def _prominence(
     facts: list[AttributeFact], preference: Preference
-) -> int | None:
-    """How many people said this bottle has the thing, or None if nobody
-    has spoken either way.
+) -> Level | None:
+    """How prominent this quality is for one bottle, or None if nobody has
+    spoken either way.
 
     Head count stands in for prominence. It is a proxy and a coarse one —
     ten people mentioning rose means rose is noticeable, not that it
     dominates — and it is the only one this corpus supports, because
     nobody records intensity. Stated rather than dressed up as a measure.
+
+    Opposing evidence is carried rather than dropped, because a comparison
+    built on a disputed premise is worse than no comparison.
     """
     for fact in facts:
         if fact.from_name:
             continue
         if _matches(fact, preference.attribute, preference.value):
-            return fact.supporting.people
+            return Level(
+                people=fact.supporting.people,
+                creators=fact.supporting.creators,
+                contested=fact.strength is Strength.CONTESTED,
+            )
     return None
 
 
