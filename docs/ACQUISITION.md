@@ -197,3 +197,29 @@ attribute facts rest on one person and 116 attribute values exist on
 exactly one bottle.** Every failing product question traces to that, and
 only strategy B can address it — which is why it is worth $1.70 to learn
 whether it does.
+
+## Technical debt, carried deliberately
+
+**The budget ledger has a cross-process race.** Each process reads the
+ledger at start, so two paid workers running concurrently can each believe
+the full remainder is theirs and together exceed the ceiling. Demonstrated
+by `tests/test_budget.py:TestTheKnownConcurrencyGap`, which shows $1.80
+charged against a $1.50 cap.
+
+The ledger itself stays accurate — every batch is recorded — so the
+overspend is visible after the fact rather than hidden. But the cap is
+per-process, not per-day, whenever runs overlap.
+
+**Do not run concurrent paid workers.** Every experiment so far has been
+sequential, which is why the cap has held since the guard was fixed.
+
+Before unattended scheduling is enabled in production, this needs an
+atomic reservation: lock the ledger file, re-read, check, append, release
+— and a test that runs two real processes against one ledger and asserts
+the second is refused. That is a change to the enforcement mechanism
+rather than to a caller, which is why it was not done during an experiment
+that depends on the mechanism holding still.
+
+The funnel instrumentation relies on the same assumption: it takes
+autoincrement high-water marks and attributes everything above them to the
+bottle being run, which is exact only while nothing else writes.
