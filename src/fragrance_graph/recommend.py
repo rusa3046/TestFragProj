@@ -558,12 +558,27 @@ def _note(
 ) -> str:
     if candidates:
         weak = [r for r in candidates if not r.declarable_reasons]
-        if len(weak) == len(candidates):
+        if len(weak) != len(candidates):
+            return ""
+        # "No declarable reason" is not "one person". Nine people in a
+        # single creator's comment section fail the independence bar while
+        # being nine people, and the note used to call that a single
+        # observation — contradicting the result printed directly beneath
+        # it, which honestly said "9 people across 1 channel".
+        lone = all(
+            max((x.people for x in c.reasons + c.caveats), default=0) <= 1
+            for c in candidates
+        )
+        if lone:
             return (
-                "Every match below rests on single observations. They are "
-                "worth looking at, not worth trusting as consensus."
+                "Every match below rests on a single person's remark. They "
+                "are worth looking at, not worth trusting as consensus."
             )
-        return ""
+        return (
+            "No match below clears the independence bar — the evidence is "
+            "there, but not from enough separate creators to call it "
+            "consensus."
+        )
     if plan.hard:
         wanted = ", ".join(f"{c.attribute}={c.value}" for c in plan.hard)
         return (

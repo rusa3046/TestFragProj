@@ -86,6 +86,31 @@ DISCLOSED_COUNTS = re.compile(
 )
 
 
+#: Phrases that claim more agreement than any note is entitled to. The
+#: note is prose about the answer as a whole rather than about one fact, so
+#: it cannot be checked against a strength the way a `Reason` can. What it
+#: *can* be checked for is overclaiming.
+#:
+#: The first version of this check ran the opposite way — it demanded that
+#: any note mentioning evidence disclose counts — and flagged twelve
+#: honest caveats, including "no match below clears the independence bar",
+#: which is the system being careful. A caveat is not an assertion.
+OVERCLAIMS = (
+    "the community agrees",
+    "everyone agrees",
+    "most people say",
+    "widely regarded",
+    "consensus is that",
+    "it is known",
+    "generally accepted",
+)
+
+
+def _asserts(note: str) -> bool:
+    lowered = note.lower()
+    return any(phrase in lowered for phrase in OVERCLAIMS)
+
+
 def discloses(phrase: str) -> bool:
     return any(h in phrase for h in HEDGES) or bool(DISCLOSED_COUNTS.search(phrase))
 
@@ -102,6 +127,12 @@ class Case:
     answerable: bool
     other: str | None = None
     note: str | None = None
+    #: Smallest number of people any returned result must rest on. Guards
+    #: cases that "pass" merely because something came back.
+    min_people: int = 0
+    #: True when the case is about disagreement and an answer with no
+    #: contested evidence has not actually answered it.
+    expect_caveats: bool = False
 
 
 @dataclass
@@ -151,6 +182,31 @@ def _soft_key(attribute: str, value: str, direction: str) -> tuple[str, str, str
     return (attribute, value, direction)
 
 
+def unmet_constraints(candidate, hard) -> list[str]:
+    """Requirements a returned candidate cannot show evidence for.
+
+    Re-derived from the candidate's own cited reasons rather than read from
+    `candidate.matched`, which `recommend._score` writes itself immediately
+    after filtering. Trusting that string let the recommender certify its
+    own work: a regression in `_satisfies_hard` would have shown up as zero
+    violations, because the same code that made the mistake also wrote the
+    receipt.
+    """
+    problems = []
+    for constraint in hard:
+        cited = any(
+            constraint.value == reason.text
+            or constraint.value in reason.text.split()
+            for reason in candidate.reasons
+        )
+        if not cited:
+            problems.append(
+                f"{candidate.name} returned without evidence for "
+                f"{constraint.attribute}={constraint.value}"
+            )
+    return problems
+
+
 def run_case(conn: psycopg.Connection, case: Case) -> CaseResult:
     result = CaseResult(case=case)
     plan = parse_with_corpus(conn, case.query)
@@ -172,19 +228,33 @@ def run_case(conn: psycopg.Connection, case: Case) -> CaseResult:
     result.results = len(answer.results)
     result.answered = bool(answer.results)
 
+    # The note is published above every result by `Answer.render`, so it is
+    # part of the output and gets the same scrutiny. It used to be exempt.
+    if answer.note and _asserts(answer.note):
+        result.unsupported.append(f"note overclaims: {answer.note}")
+
     for candidate in answer.results:
         for reason in candidate.reasons + candidate.caveats:
             phrase = reason.phrase()
-            if reason.declarable or reason.kind == "graph" and reason.declarable:
+            if reason.declarable:
                 continue
             if not discloses(phrase):
                 result.unsupported.append(f"{candidate.name}: {phrase}")
-        for constraint in plan.hard:
-            if f"{constraint.attribute}={constraint.value}" not in candidate.matched:
-                result.violations.append(
-                    f"{candidate.name} returned without "
-                    f"{constraint.attribute}={constraint.value}"
-                )
+        # Re-derived from the candidate's own evidence rather than read
+        # from `candidate.matched`, which `_score` writes itself. Trusting
+        # that string let the recommender certify its own filtering: a
+        # regression in `_satisfies_hard` would appear as zero violations.
+        result.violations += unmet_constraints(candidate, plan.hard)
+        if candidate.people < case.min_people:
+            result.violations.append(
+                f"{candidate.name} rests on {candidate.people} people, "
+                f"case requires {case.min_people}"
+            )
+
+    if case.expect_caveats and not any(c.caveats for c in answer.results):
+        result.violations.append(
+            "case is about disagreement and the answer contains none"
+        )
 
     result.detail = _detail(result, plan, expected_soft, got_soft)
     return result

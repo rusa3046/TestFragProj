@@ -69,11 +69,17 @@ class TestTheInvariant:
             problem for r in report.results for problem in r.violations
         )
 
-    def test_the_recorded_baseline_holds(self, report):
-        """Recorded 2026-08-15 at 22/22. Ratcheted rather than pinned: this
-        may only go up, and a drop is a regression worth failing on."""
-        passed = sum(1 for r in report.results if r.passed)
-        assert passed >= 22, report.render(failures_only=True)
+    def test_every_case_passes(self, report):
+        """Recorded 2026-08-15 at 22/22.
+
+        Asserted as "all of them" rather than ">= 22". A fixed floor lets a
+        newly added case fail silently forever, which turns growing the
+        benchmark into a way of hiding failures — the opposite of what a
+        benchmark is for. Adding a case that does not pass must break the
+        build until it is fixed or deliberately marked unanswerable.
+        """
+        failed = [r for r in report.results if not r.passed]
+        assert not failed, report.render(failures_only=True)
 
 
 class TestDisclosureCheck:
@@ -90,3 +96,77 @@ class TestDisclosureCheck:
 
     def test_a_bare_adjective_does_not(self):
         assert not discloses("rose")
+
+
+class TestCodexPhase4Findings:
+    """Five findings from the 2026-08-15 harness review, all confirmed."""
+
+    def test_an_overclaiming_note_is_caught(self):
+        """P1. `Answer.note` is printed above every result and was exempt
+        from the primary metric entirely."""
+        from fragrance_graph.evals.recommend import _asserts
+
+        assert _asserts("The community agrees this is a dupe")
+        assert _asserts("Consensus is that it lasts all day")
+
+    def test_an_honest_caveat_is_not_an_overclaim(self):
+        """The first version of this check ran the other way and flagged
+        twelve careful sentences."""
+        from fragrance_graph.evals.recommend import _asserts
+
+        assert not _asserts(
+            "No match below clears the independence bar — the evidence is "
+            "there, but not from enough separate creators."
+        )
+        assert not _asserts("Every match below rests on a single person's remark.")
+
+    def test_a_crowded_single_channel_is_not_called_a_single_observation(self):
+        """P1. `_note` equated 'no declarable reason' with 'one person', so
+        nine people in one creator's section were described as a single
+        observation — contradicting the result printed beneath it."""
+        from fragrance_graph.evidence import Strength
+        from fragrance_graph.plan import QueryPlan
+        from fragrance_graph.recommend import Reason, Recommendation, _note
+
+        candidate = Recommendation(
+            fragrance_id=1,
+            name="X",
+            reasons=[Reason(kind="graph", text="9 people across 1 channel",
+                            strength=Strength.OBSERVED, people=9, creators=1)],
+        )
+        note = _note(QueryPlan(text="q"), [candidate], 0, {})
+        assert "single" not in note
+        assert "independence" in note
+
+    def test_a_forged_match_marker_does_not_certify_itself(self):
+        """P1. The violation check read `candidate.matched`, which `_score`
+        writes immediately after filtering — so the same code that made a
+        mistake also wrote the receipt saying it had not."""
+        from fragrance_graph.evals.recommend import unmet_constraints
+        from fragrance_graph.plan import Constraint
+        from fragrance_graph.recommend import Recommendation
+
+        forged = Recommendation(
+            fragrance_id=1, name="X",
+            matched=["note=raspberry"],   # claims it matched
+            reasons=[],                   # cites nothing
+        )
+        assert unmet_constraints(forged, [Constraint("note", "raspberry")])
+
+    def test_a_genuine_match_passes_the_check(self):
+        from fragrance_graph.evals.recommend import unmet_constraints
+        from fragrance_graph.evidence import Strength
+        from fragrance_graph.plan import Constraint
+        from fragrance_graph.recommend import Reason, Recommendation
+
+        real = Recommendation(
+            fragrance_id=1, name="X", matched=["note=raspberry"],
+            reasons=[Reason(kind="constraint", text="raspberry",
+                            strength=Strength.OBSERVED, people=1)],
+        )
+        assert not unmet_constraints(real, [Constraint("note", "raspberry")])
+
+    def test_the_ratchet_admits_no_new_failures(self, report):
+        """P2. A `>= 22` floor let a newly added case fail forever, turning
+        growing the benchmark into a way of hiding failures."""
+        assert all(r.passed for r in report.results)

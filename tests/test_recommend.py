@@ -110,11 +110,23 @@ class TestWordingMatchesEvidence:
         reason = Reason(kind="prefer", text="rose", strength=Strength.CANONICAL)
         assert "official listing" in reason.phrase()
 
-    def test_a_weak_answer_says_so(self, catalogue):
+    def test_a_one_person_answer_says_it_is_one_person(self, catalogue):
         conn, a, _ = catalogue
         note(conn, 1, frag=a, value="raspberry", author="p1")
         answer = recommend(conn, "a fragrance with raspberry")
-        assert "single observations" in answer.note
+        assert "single person" in answer.note
+
+    def test_several_people_in_one_room_is_not_called_one_person(self, catalogue):
+        """Reworded after the phase-4 review: "no declarable reason" was
+        being described as "single observations", which contradicted a
+        result printed directly beneath saying "3 people across 1 channel"."""
+        conn, a, _ = catalogue
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            note(conn, i, frag=a, value="raspberry", author=author,
+                 channel="one_channel")
+        answer = recommend(conn, "a fragrance with raspberry")
+        assert "single" not in answer.note
+        assert "independence" in answer.note
 
 
 class TestNegativePreferences:
