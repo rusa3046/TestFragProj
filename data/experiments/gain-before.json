@@ -1,0 +1,1785 @@
+{
+  "recorded_at": "2026-08-15T16:52:26+00:00",
+  "bottles": [
+    {
+      "fragrance_id": 56,
+      "name": "Parfums de Marly Layton",
+      "facts": 103,
+      "singleton": 81,
+      "repeated": 22,
+      "supported": 6,
+      "contested": 9,
+      "declarable": 4,
+      "distinct_attributes": 103,
+      "creators": 5,
+      "comments": 163,
+      "singleton_keys": [
+        [
+          "note",
+          "apple"
+        ],
+        [
+          "note",
+          "apple cinnamon pie"
+        ],
+        [
+          "note",
+          "apple vanilla"
+        ],
+        [
+          "note",
+          "babywipes"
+        ],
+        [
+          "note",
+          "bland"
+        ],
+        [
+          "note",
+          "boring"
+        ],
+        [
+          "note",
+          "bug spray"
+        ],
+        [
+          "note",
+          "camphor"
+        ],
+        [
+          "note",
+          "cheap"
+        ],
+        [
+          "note",
+          "chocolate"
+        ],
+        [
+          "note",
+          "clean"
+        ],
+        [
+          "note",
+          "confidence"
+        ],
+        [
+          "note",
+          "cough medicine"
+        ],
+        [
+          "note",
+          "cough syrup"
+        ],
+        [
+          "note",
+          "dentist"
+        ],
+        [
+          "note",
+          "dried fruit"
+        ],
+        [
+          "note",
+          "flavored water"
+        ],
+        [
+          "note",
+          "floral"
+        ],
+        [
+          "note",
+          "foul milk"
+        ],
+        [
+          "note",
+          "fresh"
+        ],
+        [
+          "note",
+          "generic male fragrance"
+        ],
+        [
+          "note",
+          "harsh"
+        ],
+        [
+          "note",
+          "household cleaner type"
+        ],
+        [
+          "note",
+          "jasmine"
+        ],
+        [
+          "note",
+          "juicy fruity"
+        ],
+        [
+          "note",
+          "lipstick or makeup"
+        ],
+        [
+          "note",
+          "manly christmas"
+        ],
+        [
+          "note",
+          "medical liniment rub"
+        ],
+        [
+          "note",
+          "medicinal floral"
+        ],
+        [
+          "note",
+          "medicine"
+        ],
+        [
+          "note",
+          "menthol vick s vapor rub"
+        ],
+        [
+          "note",
+          "mentholated"
+        ],
+        [
+          "note",
+          "outstanding"
+        ],
+        [
+          "note",
+          "peppery"
+        ],
+        [
+          "note",
+          "pink pepper"
+        ],
+        [
+          "note",
+          "pure malt"
+        ],
+        [
+          "note",
+          "rubbish"
+        ],
+        [
+          "note",
+          "shit"
+        ],
+        [
+          "note",
+          "sour mop water"
+        ],
+        [
+          "note",
+          "strong"
+        ],
+        [
+          "note",
+          "strong artificial"
+        ],
+        [
+          "note",
+          "sweet and vanilla"
+        ],
+        [
+          "note",
+          "toffee"
+        ],
+        [
+          "note",
+          "vaporub"
+        ],
+        [
+          "note",
+          "vicks esque"
+        ],
+        [
+          "note",
+          "vicks vaporub"
+        ],
+        [
+          "note",
+          "violet"
+        ],
+        [
+          "note",
+          "warm apple pie filling"
+        ],
+        [
+          "note",
+          "woody"
+        ],
+        [
+          "occasion",
+          "all year round"
+        ],
+        [
+          "occasion",
+          "all year round except for hot summer days"
+        ],
+        [
+          "occasion",
+          "autumn winter"
+        ],
+        [
+          "occasion",
+          "compliments"
+        ],
+        [
+          "occasion",
+          "compliments from women"
+        ],
+        [
+          "occasion",
+          "cooler summer nights"
+        ],
+        [
+          "occasion",
+          "daytime"
+        ],
+        [
+          "occasion",
+          "dinner then to the club"
+        ],
+        [
+          "occasion",
+          "going out"
+        ],
+        [
+          "occasion",
+          "going out in clubs"
+        ],
+        [
+          "occasion",
+          "night out"
+        ],
+        [
+          "occasion",
+          "office"
+        ],
+        [
+          "occasion",
+          "office geting groceries"
+        ],
+        [
+          "occasion",
+          "older gentleman"
+        ],
+        [
+          "occasion",
+          "winter"
+        ],
+        [
+          "occasion",
+          "wrestling tournaments"
+        ],
+        [
+          "vibe",
+          "boring"
+        ],
+        [
+          "vibe",
+          "business man golfing"
+        ],
+        [
+          "vibe",
+          "cozy feel at home fragrance"
+        ],
+        [
+          "vibe",
+          "cuddling up to my big boyfriend at a ski lodge in front of a fire place under red plaid blankets with christmas decorations"
+        ],
+        [
+          "vibe",
+          "extra spicy strong masculine leaning"
+        ],
+        [
+          "vibe",
+          "feminine"
+        ],
+        [
+          "vibe",
+          "good"
+        ],
+        [
+          "vibe",
+          "manly"
+        ],
+        [
+          "vibe",
+          "masculine"
+        ],
+        [
+          "vibe",
+          "masculine female parfum"
+        ],
+        [
+          "vibe",
+          "masterpiece nieshe that is mass appealing"
+        ],
+        [
+          "vibe",
+          "mature"
+        ],
+        [
+          "vibe",
+          "playful"
+        ],
+        [
+          "vibe",
+          "playful and kind of childish"
+        ],
+        [
+          "vibe",
+          "so good"
+        ],
+        [
+          "vibe",
+          "unique"
+        ]
+      ],
+      "repeated_keys": [
+        [
+          "development",
+          "develops well"
+        ],
+        [
+          "longevity",
+          "long lasting"
+        ],
+        [
+          "note",
+          "apple pie"
+        ],
+        [
+          "note",
+          "caramel apple"
+        ],
+        [
+          "note",
+          "cardamom"
+        ],
+        [
+          "note",
+          "fruity"
+        ],
+        [
+          "note",
+          "medicinal"
+        ],
+        [
+          "note",
+          "menthol"
+        ],
+        [
+          "note",
+          "opening"
+        ],
+        [
+          "note",
+          "smoky"
+        ],
+        [
+          "note",
+          "spicy"
+        ],
+        [
+          "note",
+          "sweet"
+        ],
+        [
+          "note",
+          "tobacco"
+        ],
+        [
+          "note",
+          "vanilla"
+        ],
+        [
+          "note",
+          "vapor rub"
+        ],
+        [
+          "note",
+          "vicks"
+        ],
+        [
+          "note",
+          "vicks vapor rub"
+        ],
+        [
+          "occasion",
+          "date night"
+        ],
+        [
+          "occasion",
+          "fall winter"
+        ],
+        [
+          "occasion",
+          "summer"
+        ],
+        [
+          "projection",
+          "strong"
+        ],
+        [
+          "reformulation",
+          "reformulated well"
+        ]
+      ]
+    },
+    {
+      "fragrance_id": 31,
+      "name": "Lattafa Khamrah",
+      "facts": 81,
+      "singleton": 68,
+      "repeated": 13,
+      "supported": 6,
+      "contested": 4,
+      "declarable": 4,
+      "distinct_attributes": 81,
+      "creators": 5,
+      "comments": 75,
+      "singleton_keys": [
+        [
+          "development",
+          "develops well"
+        ],
+        [
+          "note",
+          "apple pie with cinnamon"
+        ],
+        [
+          "note",
+          "artificial"
+        ],
+        [
+          "note",
+          "butterscotch"
+        ],
+        [
+          "note",
+          "candle like"
+        ],
+        [
+          "note",
+          "caramel coniac"
+        ],
+        [
+          "note",
+          "cheap cologne"
+        ],
+        [
+          "note",
+          "chemical"
+        ],
+        [
+          "note",
+          "chocolate"
+        ],
+        [
+          "note",
+          "cigar smoky"
+        ],
+        [
+          "note",
+          "cinnamon gum"
+        ],
+        [
+          "note",
+          "cinnamon spicy scents"
+        ],
+        [
+          "note",
+          "cinnamony"
+        ],
+        [
+          "note",
+          "coccoa buttter"
+        ],
+        [
+          "note",
+          "custard vape juice and birthday cake timbits"
+        ],
+        [
+          "note",
+          "date"
+        ],
+        [
+          "note",
+          "different"
+        ],
+        [
+          "note",
+          "good"
+        ],
+        [
+          "note",
+          "gourmand"
+        ],
+        [
+          "note",
+          "leather"
+        ],
+        [
+          "note",
+          "low low low quality"
+        ],
+        [
+          "note",
+          "mulled spiced apple cider"
+        ],
+        [
+          "note",
+          "nutmeg"
+        ],
+        [
+          "note",
+          "peach"
+        ],
+        [
+          "note",
+          "peach cobbler"
+        ],
+        [
+          "note",
+          "prostitute"
+        ],
+        [
+          "note",
+          "rotten"
+        ],
+        [
+          "note",
+          "smoother"
+        ],
+        [
+          "note",
+          "softer"
+        ],
+        [
+          "note",
+          "southern comfort"
+        ],
+        [
+          "note",
+          "spiciness"
+        ],
+        [
+          "note",
+          "sweet and luxurious"
+        ],
+        [
+          "note",
+          "sweet puke ish"
+        ],
+        [
+          "note",
+          "sweeter"
+        ],
+        [
+          "note",
+          "vanilla beans"
+        ],
+        [
+          "note",
+          "vanilla coconut"
+        ],
+        [
+          "note",
+          "vanilla vinegar"
+        ],
+        [
+          "note",
+          "wood"
+        ],
+        [
+          "note",
+          "wood ish amber"
+        ],
+        [
+          "note",
+          "wooden and incense sticks"
+        ],
+        [
+          "note",
+          "woody musk"
+        ],
+        [
+          "note",
+          "woody undertone"
+        ],
+        [
+          "occasion",
+          "autumn ish"
+        ],
+        [
+          "occasion",
+          "cooler months"
+        ],
+        [
+          "occasion",
+          "date night"
+        ],
+        [
+          "occasion",
+          "fall winter"
+        ],
+        [
+          "occasion",
+          "fresh spicy scents"
+        ],
+        [
+          "occasion",
+          "hot weather"
+        ],
+        [
+          "occasion",
+          "school"
+        ],
+        [
+          "occasion",
+          "summer"
+        ],
+        [
+          "occasion",
+          "this time of year"
+        ],
+        [
+          "occasion",
+          "unisex"
+        ],
+        [
+          "occasion",
+          "winter"
+        ],
+        [
+          "vibe",
+          "90s"
+        ],
+        [
+          "vibe",
+          "female"
+        ],
+        [
+          "vibe",
+          "feminine leaning"
+        ],
+        [
+          "vibe",
+          "girly"
+        ],
+        [
+          "vibe",
+          "goated"
+        ],
+        [
+          "vibe",
+          "grandma perfume"
+        ],
+        [
+          "vibe",
+          "middle eastern"
+        ],
+        [
+          "vibe",
+          "old lady"
+        ],
+        [
+          "vibe",
+          "rich warm addictive"
+        ],
+        [
+          "vibe",
+          "seductive"
+        ],
+        [
+          "vibe",
+          "signature"
+        ],
+        [
+          "vibe",
+          "speakeasy"
+        ],
+        [
+          "vibe",
+          "suffocating"
+        ],
+        [
+          "vibe",
+          "unique"
+        ],
+        [
+          "vibe",
+          "woman in her 30s"
+        ]
+      ],
+      "repeated_keys": [
+        [
+          "longevity",
+          "long lasting"
+        ],
+        [
+          "note",
+          "amazing"
+        ],
+        [
+          "note",
+          "apple"
+        ],
+        [
+          "note",
+          "cinnamon"
+        ],
+        [
+          "note",
+          "coconut"
+        ],
+        [
+          "note",
+          "dates"
+        ],
+        [
+          "note",
+          "spicy"
+        ],
+        [
+          "note",
+          "sweet"
+        ],
+        [
+          "note",
+          "vanilla"
+        ],
+        [
+          "note",
+          "whiskey"
+        ],
+        [
+          "projection",
+          "strong"
+        ],
+        [
+          "vibe",
+          "feminine"
+        ],
+        [
+          "vibe",
+          "masculine"
+        ]
+      ]
+    },
+    {
+      "fragrance_id": 27,
+      "name": "Kilian Angels' Share",
+      "facts": 55,
+      "singleton": 49,
+      "repeated": 6,
+      "supported": 2,
+      "contested": 1,
+      "declarable": 1,
+      "distinct_attributes": 55,
+      "creators": 2,
+      "comments": 31,
+      "singleton_keys": [
+        [
+          "note",
+          "absinthe"
+        ],
+        [
+          "note",
+          "apple pie"
+        ],
+        [
+          "note",
+          "ass"
+        ],
+        [
+          "note",
+          "beautiful"
+        ],
+        [
+          "note",
+          "beautiful coffee shop"
+        ],
+        [
+          "note",
+          "burnt caramel"
+        ],
+        [
+          "note",
+          "cappuccino"
+        ],
+        [
+          "note",
+          "cherries and chocolate"
+        ],
+        [
+          "note",
+          "chocolate cherrys"
+        ],
+        [
+          "note",
+          "cinnamon apple pie"
+        ],
+        [
+          "note",
+          "citrus"
+        ],
+        [
+          "note",
+          "clean"
+        ],
+        [
+          "note",
+          "cloying"
+        ],
+        [
+          "note",
+          "cloyingly sweet danish cinnamon bun"
+        ],
+        [
+          "note",
+          "coniac"
+        ],
+        [
+          "note",
+          "delicious"
+        ],
+        [
+          "note",
+          "expensive"
+        ],
+        [
+          "note",
+          "fantastic"
+        ],
+        [
+          "note",
+          "mid"
+        ],
+        [
+          "note",
+          "nasty pine tree car freshener"
+        ],
+        [
+          "note",
+          "orange jam"
+        ],
+        [
+          "note",
+          "punchy"
+        ],
+        [
+          "note",
+          "raspberry and rose"
+        ],
+        [
+          "note",
+          "raspberry berry"
+        ],
+        [
+          "note",
+          "sharp"
+        ],
+        [
+          "note",
+          "simplistic"
+        ],
+        [
+          "note",
+          "softer"
+        ],
+        [
+          "note",
+          "spicy"
+        ],
+        [
+          "note",
+          "sweeter"
+        ],
+        [
+          "note",
+          "synthetic"
+        ],
+        [
+          "note",
+          "vanilla"
+        ],
+        [
+          "note",
+          "vanilla pie"
+        ],
+        [
+          "note",
+          "warm"
+        ],
+        [
+          "note",
+          "whiskey like"
+        ],
+        [
+          "note",
+          "woody ambers"
+        ],
+        [
+          "occasion",
+          "cozy"
+        ],
+        [
+          "occasion",
+          "fall winter fragrance"
+        ],
+        [
+          "occasion",
+          "going out"
+        ],
+        [
+          "occasion",
+          "special occasions during the winter time"
+        ],
+        [
+          "occasion",
+          "spring summer"
+        ],
+        [
+          "occasion",
+          "summer date night"
+        ],
+        [
+          "occasion",
+          "winter"
+        ],
+        [
+          "vibe",
+          "beautiful"
+        ],
+        [
+          "vibe",
+          "heavy"
+        ],
+        [
+          "vibe",
+          "middle eastern"
+        ],
+        [
+          "vibe",
+          "refined"
+        ],
+        [
+          "vibe",
+          "sweeter more playful"
+        ],
+        [
+          "vibe",
+          "well balanced"
+        ],
+        [
+          "vibe",
+          "woman"
+        ]
+      ],
+      "repeated_keys": [
+        [
+          "development",
+          "develops well"
+        ],
+        [
+          "longevity",
+          "long lasting"
+        ],
+        [
+          "note",
+          "cinnamon"
+        ],
+        [
+          "note",
+          "cognac"
+        ],
+        [
+          "note",
+          "raspberry"
+        ],
+        [
+          "note",
+          "sweet"
+        ]
+      ]
+    },
+    {
+      "fragrance_id": 19,
+      "name": "Dior Sauvage",
+      "facts": 46,
+      "singleton": 40,
+      "repeated": 6,
+      "supported": 1,
+      "contested": 2,
+      "declarable": 0,
+      "distinct_attributes": 46,
+      "creators": 2,
+      "comments": 13,
+      "singleton_keys": [
+        [
+          "note",
+          "ambroxan"
+        ],
+        [
+          "note",
+          "awkward"
+        ],
+        [
+          "note",
+          "butter rolled in a fire pit"
+        ],
+        [
+          "note",
+          "cumin"
+        ],
+        [
+          "note",
+          "dark"
+        ],
+        [
+          "note",
+          "dark smoky oud"
+        ],
+        [
+          "note",
+          "elite"
+        ],
+        [
+          "note",
+          "elixir"
+        ],
+        [
+          "note",
+          "good"
+        ],
+        [
+          "note",
+          "incense y"
+        ],
+        [
+          "note",
+          "locker room"
+        ],
+        [
+          "note",
+          "old books"
+        ],
+        [
+          "note",
+          "oudier"
+        ],
+        [
+          "note",
+          "oudy"
+        ],
+        [
+          "note",
+          "pedestrian"
+        ],
+        [
+          "note",
+          "pineapple sweetness"
+        ],
+        [
+          "note",
+          "real oud"
+        ],
+        [
+          "note",
+          "smells like when you are around someone who smoked cigarettes and you smelled your clothes"
+        ],
+        [
+          "note",
+          "smoker s jacket"
+        ],
+        [
+          "note",
+          "smoky barn"
+        ],
+        [
+          "note",
+          "smoky burnt rubbery type oud"
+        ],
+        [
+          "note",
+          "stinks"
+        ],
+        [
+          "note",
+          "sweet"
+        ],
+        [
+          "note",
+          "vietnamese oud"
+        ],
+        [
+          "note",
+          "wood notes oud"
+        ],
+        [
+          "note",
+          "woody"
+        ],
+        [
+          "occasion",
+          "cold weather"
+        ],
+        [
+          "occasion",
+          "colder months"
+        ],
+        [
+          "occasion",
+          "everyday"
+        ],
+        [
+          "occasion",
+          "fall and winter"
+        ],
+        [
+          "occasion",
+          "fall winter fragrance"
+        ],
+        [
+          "occasion",
+          "high school prom odour"
+        ],
+        [
+          "occasion",
+          "office"
+        ],
+        [
+          "occasion",
+          "special occasion scent for the cooler seasons"
+        ],
+        [
+          "vibe",
+          "bold fragrance with character"
+        ],
+        [
+          "vibe",
+          "drugstore quality"
+        ],
+        [
+          "vibe",
+          "favorite sauvage"
+        ],
+        [
+          "vibe",
+          "fortune 500 ceo"
+        ],
+        [
+          "vibe",
+          "powerful"
+        ],
+        [
+          "vibe",
+          "sauvage for the mature man that doesn t want to smell juvenile"
+        ]
+      ],
+      "repeated_keys": [
+        [
+          "longevity",
+          "long lasting"
+        ],
+        [
+          "note",
+          "animalic"
+        ],
+        [
+          "note",
+          "lavender"
+        ],
+        [
+          "note",
+          "oud"
+        ],
+        [
+          "note",
+          "smoky"
+        ],
+        [
+          "projection",
+          "strong"
+        ]
+      ]
+    },
+    {
+      "fragrance_id": 51,
+      "name": "Parfums de Marly Delina",
+      "facts": 33,
+      "singleton": 31,
+      "repeated": 2,
+      "supported": 0,
+      "contested": 2,
+      "declarable": 0,
+      "distinct_attributes": 33,
+      "creators": 2,
+      "comments": 31,
+      "singleton_keys": [
+        [
+          "longevity",
+          "long lasting"
+        ],
+        [
+          "note",
+          "airy note that smells like literal air"
+        ],
+        [
+          "note",
+          "best"
+        ],
+        [
+          "note",
+          "fresh"
+        ],
+        [
+          "note",
+          "fruity and creamy"
+        ],
+        [
+          "note",
+          "lychee"
+        ],
+        [
+          "note",
+          "old lady"
+        ],
+        [
+          "note",
+          "peons"
+        ],
+        [
+          "note",
+          "powder"
+        ],
+        [
+          "note",
+          "rhubarb"
+        ],
+        [
+          "note",
+          "stinks"
+        ],
+        [
+          "note",
+          "tart"
+        ],
+        [
+          "note",
+          "unique"
+        ],
+        [
+          "note",
+          "vetiver"
+        ],
+        [
+          "note",
+          "youthful"
+        ],
+        [
+          "occasion",
+          "cold weather"
+        ],
+        [
+          "occasion",
+          "colder weather"
+        ],
+        [
+          "occasion",
+          "ramadan"
+        ],
+        [
+          "occasion",
+          "special occasion"
+        ],
+        [
+          "occasion",
+          "wedding"
+        ],
+        [
+          "projection",
+          "strong"
+        ],
+        [
+          "vibe",
+          "barbie like"
+        ],
+        [
+          "vibe",
+          "boukour and tea"
+        ],
+        [
+          "vibe",
+          "classy"
+        ],
+        [
+          "vibe",
+          "feminine"
+        ],
+        [
+          "vibe",
+          "innocent"
+        ],
+        [
+          "vibe",
+          "pink"
+        ],
+        [
+          "vibe",
+          "playful and girly"
+        ],
+        [
+          "vibe",
+          "plush"
+        ],
+        [
+          "vibe",
+          "unique and expensive"
+        ],
+        [
+          "vibe",
+          "white lace and silk"
+        ]
+      ],
+      "repeated_keys": [
+        [
+          "note",
+          "rose"
+        ],
+        [
+          "note",
+          "sour"
+        ]
+      ]
+    },
+    {
+      "fragrance_id": 72,
+      "name": "Creed Aventus Cologne",
+      "facts": 25,
+      "singleton": 23,
+      "repeated": 2,
+      "supported": 0,
+      "contested": 3,
+      "declarable": 0,
+      "distinct_attributes": 25,
+      "creators": 3,
+      "comments": 40,
+      "singleton_keys": [
+        [
+          "note",
+          "brighter"
+        ],
+        [
+          "note",
+          "cleaner"
+        ],
+        [
+          "note",
+          "depth"
+        ],
+        [
+          "note",
+          "fabric like cleanness"
+        ],
+        [
+          "note",
+          "fresh"
+        ],
+        [
+          "note",
+          "fresh and aromatic"
+        ],
+        [
+          "note",
+          "fresh and clean musk"
+        ],
+        [
+          "note",
+          "fruiter"
+        ],
+        [
+          "note",
+          "gut"
+        ],
+        [
+          "note",
+          "mandarin orange"
+        ],
+        [
+          "note",
+          "opening"
+        ],
+        [
+          "note",
+          "pineapple"
+        ],
+        [
+          "note",
+          "shampoo y"
+        ],
+        [
+          "note",
+          "tonka bean"
+        ],
+        [
+          "note",
+          "woody"
+        ],
+        [
+          "occasion",
+          "casual wear"
+        ],
+        [
+          "occasion",
+          "daytime"
+        ],
+        [
+          "occasion",
+          "everyday"
+        ],
+        [
+          "occasion",
+          "gym"
+        ],
+        [
+          "occasion",
+          "summer"
+        ],
+        [
+          "occasion",
+          "warmer days"
+        ],
+        [
+          "vibe",
+          "fresher side"
+        ],
+        [
+          "vibe",
+          "unisex"
+        ]
+      ],
+      "repeated_keys": [
+        [
+          "longevity",
+          "long lasting"
+        ],
+        [
+          "projection",
+          "strong"
+        ]
+      ]
+    },
+    {
+      "fragrance_id": 32,
+      "name": "Lattafa Khamrah Qahwa",
+      "facts": 27,
+      "singleton": 20,
+      "repeated": 7,
+      "supported": 1,
+      "contested": 1,
+      "declarable": 1,
+      "distinct_attributes": 27,
+      "creators": 4,
+      "comments": 50,
+      "singleton_keys": [
+        [
+          "note",
+          "anus"
+        ],
+        [
+          "note",
+          "boozy"
+        ],
+        [
+          "note",
+          "burnt coffee"
+        ],
+        [
+          "note",
+          "cloying"
+        ],
+        [
+          "note",
+          "coconut"
+        ],
+        [
+          "note",
+          "coconut toffee"
+        ],
+        [
+          "note",
+          "coffee beans"
+        ],
+        [
+          "note",
+          "floral"
+        ],
+        [
+          "note",
+          "less sweet"
+        ],
+        [
+          "note",
+          "musk"
+        ],
+        [
+          "note",
+          "oversugared nescaf"
+        ],
+        [
+          "note",
+          "refined"
+        ],
+        [
+          "note",
+          "sweet"
+        ],
+        [
+          "note",
+          "sweet smells"
+        ],
+        [
+          "note",
+          "synthetic"
+        ],
+        [
+          "note",
+          "synthetic medicinal"
+        ],
+        [
+          "occasion",
+          "colder weather"
+        ],
+        [
+          "occasion",
+          "evening wear or evening events"
+        ],
+        [
+          "vibe",
+          "feminine"
+        ],
+        [
+          "vibe",
+          "refined"
+        ]
+      ],
+      "repeated_keys": [
+        [
+          "development",
+          "develops well"
+        ],
+        [
+          "longevity",
+          "long lasting"
+        ],
+        [
+          "note",
+          "caramel"
+        ],
+        [
+          "note",
+          "chocolate"
+        ],
+        [
+          "note",
+          "coffee"
+        ],
+        [
+          "occasion",
+          "winter"
+        ],
+        [
+          "vibe",
+          "masculine"
+        ]
+      ]
+    },
+    {
+      "fragrance_id": 74,
+      "name": "French Avenue Liquid Brun",
+      "facts": 16,
+      "singleton": 14,
+      "repeated": 2,
+      "supported": 0,
+      "contested": 2,
+      "declarable": 0,
+      "distinct_attributes": 16,
+      "creators": 2,
+      "comments": 38,
+      "singleton_keys": [
+        [
+          "note",
+          "cinammon"
+        ],
+        [
+          "note",
+          "dirty and animalistic"
+        ],
+        [
+          "note",
+          "fantastic"
+        ],
+        [
+          "note",
+          "galleta"
+        ],
+        [
+          "note",
+          "gourmand"
+        ],
+        [
+          "note",
+          "harsh"
+        ],
+        [
+          "note",
+          "spicy"
+        ],
+        [
+          "note",
+          "sweeter"
+        ],
+        [
+          "note",
+          "vanilla"
+        ],
+        [
+          "occasion",
+          "fall winter"
+        ],
+        [
+          "occasion",
+          "todos los d as"
+        ],
+        [
+          "vibe",
+          "feminine"
+        ],
+        [
+          "vibe",
+          "masterpiece"
+        ],
+        [
+          "vibe",
+          "vanilla ice cream cone type of"
+        ]
+      ],
+      "repeated_keys": [
+        [
+          "longevity",
+          "long lasting"
+        ],
+        [
+          "projection",
+          "strong"
+        ]
+      ]
+    },
+    {
+      "fragrance_id": 57,
+      "name": "Parfums de Marly Oajan",
+      "facts": 7,
+      "singleton": 7,
+      "repeated": 0,
+      "supported": 0,
+      "contested": 0,
+      "declarable": 0,
+      "distinct_attributes": 7,
+      "creators": 1,
+      "comments": 12,
+      "singleton_keys": [
+        [
+          "note",
+          "cinnamon heavy"
+        ],
+        [
+          "note",
+          "cloyingly sweet"
+        ],
+        [
+          "note",
+          "headache inducing"
+        ],
+        [
+          "note",
+          "honey and cinnamon"
+        ],
+        [
+          "note",
+          "praline chocolate"
+        ],
+        [
+          "note",
+          "spicy"
+        ],
+        [
+          "occasion",
+          "daily basis"
+        ]
+      ],
+      "repeated_keys": []
+    },
+    {
+      "fragrance_id": 23,
+      "name": "Fragrance World Oud Wonder",
+      "facts": 6,
+      "singleton": 6,
+      "repeated": 0,
+      "supported": 0,
+      "contested": 1,
+      "declarable": 0,
+      "distinct_attributes": 6,
+      "creators": 1,
+      "comments": 9,
+      "singleton_keys": [
+        [
+          "longevity",
+          "long lasting"
+        ],
+        [
+          "note",
+          "amazing"
+        ],
+        [
+          "note",
+          "cinnamon"
+        ],
+        [
+          "note",
+          "horrible"
+        ],
+        [
+          "note",
+          "light more natural"
+        ],
+        [
+          "note",
+          "woody oud"
+        ]
+      ],
+      "repeated_keys": []
+    }
+  ],
+  "corpus": {
+    "fragrances": 78,
+    "facts": 664,
+    "singleton": 575,
+    "repeated": 89,
+    "supported": 21,
+    "contested": 20,
+    "declarable": 15,
+    "bottles_with_facts": 63,
+    "bottles_declarable": 6,
+    "distinct_values": 452,
+    "comparable_attributes": 84,
+    "answerable_relative": 2,
+    "comments": 9124,
+    "creators": 57
+  }
+}
