@@ -65,8 +65,15 @@ at all.
 
 ### B — learn-about-fragrance
 
-Blocked today: $1.1104 spent against the $1.00 cap. The experiment,
-cohort and baseline are committed and one command from running.
+Blocked today: $1.1104 spent against the $1.00 cap.
+
+An earlier draft of this document said the experiment was "one command
+from running". It was not — the `run` command checked the budget, printed
+instructions, and did nothing, which the adversarial review caught. It is
+now wired end to end through `frontier.enrich_one` and records results,
+with each bottle diffed against a baseline re-read immediately before its
+own run so that one bottle cannot be credited with conversions another
+bought.
 
 The prior conclusion "enrichment scatters" **does not transfer**. It was
 measured on pages, and Delina's 9→20 mentions across 17 partners is a bad
