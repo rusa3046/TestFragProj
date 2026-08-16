@@ -4,6 +4,24 @@
 paid call onward. If something here proves badly chosen, the run is
 abandoned and a new file written — this one is not edited.
 
+> **Amendment, 2026-08-16 20:27 UTC, pre-run, by the repository owner.
+> Nothing had been spent.**
+>
+> 1. The primary metric was uncapped `Δ commenters + Δ creators`. It is now
+>    **capped progress toward the publishing gate**: for each pair, new
+>    people and creators are credited only up to what that pair was missing
+>    at the frozen pre-run snapshot. Uncapped independent evidence and raw
+>    claims stay, as secondary graph-yield metrics. Rationale: an uncapped
+>    sum rewards piling a fourth, fifth and sixth commenter onto a pair that
+>    already cleared its bar, which is graph yield rather than progress on
+>    the frozen query.
+> 2. `~$0.25 worst case` was an estimate presented as a bound, and is
+>    withdrawn. See **Cost**, rewritten below: no provable maximum exists
+>    under the current guard, so the run waits for the UTC rollover.
+>
+> Neighbour selection, arms, falsification logic and the frozen query are
+> unchanged.
+
 ## What is being tested, and what is not
 
 The previous experiment (`neighbour-prediction.md`, `neighbour-result.md`)
@@ -129,16 +147,37 @@ Not raw extracted comparison claims. The BR540 run produced 30 extracted
 edges and moved the product by nothing, and that gap is the thing this
 metric exists to close.
 
-Counted as, for every pair `(Delina, X)` over all X:
+Counted as **capped progress toward the gate**. At the frozen pre-run
+snapshot, every Delina pair has a shortfall:
 
 ```
-U = Σ  [ Δ distinct commenters(pair) + Δ distinct creators(pair) ]
+missing_people(p)   = max(0, threshold_people(p)   - people(p))
+missing_creators(p) = max(0, threshold_creators(p) - creators(p))
 ```
 
-subject to the gates already in the code — the claim must be `ASSERTED`,
-`evidence_verified = 1`, and resolved at **both** ends, and a commenter or
-creator already counted for that pair contributes nothing. `U / usd` is
-the primary number.
+with thresholds from `gate.py` — 3 people and 2 creators, or 5 and 3 for a
+flanker pair, decided by `pages.is_flanker_pair`. Then for each arm:
+
+```
+G = Σ  [ min(Δ people(p),   remaining cap) + min(Δ creators(p), remaining cap) ]
+```
+
+and `G / usd` is the primary number.
+
+The cap is fixed once, at the frozen pre-run snapshot, and is **consumed**:
+whatever the direct arm credits is no longer available to the neighbour
+arm. That deepens the order bias already declared — the direct arm runs
+first and eats the cap first — and it is the conservative direction, since
+the hypothesis predicts the neighbour wins.
+
+Uncapped, an eleventh commenter on a pair that cleared its bar three
+purchases ago would score the same as the one commenter that carries a
+pair over it. That is graph yield, and graph yield has its own line below.
+
+The provenance gates already in the code still apply and are not relaxed:
+the claim must be `ASSERTED`, `evidence_verified = 1`, and resolved at
+**both** ends, and a commenter or creator already counted for that pair
+contributes nothing.
 
 **Hard condition, both required:**
 
@@ -199,16 +238,41 @@ make a true hypothesis look false.
 
 ## Cost
 
+**There is no provable worst case, and the earlier `~$0.25` was an
+estimate dressed as one.** Working, from the code rather than from the
+last run:
+
+A single batch *is* bounded. `DEFAULT_MAX_TOKENS = 8000` caps output and
+`call_model` raises rather than continuing if it is hit, so output costs at
+most `8000 × $5/Mtok = $0.040`. Input is 20 comments; at YouTube's 10,000
+character limit that is ~50,000 tokens, `$0.050`. **A batch cannot exceed
+about $0.09.**
+
+A *video* is not bounded, and that is the problem. `enrich_one` checks
+`trial.usd >= ceiling.max_usd` **between videos, not between batches**, so
+once a video starts, extraction runs to the end of its comments. At the
+frozen `max_comments = 400` that is up to 20 batches — **up to $1.80 for a
+single video** in the pathological case, and around $0.20 at the rate this
+corpus actually extracts at.
+
+So the per-arm `$0.10` ceiling bounds where a run *starts* a video, not
+what it spends. Two arms cannot be shown to fit inside today's remaining
+`$0.3384`.
+
+What would happen is not an overspend — `budget.guard` re-reads the ledger
+and raises, so the daily cap holds to within one batch. It is worse than
+that for this purpose: the run would stop **mid-experiment**, and a
+truncated arm B is not a result, it is a wasted $0.20 and a file that has
+to be thrown away.
+
 ```
-$0.10 ceiling per arm, ~$0.20 expected
-observed overshoot last run: $0.1228 against a $0.10 ceiling, so budget ~$0.25
-ledger at time of freezing: $1.1616 of $1.50 -> $0.3384 remaining today
-YouTube: 2 searches, 200 units of 10,000
+ledger at freezing: $1.1616 of $1.50  ->  $0.3384 remaining
+UTC rollover:       ~3.5 hours away
 ```
 
-It fits inside today's remainder, with little room. The runner checks the
-budget for both arms before starting and refuses rather than stopping
-half way, so the alternative is simply to run after the UTC rollover.
+**Therefore the run waits for the UTC rollover.** The alternative — raising
+the cap or shrinking `max_comments` — would either weaken the cap or change
+the frozen arms, and neither is worth three hours.
 
 ## Sign-off
 
