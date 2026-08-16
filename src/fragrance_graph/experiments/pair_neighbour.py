@@ -422,7 +422,7 @@ def _real_buyer(conn: psycopg.Connection, run_id: str) -> Any:
     the design promised, and `verdict` refuses to score the run rather than
     compare a full purchase against a partial one.
     """
-    from fragrance_graph.budget import Budget, BudgetExhausted
+    from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
     from fragrance_graph.experiments.neighbour import _llm_client
     from fragrance_graph.frontier import (
         Ceiling,
@@ -446,7 +446,15 @@ def _real_buyer(conn: psycopg.Connection, run_id: str) -> Any:
             return 0, 0.0, 0, "not-in-catalogue", False
 
         arm_budget = Budget.load(require_ledger=True)
-        arm_budget.cap_usd = arm_budget.spent_usd + CEILING_USD
+        # Clamped to the daily cap, not merely offset from it. The first
+        # version wrote `spent + CEILING_USD`, which *replaces* the daily
+        # ceiling with a per-arm one — with the ledger at $1.3616 the second
+        # arm's cap computed to $1.5616, above the $1.50 the whole system is
+        # supposed to hold to. A per-arm ceiling may only ever tighten the
+        # daily cap; it must never be able to lift it.
+        arm_budget.cap_usd = min(
+            DAILY_CAP_USD, arm_budget.spent_usd + CEILING_USD
+        )
         extract_fn = budgeted_extractor(_llm_client(), arm_budget)
 
         trial = Trial(
@@ -601,25 +609,28 @@ def main(argv: list[str] | None = None) -> int:
         buy = _real_buyer(conn, run_id)
         frozen = snapshot(conn).pairs
 
-        # Admission control, using the reservation mechanism. Both arms'
-        # money is committed to the ledger *before the first paid batch*,
-        # so the experiment cannot start unless it can finish, and no
-        # concurrent process can take the headroom out from under it.
+        # Admission control is `budget.check` above — a read, not a write.
         #
-        # Settled back to zero at the end rather than to the real spend,
-        # because the real spend is already on the ledger: `guard` records
-        # every batch as it happens. The reservation is a hold, not an
-        # accounting entry, and settling it to the actual cost would charge
-        # the run twice.
-        hold = budget.reserve(2 * CEILING_USD, "pair-neighbour-hold")
-        try:
-            a = run_arm(conn, arm="A", target=ARM_A, buy=buy, frozen=frozen)
-            b = run_arm(
-                conn, arm="B", target=ARM_B, buy=buy, frozen=frozen,
-                already_spent=a.earned,
-            )
-        finally:
-            hold.settle(0.0)
+        # An earlier version held the money with `budget.reserve`, and it was
+        # wrong here twice over. A reservation that is never settled stays on
+        # the ledger for the rest of the UTC day: `try/finally` releases it on
+        # an exception, but not on SIGKILL or a reclaimed container, which are
+        # this environment's actual failure modes. Demonstrated — reserve
+        # $0.20, charge $0.05, `os._exit`, and the day reads $0.25 forever.
+        #
+        # And the hold consumed exactly the headroom the arms needed. With the
+        # ledger at $1.3616 after the hold, the second arm had $0.0384 to
+        # spend and would have truncated at once, producing an INVALID verdict
+        # and wasting the first arm's money.
+        #
+        # `reserve` is right for a paid call whose cost is unknown until it
+        # returns. It is wrong as a lock around a run that records its own
+        # spending, which this does.
+        a = run_arm(conn, arm="A", target=ARM_A, buy=buy, frozen=frozen)
+        b = run_arm(
+            conn, arm="B", target=ARM_B, buy=buy, frozen=frozen,
+            already_spent=a.earned,
+        )
 
         log_path = RESULT_PATH.with_suffix(".jsonl")
         log_path.parent.mkdir(parents=True, exist_ok=True)

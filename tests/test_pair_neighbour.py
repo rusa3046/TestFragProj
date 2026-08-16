@@ -233,3 +233,47 @@ class TestATruncatedArmIsNotAResult:
         passed, why = verdict(a, b)
         assert passed
         assert "INVALID" not in why
+
+
+class TestAPerArmCeilingCannotLiftTheDailyCap:
+    """A per-arm ceiling may only tighten the daily cap.
+
+    The first version computed `spent + CEILING_USD` and used it as the
+    arm's cap outright, which *replaces* the daily ceiling rather than
+    narrowing it. With the ledger at $1.3616 the second arm's cap came to
+    $1.5616 — above the $1.50 the whole system holds to.
+    """
+
+    def test_the_arm_cap_is_clamped_to_the_daily_cap(self):
+        from fragrance_graph.budget import DAILY_CAP_USD
+        from fragrance_graph.experiments.pair_neighbour import CEILING_USD
+
+        nearly_spent = DAILY_CAP_USD - 0.02
+        arm_cap = min(DAILY_CAP_USD, nearly_spent + CEILING_USD)
+        assert arm_cap <= DAILY_CAP_USD
+        assert arm_cap == pytest.approx(DAILY_CAP_USD)
+
+    def test_it_still_tightens_when_there_is_room(self):
+        from fragrance_graph.budget import DAILY_CAP_USD
+        from fragrance_graph.experiments.pair_neighbour import CEILING_USD
+
+        arm_cap = min(DAILY_CAP_USD, 0.50 + CEILING_USD)
+        assert arm_cap == pytest.approx(0.60), "well below the daily cap"
+
+
+class TestTheRunHoldsNoReservation:
+    """An unsettled reservation is a permanent charge for the rest of the
+    UTC day. `try/finally` releases it on an exception and not on SIGKILL
+    or a reclaimed container, which are this environment's failure modes.
+    Admission control here is a read, so there is nothing to leak."""
+
+    def test_the_module_does_not_reserve(self):
+        import inspect
+
+        from fragrance_graph.experiments import pair_neighbour
+
+        source = inspect.getsource(pair_neighbour)
+        assert ".reserve(" not in source, (
+            "a hold that outlives a hard kill silently shrinks the day's "
+            "budget; use budget.check for admission control"
+        )
