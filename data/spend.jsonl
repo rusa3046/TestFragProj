@@ -1580,3 +1580,24 @@
 {"at": "2026-08-16T18:16:16+00:00", "comments": 1, "date": "2026-08-16", "usd": 0.0, "what": "fuzzy-eval"}
 {"at": "2026-08-16T18:16:17+00:00", "comments": 1, "date": "2026-08-16", "usd": 0.0, "what": "fuzzy-eval"}
 {"at": "2026-08-16T18:17:46+00:00", "date": "2026-08-16", "note": "corrects 1092 lines rounded to zero by the 6dp bug; derived from 14721 chars at $0.02/1M tokens", "usd": 7.261e-05, "what": "fuzzy-eval-reconciliation"}
+{"at": "2026-08-16T19:59:13+00:00", "comments": 18, "date": "2026-08-16", "usd": 0.006586, "what": "frontier"}
+{"at": "2026-08-16T19:59:27+00:00", "comments": 7, "date": "2026-08-16", "usd": 0.003887, "what": "frontier"}
+{"at": "2026-08-16T19:59:45+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.008735, "what": "frontier"}
+{"at": "2026-08-16T19:59:50+00:00", "comments": 12, "date": "2026-08-16", "usd": 0.007687, "what": "frontier"}
+{"at": "2026-08-16T20:00:06+00:00", "comments": 19, "date": "2026-08-16", "usd": 0.007497, "what": "frontier"}
+{"at": "2026-08-16T20:00:35+00:00", "comments": 10, "date": "2026-08-16", "usd": 0.006092, "what": "frontier"}
+{"at": "2026-08-16T20:00:52+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.006494, "what": "frontier"}
+{"at": "2026-08-16T20:00:57+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.007454, "what": "frontier"}
+{"at": "2026-08-16T20:01:03+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.006398, "what": "frontier"}
+{"at": "2026-08-16T20:01:05+00:00", "comments": 2, "date": "2026-08-16", "usd": 0.002708, "what": "frontier"}
+{"at": "2026-08-16T20:01:18+00:00", "comments": 4, "date": "2026-08-16", "usd": 0.002847, "what": "frontier"}
+{"at": "2026-08-16T20:01:38+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.01151, "what": "frontier"}
+{"at": "2026-08-16T20:01:45+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.00953, "what": "frontier"}
+{"at": "2026-08-16T20:01:52+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.009916, "what": "frontier"}
+{"at": "2026-08-16T20:01:57+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.006841, "what": "frontier"}
+{"at": "2026-08-16T20:02:06+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.013044, "what": "frontier"}
+{"at": "2026-08-16T20:02:12+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.008601, "what": "frontier"}
+{"at": "2026-08-16T20:02:18+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.00795, "what": "frontier"}
+{"at": "2026-08-16T20:02:23+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.006921, "what": "frontier"}
+{"at": "2026-08-16T20:02:28+00:00", "comments": 20, "date": "2026-08-16", "usd": 0.008588, "what": "frontier"}
+{"at": "2026-08-16T20:02:34+00:00", "comments": 16, "date": "2026-08-16", "usd": 0.007873, "what": "frontier"}
