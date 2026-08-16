@@ -278,7 +278,20 @@ class ArmResult:
     target: str
     before: Snapshot
     after: Snapshot
+    #: PRIMARY. Credited against the frozen pre-experiment shortfall, with
+    #: no deduction for what the other arm earned. Both arms are scored
+    #: against the identical baseline, so the A/B comparison measures the
+    #: two acquisitions rather than the order they ran in.
     earned: Credit
+    #: SECONDARY. The same credit with the earlier arm's share removed —
+    #: what this arm added *given* the corpus the previous one left behind.
+    #: Real and worth knowing, and not the comparison: it answers "what did
+    #: the second purchase add", not "which purchase was better".
+    marginal: Credit = field(default_factory=Credit)
+    #: True when the arm stopped because it hit its own ceiling rather than
+    #: running out of creators or comments. A truncated arm did not get the
+    #: budget the design promised it, so it is not a valid observation.
+    truncated: bool = False
     comments_read: int = 0
     usd: float = 0.0
     quota_units: int = 0
@@ -301,7 +314,22 @@ class ArmResult:
 
 
 def verdict(a: ArmResult, b: ArmResult) -> tuple[bool, str]:
-    """Against the two frozen conditions, and the two frozen failures."""
+    """Against the two frozen conditions, and the two frozen failures.
+
+    A truncated arm is checked first and returns no verdict either way. An
+    arm cut off before its stated budget did not run the experiment that
+    was designed, and scoring it would compare a full purchase against a
+    partial one.
+    """
+    for arm in (a, b):
+        if arm.truncated:
+            return False, (
+                f"INVALID — arm {arm.arm} was truncated at its ceiling "
+                f"(${arm.usd:.4f}) rather than running to a natural stop. "
+                "It did not receive the budget the frozen design promised, "
+                "so neither arm is scored. Re-run with the ceiling the "
+                "design states."
+            )
     beats = b.progress_per_dollar > a.progress_per_dollar
     gained_creator = bool(b.earned.creator_gained_on)
 
@@ -352,7 +380,7 @@ def run_arm(
     from fragrance_graph.resolve.entities import backfill
 
     before = snapshot(conn)
-    comments_read, usd, quota_units, stop_reason = buy(target)
+    comments_read, usd, quota_units, stop_reason, truncated = buy(target)
     backfill(conn)
     conn.commit()
     after = snapshot(conn)
@@ -361,7 +389,11 @@ def run_arm(
         target=target,
         before=before,
         after=after,
-        earned=credit(frozen, before.pairs, after.pairs, already_spent),
+        # Independent: same frozen caps for both arms, no deduction.
+        earned=credit(frozen, before.pairs, after.pairs),
+        # Sequential: what this arm added on top of the previous one.
+        marginal=credit(frozen, before.pairs, after.pairs, already_spent),
+        truncated=truncated,
         comments_read=comments_read,
         usd=usd,
         quota_units=quota_units,
@@ -369,7 +401,28 @@ def run_arm(
     )
 
 
-def _real_buyer(conn: psycopg.Connection, budget: Any, run_id: str) -> Any:
+def _real_buyer(conn: psycopg.Connection, run_id: str) -> Any:
+    """A buyer whose per-arm ceiling is enforced by the ledger itself.
+
+    The previous experiment's arms were bounded only *between videos*:
+    `enrich_one` tests `trial.usd >= ceiling.max_usd` before starting each
+    one, so once a video began, extraction ran to the end of its comments.
+    At `max_comments = 400` that is up to twenty batches, and the stated
+    $0.10 ceiling bounded where an arm *started* a video rather than what
+    it spent.
+
+    Here each arm gets its own `Budget` whose cap is *today's ledger plus
+    the arm's ceiling*, read fresh at the arm's start. `budgeted_extractor`
+    charges through `guard`, which re-reads the ledger and raises the
+    moment that arm-scoped cap is crossed — so an arm now overshoots by at
+    most one batch (about $0.09, bounded by `DEFAULT_MAX_TOKENS`) instead
+    of by one video.
+
+    An arm stopped that way is **truncated**: it did not receive the budget
+    the design promised, and `verdict` refuses to score the run rather than
+    compare a full purchase against a partial one.
+    """
+    from fragrance_graph.budget import Budget, BudgetExhausted
     from fragrance_graph.experiments.neighbour import _llm_client
     from fragrance_graph.frontier import (
         Ceiling,
@@ -384,15 +437,18 @@ def _real_buyer(conn: psycopg.Connection, budget: Any, run_id: str) -> Any:
 
     client, api_key = build_client()
     quota = QuotaTracker()
-    extract_fn = budgeted_extractor(_llm_client(), budget)
-    ceiling = Ceiling(max_usd=CEILING_USD)
 
     def buy(target: str):
         from fragrance_graph.experiments.attribute_gain import _candidate_for
 
         match = _candidate_for(conn, target)
         if match is None:
-            return 0, 0.0, 0, "not-in-catalogue"
+            return 0, 0.0, 0, "not-in-catalogue", False
+
+        arm_budget = Budget.load(require_ledger=True)
+        arm_budget.cap_usd = arm_budget.spent_usd + CEILING_USD
+        extract_fn = budgeted_extractor(_llm_client(), arm_budget)
+
         trial = Trial(
             text=match.text,
             claims_before=match.claims,
@@ -405,11 +461,22 @@ def _real_buyer(conn: psycopg.Connection, budget: Any, run_id: str) -> Any:
         )
         store_hits(conn, hits, trial.query, run=run_id)
         trial.searches = 1
-        enrich_one(
-            conn, client, api_key, match, quota=quota, ceiling=ceiling,
-            run=run_id, extract_fn=extract_fn, trial=trial,
+        truncated = False
+        try:
+            enrich_one(
+                conn, client, api_key, match, quota=quota,
+                ceiling=Ceiling(max_usd=CEILING_USD),
+                run=run_id, extract_fn=extract_fn, trial=trial,
+            )
+        except BudgetExhausted as exc:
+            truncated = True
+            trial.stop_reason = "arm-ceiling"
+            trial.note = str(exc)[:200]
+            log.warning("arm for %s hit its own ceiling: %s", target, exc)
+        return (
+            trial.comments_seen, trial.usd, trial.quota_units,
+            trial.stop_reason, truncated,
         )
-        return trial.comments_seen, trial.usd, trial.quota_units, trial.stop_reason
 
     return buy
 
@@ -451,6 +518,23 @@ def render(a: ArmResult, b: ArmResult) -> str:
         "",
         f"Independent creator added on — A: {list(a.earned.creator_gained_on) or 'none'}, "
         f"B: {list(b.earned.creator_gained_on) or 'none'}",
+        "",
+        "Both arms are scored against the identical frozen shortfall, with "
+        "no deduction for what the other earned, so the comparison measures "
+        "the two acquisitions rather than the order they ran in.",
+        "",
+        "## Secondary — sequential marginal yield",
+        "",
+        "What each arm added *given* the corpus the previous one left. Real, "
+        "and a different question from the one above.",
+        "",
+        "```",
+        f"{'':<16}{'people':>8}{'creators':>10}{'marginal':>10}",
+        f"{'A  direct':<16}{a.marginal.people:>8}{a.marginal.creators:>10}"
+        f"{a.marginal.capped_total:>10}",
+        f"{'B  neighbour':<16}{b.marginal.people:>8}{b.marginal.creators:>10}"
+        f"{b.marginal.capped_total:>10}",
+        "```",
         "",
         "## Secondary — graph yield, and raw versus usable",
         "",
@@ -514,14 +598,28 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
         run_id = f"pair-neighbour-{datetime.now(UTC).date().isoformat()}"
-        buy = _real_buyer(conn, budget, run_id)
+        buy = _real_buyer(conn, run_id)
         frozen = snapshot(conn).pairs
 
-        a = run_arm(conn, arm="A", target=ARM_A, buy=buy, frozen=frozen)
-        b = run_arm(
-            conn, arm="B", target=ARM_B, buy=buy, frozen=frozen,
-            already_spent=a.earned,
-        )
+        # Admission control, using the reservation mechanism. Both arms'
+        # money is committed to the ledger *before the first paid batch*,
+        # so the experiment cannot start unless it can finish, and no
+        # concurrent process can take the headroom out from under it.
+        #
+        # Settled back to zero at the end rather than to the real spend,
+        # because the real spend is already on the ledger: `guard` records
+        # every batch as it happens. The reservation is a hold, not an
+        # accounting entry, and settling it to the actual cost would charge
+        # the run twice.
+        hold = budget.reserve(2 * CEILING_USD, "pair-neighbour-hold")
+        try:
+            a = run_arm(conn, arm="A", target=ARM_A, buy=buy, frozen=frozen)
+            b = run_arm(
+                conn, arm="B", target=ARM_B, buy=buy, frozen=frozen,
+                already_spent=a.earned,
+            )
+        finally:
+            hold.settle(0.0)
 
         log_path = RESULT_PATH.with_suffix(".jsonl")
         log_path.parent.mkdir(parents=True, exist_ok=True)

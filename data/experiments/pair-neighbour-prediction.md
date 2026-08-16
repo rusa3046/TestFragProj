@@ -22,6 +22,23 @@ abandoned and a new file written — this one is not edited.
 > Neighbour selection, arms, falsification logic and the frozen query are
 > unchanged.
 
+> **Second amendment, 2026-08-16 20:45 UTC, pre-run, by the repository
+> owner. Still nothing spent.**
+>
+> 1. **The two arms are scored independently against the identical frozen
+>    baseline.** The first amendment made the cap *consumed*, so whichever
+>    arm ran first could exhaust a pair's shortfall and leave the other
+>    scoring zero on evidence it genuinely supplied — turning the A/B
+>    comparison into a measurement of run order. Both arms are now credited
+>    against the same frozen shortfall with no deduction.
+> 2. **Sequential marginal yield is kept as a secondary measurement.** What
+>    the second arm added *given* the corpus the first left behind is a real
+>    question; it is just not the comparison.
+> 3. **Each arm's ceiling is now enforced by the ledger.** See **Cost**.
+>
+> Neighbour selection, arms, falsification logic and the frozen query remain
+> unchanged.
+
 ## What is being tested, and what is not
 
 The previous experiment (`neighbour-prediction.md`, `neighbour-result.md`)
@@ -273,6 +290,33 @@ UTC rollover:       ~3.5 hours away
 **Therefore the run waits for the UTC rollover.** The alternative — raising
 the cap or shrinking `max_comments` — would either weaken the cap or change
 the frozen arms, and neither is worth three hours.
+
+### The ceiling is now enforced, not just declared
+
+Two mechanisms, added by the second amendment and neither of which changes
+the arms:
+
+**Admission control, via `Budget.reserve`.** Both arms' money is committed
+to the ledger *before the first paid batch*, so the experiment cannot begin
+unless it can finish and no concurrent process can take the headroom out
+from under it. The hold is released — settled to zero — at the end rather
+than settled to the real cost, because the real cost is already on the
+ledger: `guard` records every batch as it happens. Settling the hold to the
+actual spend would charge the run twice. Verified end to end: hold $0.20,
+charge $0.11, release, ledger reads $0.11.
+
+**A per-arm cap.** Each arm loads its own `Budget` whose cap is *today's
+ledger plus that arm's ceiling*, read fresh at the arm's start.
+`budgeted_extractor` charges through `guard`, which re-reads the ledger and
+raises the moment that arm-scoped cap is crossed. So an arm now overshoots
+by **at most one batch** — about $0.09, bounded by `DEFAULT_MAX_TOKENS` —
+rather than by one whole video.
+
+**A truncated arm is not a result.** If either arm stops because it hit its
+own ceiling rather than running out of creators or comments, `verdict`
+returns `INVALID` and scores neither arm. An arm cut short did not receive
+the budget the design promised it, and comparing a full purchase against a
+partial one measures the interruption rather than the hypothesis.
 
 ## Sign-off
 

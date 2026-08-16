@@ -169,3 +169,67 @@ class TestTheBaselineMatchesTheFrozenDesign:
         assert ARM_A == ANCHOR
         assert ARM_B == "Maison Alhambra Delilah"
         assert CEILING_USD == pytest.approx(0.10)
+
+
+class TestArmsAreScoredIndependently:
+    """Both arms against the identical frozen shortfall, no deduction.
+
+    The earlier version subtracted the first arm's credit from the second's
+    cap, which turned the A/B comparison into a measurement of run order:
+    whichever arm went first could exhaust a pair's shortfall and leave the
+    other scoring zero on evidence it genuinely supplied. Sequential
+    marginal yield is still recorded — it is a real and separate question —
+    but it is not the comparison.
+    """
+
+    def test_the_second_arm_is_not_penalised_for_running_second(self):
+        frozen = {"X": pair("X", people=1, creators=1)}
+        after_a = {"X": grown(frozen["X"], people=2)}
+        after_b = {"X": grown(after_a["X"], people=2, tag="b")}
+
+        arm_a = credit(frozen, frozen, after_a)
+        independent_b = credit(frozen, after_a, after_b)
+        marginal_b = credit(frozen, after_a, after_b, already_spent=arm_a)
+
+        assert arm_a.people == 2
+        assert independent_b.people == 2, (
+            "B supplied two people against a pair that was two short; "
+            "scored on its own, that is what it earned"
+        )
+        assert marginal_b.people == 0, (
+            "and the sequential view still records that A had already "
+            "closed the same shortfall"
+        )
+
+
+class TestATruncatedArmIsNotAResult:
+    """An arm cut off at its ceiling did not run the designed experiment,
+    and scoring it would compare a full purchase against a partial one."""
+
+    def _arm(self, name, *, usd, capped, truncated=False):
+        return ArmResult(
+            arm=name, target="t", before=Snapshot(), after=Snapshot(),
+            earned=Credit(people=capped, creator_gained_on=("X",)),
+            usd=usd, truncated=truncated,
+        )
+
+    def test_a_truncated_neighbour_arm_invalidates_the_run(self):
+        a = self._arm("A", usd=0.05, capped=1)
+        b = self._arm("B", usd=0.10, capped=9, truncated=True)
+        passed, why = verdict(a, b)
+        assert not passed
+        assert "INVALID" in why and "arm B" in why
+
+    def test_a_truncated_direct_arm_invalidates_it_too(self):
+        a = self._arm("A", usd=0.10, capped=1, truncated=True)
+        b = self._arm("B", usd=0.10, capped=9)
+        passed, why = verdict(a, b)
+        assert not passed
+        assert "INVALID" in why and "arm A" in why
+
+    def test_an_untruncated_run_is_scored_normally(self):
+        a = self._arm("A", usd=0.10, capped=1)
+        b = self._arm("B", usd=0.10, capped=9)
+        passed, why = verdict(a, b)
+        assert passed
+        assert "INVALID" not in why
