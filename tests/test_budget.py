@@ -353,3 +353,55 @@ class TestTheKnownConcurrencyGap:
         reloaded = Budget.load(ledger, today="2026-08-16")
         with pytest.raises(BudgetExhausted):
             reloaded.check(0.20)
+
+
+class TestSmallChargesSurviveTheLedger:
+    """A cap that cannot see many small calls is not a cap.
+
+    The OpenAI embedding arm charges per descriptor: 1,092 calls at about
+    $0.00000005 each. `record` rounded every line to six places, so each
+    one persisted as 0.0 and the ledger showed $0.000001 against roughly
+    $0.000058 charged. `spent_usd` was right in-process; the *file* was
+    not, and the file is what the next container reads.
+
+    Trivial in dollars. Not trivial in mechanism: this is the fifth
+    escape of the class where real spend leaves no ledger trace.
+    """
+
+    def test_a_sub_micro_charge_is_not_rounded_to_nothing(self, tmp_path):
+        from fragrance_graph.budget import Budget, spent_on
+
+        ledger = tmp_path / "spend.jsonl"
+        budget = Budget(cap_usd=1.0, ledger=ledger, today="2026-08-16")
+        budget.record(0.00000005, "embed")
+        assert spent_on(ledger, "2026-08-16") > 0, (
+            "a charge that reaches the API must reach the ledger"
+        )
+
+    def test_many_small_charges_accumulate_on_disk(self, tmp_path):
+        """The failure only shows in aggregate, which is exactly how it
+        escaped notice: one call is a rounding error, a thousand is the
+        whole bill."""
+        from fragrance_graph.budget import Budget, spent_on
+
+        ledger = tmp_path / "spend.jsonl"
+        budget = Budget(cap_usd=1.0, ledger=ledger, today="2026-08-16")
+        for _ in range(1092):
+            budget.record(0.00000005, "embed")
+
+        on_disk = spent_on(ledger, "2026-08-16")
+        assert on_disk == pytest.approx(budget.spent_usd, rel=1e-6), (
+            "what the file says must match what the process spent"
+        )
+        assert on_disk > 0.00005
+
+    def test_a_reloaded_budget_sees_them(self, tmp_path):
+        from fragrance_graph.budget import Budget
+
+        ledger = tmp_path / "spend.jsonl"
+        budget = Budget(cap_usd=1.0, ledger=ledger, today="2026-08-16")
+        for _ in range(1000):
+            budget.record(0.0000001, "embed")
+
+        reloaded = Budget.load(ledger, today="2026-08-16")
+        assert reloaded.spent_usd == pytest.approx(budget.spent_usd, rel=1e-6)

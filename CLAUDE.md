@@ -63,6 +63,24 @@ general terms — approval for the plan is not approval for these.
 The plugin's stop-time review gate stays **off**. It installs a `Stop` hook
 that fires on every turn.
 
+## Commit through the checkpoint script
+
+Use `scripts/checkpoint.sh -m "..."`. It runs ruff, the full suite, the
+provenance audit and the recommendation benchmark as separate checked
+steps, and refuses to commit if any fails.
+
+This exists because a commit landed with failing tests twice, both from
+the same shape:
+
+    uv run pytest -q 2>&1 | tail -3 && git commit ...
+
+A pipeline's exit status is the last command's, so that reads as "if
+`tail` succeeded, commit". Knowing this does not prevent it; the mistake
+happens while assembling a long command for another purpose. The script
+does the remembering.
+
+`--quick` skips the audit and benchmark for work that cannot affect them.
+
 ## Never merge Codex work
 
 Harvest with `git fetch <clone-path> <branch>`, then read each diff and

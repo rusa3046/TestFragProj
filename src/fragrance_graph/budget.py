@@ -188,7 +188,22 @@ class Budget:
         record = {
             "date": self.today,
             "at": datetime.now(UTC).isoformat(timespec="seconds"),
-            "usd": round(usd, 6),
+            # 12 places, not 6. `spent_usd` accumulates the exact figure in
+            # this process, but the *file* is what a fresh container reads,
+            # and rounding each line to six places wrote real spend away.
+            #
+            # Measured: the OpenAI embedding arm makes one call per
+            # descriptor, 1,092 of them, each costing about $0.00000005.
+            # Every line rounded to 0.0 and the ledger recorded $0.000001
+            # against roughly $0.000058 actually charged — 98% of it gone.
+            #
+            # It is a rounding error worth six thousandths of a cent and it
+            # is the fifth escape of this class, which is the reason it is
+            # being fixed rather than noted. A cap that cannot see many
+            # small calls is a cap a loop of small calls runs straight
+            # through: the per-call cost is what makes it invisible, not
+            # the total.
+            "usd": round(usd, 12),
             "what": what,
             **detail,
         }
