@@ -318,14 +318,25 @@ version of that was buying them from a *neighbour's* review section.
 
 ## Technical debt, carried deliberately
 
-**The budget ledger has a cross-process race.** Each process reads the
-ledger at start, so two concurrent paid workers can each believe the full
-remainder is theirs. Demonstrated by
-`tests/test_budget.py:TestTheKnownConcurrencyGap` ($1.80 against a $1.50
-cap). The ledger stays accurate, so overspend is visible after the fact,
-but the cap is per-process whenever runs overlap. **Do not run concurrent
-paid workers.** Needs an atomic reservation — lock, re-read, check,
-append, release — plus a two-process test, before unattended scheduling.
+**The budget ledger cross-process race is fixed** (2026-08-16). Every
+read-modify-write now runs under an exclusive `flock`, and the running
+total is re-read from the file inside that lock rather than trusted from
+the process's own cache. `Budget.reserve` commits an estimate before a
+paid call and settles it to the real figure afterwards, by appending the
+difference rather than editing the line.
+
+Two things this does **not** claim. The post-hoc path — `record` and
+`guard`, which learn a batch's cost only after paying it — still overshoots
+by one batch; what changed is that the second process now sees the first
+and stops instead of running on. And `reserve` is wired into no caller
+yet: the concurrency fix applies to every existing path automatically,
+but estimate-first protection is opt-in and nothing opts in.
+
+Pinned by `TestConcurrentProcesses::test_the_lock_makes_a_second_process_wait`,
+which holds the lock in the parent and asserts the child's reservation
+lands only after release. The obvious version of that test — start two
+processes, assert one loses — passes with the lock removed, and was
+discarded for that reason.
 
 **Instrumentation ran only on the failure path.** `density_before` and
 `funnel` were assigned inside the `except BudgetExhausted` branch, so run

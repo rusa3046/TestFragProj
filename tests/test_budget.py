@@ -316,39 +316,190 @@ class TestEveryPaidPathStillUsesTheSameGuard:
         assert "guard" not in called and "record" not in called
 
 
-class TestTheKnownConcurrencyGap:
-    """Two processes can together exceed the ceiling.
+class TestConcurrentProcesses:
+    """What overlapping runs can and cannot do to the cap.
 
-    Pinned as a *known limit* rather than presented as safety. Each reads
-    the ledger at start, so two runs beginning together can each believe
-    the full remainder is theirs. The ledger stays accurate — every batch
-    is recorded — but the cap is advisory across processes.
+    This class used to pin the opposite: `TestTheKnownConcurrencyGap`
+    asserted that two runs together reached $1.80 against a $1.50 cap and
+    documented it as a limit. The limit is now narrowed to one batch on the
+    post-hoc path and removed entirely on the reserving path, so the tests
+    assert the new behaviour and keep the old figure as the thing being
+    prevented.
 
-    Not fixed here because the fix is a lock or an atomic
-    read-modify-write against the ledger file, and that is a change to the
-    enforcement mechanism rather than to a caller. Naming it is the point:
-    an undocumented limit reads as a guarantee.
+    The distinction that matters is *when the cost is known*:
+
+        reserve -> pay -> settle     cost estimated first, cannot overshoot
+        pay -> record                cost known only after, overshoots once
+
+    Extraction is the second kind. No lock can un-spend an API call that
+    already returned, so the guarantee there is "stops after one batch"
+    rather than "never exceeds".
     """
 
-    def test_two_processes_can_together_exceed_the_ceiling(self, ledger):
+    def test_the_post_hoc_path_stops_after_one_batch_instead_of_running_on(
+        self, ledger
+    ):
+        """`guard` learns a batch's cost after paying it, so the first
+        overshoot is unavoidable. What changed is that the second process
+        now *sees* the first and halts, instead of continuing to spend."""
         first = Budget.load(ledger, today="2026-08-16")
         second = Budget.load(ledger, today="2026-08-16")
 
         first.guard("extract")(0.90, 1000)
-        # `second` still believes nothing has been spent.
-        assert second.spent_usd == pytest.approx(0.0)
-        second.guard("extract")(0.90, 1000)
+        assert second.spent_usd == pytest.approx(0.0), "stale cache at load"
 
-        total = Budget.load(ledger, today="2026-08-16")
-        assert total.spent_usd == pytest.approx(1.80)
-        assert total.spent_usd > DAILY_CAP_USD, (
-            "documented limit: the cap is per-process, not per-day, when "
-            "two runs overlap"
+        with pytest.raises(BudgetExhausted):
+            second.guard("extract")(0.90, 1000)
+
+        assert second.spent_usd == pytest.approx(1.80), (
+            "the second process re-read the ledger and saw the first's spend"
         )
 
+    def test_a_reservation_refuses_when_another_process_already_committed(
+        self, ledger
+    ):
+        """The reserving path has no overshoot at all: the money is on the
+        ledger before the call, so the second arrival is refused."""
+        first = Budget.load(ledger, today="2026-08-16")
+        second = Budget.load(ledger, today="2026-08-16")
+
+        first.reserve(0.90, "embed")
+        with pytest.raises(BudgetExhausted, match="Nothing was reserved"):
+            second.reserve(0.90, "embed")
+
+        assert Budget.load(ledger, today="2026-08-16").spent_usd == pytest.approx(
+            0.90
+        ), "the refused reservation wrote nothing"
+
+    def test_the_lock_makes_a_second_process_wait(self, ledger, tmp_path):
+        """The proof that the lock excludes, rather than that it exists.
+
+        Written this way because the obvious test does not work. Starting
+        two processes together and asserting exactly one wins **passes with
+        the lock removed** — process startup takes milliseconds and the
+        window between reading the ledger and appending to it is
+        microseconds, so the two almost never overlap. It was written,
+        verified against a version with locking disabled, and found to pin
+        nothing.
+
+        This holds the lock in the parent for a wall-clock interval the
+        child cannot miss, and asserts the child's reservation landed only
+        after the parent let go.
+        """
+        import subprocess
+        import sys
+        import textwrap
+        import time
+
+        from fragrance_graph.budget import _locked
+
+        finished = tmp_path / "child-finished"
+        script = tmp_path / "racer.py"
+        script.write_text(
+            textwrap.dedent(
+                f"""
+                import time
+                from fragrance_graph.budget import Budget
+                budget = Budget.load({str(ledger)!r}, cap_usd=1.50,
+                                     today="2026-08-16")
+                budget.reserve(0.90, "race")
+                open({str(finished)!r}, "w").write(repr(time.time()))
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        with _locked(ledger):
+            child = subprocess.Popen([sys.executable, str(script)])
+            time.sleep(0.5)
+            assert not finished.exists(), (
+                "the child reserved while the parent held the lock — "
+                "the lock is not excluding anything"
+            )
+            released_at = time.time()
+
+        assert child.wait(timeout=30) == 0
+        assert float(finished.read_text()) >= released_at
+
+    def test_two_processes_cannot_both_reserve_the_same_remainder(
+        self, ledger, tmp_path
+    ):
+        """End-to-end, in real processes rather than one interpreter.
+
+        Weaker than the exclusion test above — it would pass unlocked — but
+        it exercises the whole path a paid worker takes, which the
+        exclusion test deliberately does not.
+        """
+        import subprocess
+        import sys
+        import textwrap
+
+        script = tmp_path / "worker.py"
+        script.write_text(
+            textwrap.dedent(
+                f"""
+                from fragrance_graph.budget import Budget, BudgetExhausted
+                budget = Budget.load({str(ledger)!r}, cap_usd=1.50,
+                                     today="2026-08-16")
+                try:
+                    budget.reserve(0.90, "race")
+                    print("WON")
+                except BudgetExhausted:
+                    print("REFUSED")
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        runs = [
+            subprocess.Popen(
+                [sys.executable, str(script)], stdout=subprocess.PIPE, text=True
+            )
+            for _ in range(2)
+        ]
+        results = sorted(p.communicate()[0].strip() for p in runs)
+
+        assert results == ["REFUSED", "WON"], results
+        assert Budget.load(ledger, today="2026-08-16").spent_usd <= DAILY_CAP_USD
+
+    def test_settling_corrects_the_estimate_without_rewriting_it(self, ledger):
+        """Append-only: the estimate stays on the ledger and a second line
+        carries the difference, so the history of the call survives."""
+        budget = Budget.load(ledger, today="2026-08-16")
+        reservation = budget.reserve(0.50, "embed")
+        reservation.settle(0.02)
+
+        assert Budget.load(ledger, today="2026-08-16").spent_usd == pytest.approx(
+            0.02
+        )
+        lines = [
+            json.loads(line)
+            for line in ledger.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert [row["kind"] for row in lines] == ["reservation", "settlement"]
+        assert lines[0]["usd"] == pytest.approx(0.50), "the estimate is not edited"
+
+    def test_an_unsettled_reservation_stays_charged(self, ledger):
+        """A process that dies mid-call leaves its claim standing. The day
+        looks more expensive than it was, which is the safe direction."""
+        budget = Budget.load(ledger, today="2026-08-16")
+        with budget.reserve(0.40, "embed"):
+            pass  # no settle — as if the process had died here
+
+        assert Budget.load(ledger, today="2026-08-16").spent_usd == pytest.approx(
+            0.40
+        )
+
+    def test_a_reservation_cannot_be_settled_twice(self, ledger):
+        budget = Budget.load(ledger, today="2026-08-16")
+        reservation = budget.reserve(0.10, "embed")
+        reservation.settle(0.05)
+        with pytest.raises(RuntimeError, match="already settled"):
+            reservation.settle(0.05)
+
     def test_a_process_that_reloads_sees_the_other_and_stops(self, ledger):
-        """The mitigation that exists today: any process re-reading the
-        ledger picks up the other's spend."""
+        """The pre-existing mitigation, still true."""
         Budget.load(ledger, today="2026-08-16").guard("extract")(1.40, 1000)
         reloaded = Budget.load(ledger, today="2026-08-16")
         with pytest.raises(BudgetExhausted):
