@@ -382,3 +382,46 @@ class TestRecordingInferences:
         assert conn.execute(
             "SELECT count(*) FROM claim_attributions"
         ).fetchone()[0] == 0
+
+
+class TestDeixisIsNotEnglishOnly:
+    """"este perfume" points exactly as hard as "this perfume".
+
+    The corpus has Spanish, Portuguese, Indonesian and Vietnamese
+    commenters. With only English deixis recognised, their claims were not
+    merely unattached -- the floating classifier counted them as naming
+    *fragrances the catalogue lacks*, and "este perfume" (17 claims)
+    ranked second on a list of bottles worth acquiring.
+    """
+
+    def test_foreign_deixis_points(self):
+        from fragrance_graph.attributes import POINTING
+
+        for form in ("este perfume", "esta fragancia", "ce parfum",
+                     "questo profumo", "ini", "con này", "o perfume"):
+            assert form in POINTING
+
+    def test_it_still_refuses_anything_that_names_a_bottle(self):
+        """The caution the English list was built with survives."""
+        from fragrance_graph.attributes import POINTING
+
+        for named in ("the extrait", "the original", "oud for glory",
+                      "the EdP", "fragrance", "baccarat rouge"):
+            assert named not in POINTING
+
+    def test_english_deixis_is_unchanged(self):
+        from fragrance_graph.attributes import DEICTIC, POINTING
+
+        assert DEICTIC <= POINTING
+        assert "this" in POINTING and "it" in POINTING
+
+    def test_the_attachment_rule_uses_the_wider_set(self):
+        import inspect
+
+        from fragrance_graph.attributes import attach_by_video
+
+        source = inspect.getsource(attach_by_video)
+        assert "POINTING" in source, (
+            "attach_by_video must gate on POINTING, not DEICTIC, or the "
+            "foreign forms are recognised nowhere that matters"
+        )

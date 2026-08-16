@@ -214,3 +214,114 @@ def test_verified_claims_filters_out_paraphrase():
 def test_extraction_result_defaults_to_no_claims():
     """Most comments assert nothing; that is a valid result, not an error."""
     assert ExtractionResult(comment_id=1).claims == []
+
+
+class TestTheValueMustTraceToTheComment:
+    """P1 from adversarial review, confirmed.
+
+    `evidence_is_quoted` checked the quotation and nothing checked the
+    descriptor inside it. A claim could quote "It smells wonderful"
+    verbatim, carry raw_object_text "rose", and store as verified
+    evidence that somebody said rose.
+
+    It matters more since the extraction prompt began requiring these
+    types to carry an object: that turns "missing descriptor" into
+    "descriptor the model supplied", and a verifier checking only the
+    quotation cannot tell the two apart.
+    """
+
+    def test_the_reviewers_reproduction(self):
+        from fragrance_graph.models import value_is_grounded
+
+        assert not value_is_grounded("rose", "It smells wonderful")
+
+    def test_the_case_already_in_the_corpus(self):
+        from fragrance_graph.models import value_is_grounded
+
+        assert not value_is_grounded(
+            "special occasion scent for the cooler seasons",
+            "It is not a daily wear at all",
+        )
+
+    def test_a_quoted_descriptor_is_grounded(self):
+        from fragrance_graph.models import value_is_grounded
+
+        assert value_is_grounded("woodsy", "It's woodsy")
+        assert value_is_grounded("date nights", "great for date nights")
+
+    def test_normalisation_still_counts(self):
+        """The model should normalise, and refusing that would discard
+        real evidence: "more fem" is a person saying feminine."""
+        from fragrance_graph.models import value_is_grounded
+
+        assert value_is_grounded("feminine", "yeah the original is more fem")
+        assert value_is_grounded("vanilla", "so much vanilla in this")
+
+    def test_non_latin_script_is_not_silently_refused(self):
+        """The corpus has Bengali and Vietnamese commenters. A check that
+        stripped their alphabets to nothing would refuse every claim they
+        ever make, which is a worse bug than the one being fixed."""
+        from fragrance_graph.models import value_is_grounded
+
+        assert value_is_grounded("নারিকেল তেল", "Qahwa is নারিকেল তেল। হাজবেন্ডের")
+        assert value_is_grounded("ngọt gắt", "mùi ngọt gắt quá")
+
+    def test_an_objectless_claim_is_unaffected(self):
+        from fragrance_graph.models import value_is_grounded
+
+        assert value_is_grounded(None, "it lasts forever")
+        assert value_is_grounded("", "it lasts forever")
+
+    def test_evidence_matches_now_requires_both(self):
+        from fragrance_graph.models import Claim
+
+        claim = Claim(
+            claim_type="NOTE_DESCRIPTOR", subject_kind="FRAGRANCE",
+            raw_subject_text="it", object_kind="TAG", raw_object_text="rose",
+            sentiment="POSITIVE", polarity="ASSERTED", confidence=0.9,
+            evidence_span="It smells wonderful",
+        )
+        assert not claim.evidence_matches("It smells wonderful"), (
+            "the span is quoted but the value is not in it"
+        )
+
+
+class TestGroundingDoesNotEatComparisons:
+    """The scoping is the load-bearing half of the grounding fix.
+
+    Applied to every claim type it demoted 126 rows against 9 real ones,
+    almost all of them comparisons -- the scarcest evidence in the corpus.
+    A comparison's object is an *entity*, and a commenter legitimately
+    names it where this comment cannot see: "I have a dupe only", under a
+    thread about Baccarat Rouge 540, is a real DUPE_OF.
+    """
+
+    def test_a_comparison_object_may_come_from_context(self):
+        from fragrance_graph.models import Claim
+
+        claim = Claim(
+            claim_type="DUPE_OF", subject_kind="FRAGRANCE",
+            raw_subject_text="it", object_kind="FRAGRANCE",
+            raw_object_text="Baccarat Rouge 540", sentiment="NEUTRAL",
+            polarity="ASSERTED", confidence=0.9,
+            evidence_span="I have a dupe only",
+        )
+        assert claim.evidence_matches("Me too. Very expensive. I have a dupe only.")
+
+    def test_a_descriptor_may_not(self):
+        from fragrance_graph.models import Claim
+
+        claim = Claim(
+            claim_type="NOTE_DESCRIPTOR", subject_kind="FRAGRANCE",
+            raw_subject_text="it", object_kind="TAG", raw_object_text="rose",
+            sentiment="POSITIVE", polarity="ASSERTED", confidence=0.9,
+            evidence_span="It smells wonderful",
+        )
+        assert not claim.evidence_matches("It smells wonderful")
+
+    def test_only_the_tagged_types_are_grounded(self):
+        from fragrance_graph.models import GROUNDED_TYPES
+
+        assert GROUNDED_TYPES == {"NOTE_DESCRIPTOR", "AESTHETIC", "OCCASION"}
+        for comparison in ("SIMILAR_TO", "DUPE_OF", "BETTER_THAN"):
+            assert comparison not in GROUNDED_TYPES

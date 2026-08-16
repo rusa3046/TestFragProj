@@ -153,6 +153,21 @@ does not make a claim about longevity:
 - object_kind: FRAGRANCE, HOUSE, TAG for anything else, NONE for none.
   Notes, occasions, vibes, materials, and product forms are all TAG.
 
+NOTE_DESCRIPTOR, OCCASION and AESTHETIC always take an object: the
+descriptor itself. Set object_kind = TAG and put the descriptor in
+raw_object_text. The descriptor is the claim — a NOTE_DESCRIPTOR whose
+object is NONE records only that a comment mentioned a smell, not which,
+and is discarded.
+
+  "It's woodsy"           -> NOTE_DESCRIPTOR, TAG, raw_object_text "woodsy"
+  "it's spicy like ginger"-> NOTE_DESCRIPTOR, TAG, raw_object_text "spicy"
+  "Gold is a powdery gourmand"
+                          -> two claims, TAG "powdery" and TAG "gourmand"
+  "great for the office"  -> OCCASION, TAG, raw_object_text "the office"
+
+Do not put the descriptor only in evidence_span. evidence_span quotes the
+sentence; raw_object_text carries the value being claimed.
+
 ## Rules
 
 - One subject per claim. If a sentence covers several fragrances, emit one

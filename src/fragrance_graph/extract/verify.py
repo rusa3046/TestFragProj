@@ -25,12 +25,18 @@ from dataclasses import dataclass
 import psycopg
 
 from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
-from fragrance_graph.models import evidence_is_quoted
+from fragrance_graph.models import (
+    GROUNDED_TYPES,
+    evidence_is_quoted,
+    value_is_grounded,
+)
 
 log = logging.getLogger("fragrance_graph.extract.verify")
 
 SELECT_SQL = """
-SELECT c.id, c.evidence_span, c.evidence_verified, co.body
+SELECT c.id, c.evidence_span, c.evidence_verified, c.raw_object_text,
+       c.claim_type,
+       co.body
   FROM claims c
   JOIN comments co ON co.id = c.comment_id
  ORDER BY c.id
@@ -77,7 +83,16 @@ def reverify(conn: psycopg.Connection, *, dry_run: bool = False) -> VerifyStats:
     for row in conn.execute(SELECT_SQL):
         stats.total += 1
         before = bool(row["evidence_verified"])
-        after = evidence_is_quoted(row["evidence_span"], row["body"])
+        # Both halves, matching what `write_claims` now stores: the
+        # quotation has to be real *and* the value has to trace back to
+        # the comment. Checking only the quotation left this blind to the
+        # defect it exists to catch — a verbatim span with a descriptor
+        # the commenter never wrote — and reported 0 demotions against
+        # rows that carry exactly that.
+        after = evidence_is_quoted(row["evidence_span"], row["body"]) and (
+            row["claim_type"] not in GROUNDED_TYPES
+            or value_is_grounded(row["raw_object_text"], row["body"])
+        )
 
         stats.verified_before += before
         stats.verified_after += after

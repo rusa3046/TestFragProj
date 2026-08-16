@@ -101,6 +101,43 @@ DEICTIC = frozenset(
     }
 )
 
+#: The same deixis in the other languages this corpus is written in.
+#:
+#: Every entry is an exact translation of something already in DEICTIC —
+#: "este perfume" *is* "this perfume" — so the caution above is untouched:
+#: none of these names a bottle, and a commenter using one has typed no
+#: word that means something more specific than the video's subject.
+#:
+#: Written out rather than matched by pattern, and each appears in the
+#: corpus. Leaving them out was not neutral: the floating classifier
+#: counted them as fragrances the catalogue lacks, which put "este
+#: perfume" (17 claims) near the top of a list of bottles worth buying.
+FOREIGN_DEICTIC = frozenset(
+    {
+        # Spanish
+        "este perfume", "esta fragancia", "este aroma", "el perfume",
+        "la fragancia", "el aroma", "esta colonia", "este", "esta", "esto",
+        "ese perfume", "ese", "esa",
+        # Portuguese
+        "esse perfume", "essa fragrancia", "essa fragrância", "o perfume",
+        "esse", "essa",
+        # French
+        "ce parfum", "cette fragrance", "ce truc",
+        # Italian
+        "questo profumo", "questa fragranza", "questo",
+        # German
+        "dieser duft", "dieses parfum",
+        # Indonesian / Malay
+        "ini", "itu", "parfum ini",
+        # Vietnamese
+        "cái này", "con này", "này",
+    }
+)
+
+#: Every form the video-subject rule will accept as pointing rather than
+#: naming.
+POINTING = DEICTIC | FOREIGN_DEICTIC
+
 #: Titles and queries that mean the video has no single subject. A comment
 #: saying "this one is the best" under a nine-clone blind test names one of
 #: the nine, not the fragrance in the title — and the title's fragrance is
@@ -324,7 +361,7 @@ def attach_by_video(conn: psycopg.Connection) -> SubjectReport:
         if not subject.usable:
             report.refused[subject.refused] += 1
             continue
-        if (row["raw_subject_text"] or "").strip().lower() not in DEICTIC:
+        if (row["raw_subject_text"] or "").strip().lower() not in POINTING:
             report.refused["the commenter named a bottle themselves"] += 1
             continue
         if set(names_in(row["body"], forms)) - {subject.fragrance_id}:

@@ -835,3 +835,59 @@ def test_dry_run_prices_a_reset_without_performing_it(conn, capsys, db_url):
     assert conn.execute("SELECT extracted_at FROM comments").fetchone()[0], (
         "--dry-run must not clear extracted_at"
     )
+
+
+class TestTaggedTypesMustCarryTheirValue:
+    """The prompt has to say where the descriptor goes, not imply it.
+
+    179 claims -- 58% of every rejection in the corpus -- were
+    NOTE_DESCRIPTOR with object_kind NONE and no object text. Reading the
+    payloads showed the model had found the claim and quoted it
+    ("It's woodsy", "Gold is a powdery gourmand"); it simply left the
+    value in evidence_span and never populated raw_object_text.
+
+    The prompt listed notes as TAG under "Kinds" but never said these
+    types *require* an object, and the model resolved the ambiguity the
+    expensive way. Replaying 272 stored comments with the requirement
+    stated recovered 183 descriptors and took that rejection class to
+    zero.
+
+    The fix belongs in the prompt. Widening the schema to accept an
+    objectless NOTE_DESCRIPTOR would raise the acceptance rate and record
+    that a comment mentioned a smell without recording which -- a fact
+    with no value in it.
+    """
+
+    def test_the_prompt_states_the_requirement(self):
+        from fragrance_graph.extract.llm import SYSTEM_PROMPT
+
+        assert "NOTE_DESCRIPTOR, OCCASION and AESTHETIC always take an object" in (
+            SYSTEM_PROMPT
+        )
+        assert "raw_object_text" in SYSTEM_PROMPT
+
+    def test_the_prompt_shows_where_the_value_goes(self):
+        from fragrance_graph.extract.llm import SYSTEM_PROMPT
+
+        assert "It's woodsy" in SYSTEM_PROMPT
+        assert "evidence_span quotes the" in SYSTEM_PROMPT
+
+    def test_the_schema_still_refuses_an_objectless_descriptor(self):
+        """The prompt got clearer; the boundary did not move."""
+        import pytest
+        from pydantic import ValidationError
+
+        from fragrance_graph.extract.llm import Claim
+
+        with pytest.raises(ValidationError):
+            Claim(
+                claim_type="NOTE_DESCRIPTOR",
+                subject_kind="FRAGRANCE",
+                raw_subject_text="Layton",
+                object_kind="NONE",
+                raw_object_text=None,
+                sentiment="POSITIVE",
+                polarity="ASSERTED",
+                confidence=0.9,
+                evidence_span="It's woodsy",
+            )
