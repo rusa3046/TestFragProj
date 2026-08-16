@@ -320,3 +320,53 @@ class TestDecomposingTwoSnapshots:
 
         note(conn, 2, frag=others[0], value="vanilla", author="p2", channel="c2")
         assert len(converted(first, snapshot(conn))["converted"]) == 1
+
+
+class TestTheAnchorIsTheStrongestFactNotTheMostPopulous:
+    """`attribute_facts` sorts by strength then **people**; the baseline
+    test is on **creators**. So a wording with more people on one channel
+    sorts ahead of a wording with fewer people across two, and the anchor
+    is judged on the one that cannot satisfy the gate.
+
+    Surfaced on the real corpus while building the neighbour experiment,
+    before it spent anything: BR540 carries `sweet` and `deliciousness
+    decadence a little sweet the depth` on two different channels, and the
+    experiment's gate disagreed with `relative_coverage` about the same
+    bottle. Left alone, a run that added the second creator to `sweet`
+    could have been reported as no gain at all.
+    """
+
+    def test_more_people_on_one_channel_does_not_outrank_two_channels(
+        self, anchor_and_others
+    ):
+        conn, anchor, _ = anchor_and_others
+        # Three people, one channel. Sorts first, cannot clear MIN_SOURCES.
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            note(conn, 10 + i, frag=anchor, value="deep rose and amber",
+                 author=author, channel="chan_a")
+        # Two people, two channels. This is the evidence that counts.
+        note(conn, 20, frag=anchor, value="rose", author="p4", channel="chan_b")
+        note(conn, 21, frag=anchor, value="rose", author="p5", channel="chan_c")
+
+        row = relative_coverage(conn, cases=CASE)[0]
+
+        assert row.anchor_creators == 2, (
+            "the two-channel fact is what the gate tests; a louder "
+            "single-channel wording must not stand in for it"
+        )
+        assert row.baseline_usable
+
+    def test_it_still_reports_a_genuinely_thin_anchor_as_thin(
+        self, anchor_and_others
+    ):
+        """The fix must not manufacture strength that is not there."""
+        conn, anchor, _ = anchor_and_others
+        note(conn, 1, frag=anchor, value="deep rose and amber",
+             author="p1", channel="chan_a")
+        note(conn, 2, frag=anchor, value="rose", author="p2", channel="chan_a")
+
+        row = relative_coverage(conn, cases=CASE)[0]
+
+        assert row.anchor_creators == 1
+        assert not row.baseline_usable
+        assert "1 creator" in row.blocker

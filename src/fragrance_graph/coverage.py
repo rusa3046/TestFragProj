@@ -137,6 +137,35 @@ class RelativeCoverage:
         return "\n".join(lines)
 
 
+def _strongest(facts: list[AttributeFact], attribute: str) -> AttributeFact | None:
+    """The best evidence the anchor has on an axis, not the first found.
+
+    A bottle can carry several facts on one axis because people word things
+    differently: BR540 has `sweet` and
+    `deliciousness decadence a little sweet the depth`, one creator each and
+    two *different* creators. `next()` returned whichever the query happened
+    to order first, so the answer to "is this anchor usable" depended on
+    row order.
+
+    That is not cosmetic. If a run adds two creators to `sweet` while the
+    compound phrase sorts first, the anchor still reports one creator and
+    the query stays blocked — a real gain reported as no gain. Found while
+    building the neighbour experiment, before it spent anything, because
+    the experiment's gate and this function disagreed about the same bottle.
+
+    Strongest means most independent creators, then most people, then the
+    longer supporting set — creators first because `MIN_SOURCES` is what
+    `_baseline_problem` actually tests.
+    """
+    matching = [f for f in facts if _matches(f, "note", attribute)]
+    if not matching:
+        return None
+    return max(
+        matching,
+        key=lambda f: (f.supporting.creators, f.supporting.people, len(f.stated.claim_ids)),
+    )
+
+
 def _baseline_problem(fact: AttributeFact | None) -> tuple[bool, str]:
     if fact is None:
         return False, "no evidence"
@@ -171,9 +200,7 @@ def relative_coverage(
     for anchor_name, attribute in cases:
         anchor_id = next((i for i, n in names.items() if n == anchor_name), None)
         anchor_facts = by_id.get(anchor_id, []) if anchor_id else []
-        anchor = next(
-            (f for f in anchor_facts if _matches(f, "note", attribute)), None
-        )
+        anchor = _strongest(anchor_facts, attribute)
         usable, problem = _baseline_problem(anchor)
         row = RelativeCoverage(
             anchor=anchor_name,
@@ -423,10 +450,7 @@ def comparison_coverage(
         if anchor_id is None:
             results.append(row)
             continue
-        anchor = next(
-            (f for f in by_id.get(anchor_id, []) if _matches(f, "note", attribute)),
-            None,
-        )
+        anchor = _strongest(by_id.get(anchor_id, []), attribute)
         row.anchor_evidence = anchor is not None
         row.baseline_usable = _baseline_problem(anchor)[0]
         for frag_id in names:
