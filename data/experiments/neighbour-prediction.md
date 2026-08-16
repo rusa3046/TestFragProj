@@ -5,6 +5,21 @@ or "Design" sections may change after the first dollar is spent. If
 something here turns out to be badly chosen, the run is abandoned and a
 new file is written — it is not edited.
 
+> **Amendment, 2026-08-16, pre-run, by the repository owner. Nothing had
+> been spent.**
+>
+> The primary outcome was "new stated facts about BR540 per dollar". It is
+> now **new independent stated BR540 *sweetness* evidence per dollar**,
+> because sweetness is the frozen query gap and a neighbour win on
+> unrelated BR540 facts would not validate query-gap acquisition. All-BR540
+> facts and total graph yield drop to secondary. Success now requires B > A
+> on the sweetness axis **and** at least one new independent creator on
+> BR540 sweetness.
+>
+> Recorded here rather than applied silently: the correction tightens the
+> test, and a reader a month from now needs to see that it was made before
+> the run and not after the numbers came in. Everything else is unchanged.
+
 ## Why this is written down in advance
 
 The cross-bottle result is retrospective. Run 2 spent money on seven
@@ -102,22 +117,42 @@ Thomas Kosmala No. 4 has never been searched at all.
 
 ## Prediction
 
-1. **Arm B produces strictly more new *stated* facts about BR540 per
+**Primary — the sweetness axis, because that is the frozen gap.**
+
+Measured as `coverage.relative_coverage` reports it for the case
+`("Maison Francis Kurkdjian Baccarat Rouge 540", "sweet")`: the number of
+independent people and creators supporting BR540's sweetness, before and
+after each arm, divided by that arm's spend.
+
+1. **Arm B adds more independent stated BR540 sweetness evidence per
    dollar than arm A.**
-2. **Arm B adds at least one creator to BR540's sweetness axis** — that
-   is, at least one new independent channel saying something about how
-   sweet BR540 is.
-3. Arm A produces **zero or one** new stated BR540 facts, because its
-   ground has been covered three times.
+2. **Arm B adds at least one creator** to BR540's sweetness axis — a
+   channel not already among the one that supports it today.
+
+**Secondary, recorded but not decisive:**
+
+3. Arm A produces zero or one new stated BR540 facts of any kind, because
+   its ground has been covered three times.
+4. New stated facts about BR540 overall, per arm.
+5. Total graph yield — new stated facts about *any* bottle, per arm.
+
+Success requires **1 and 2 together**. A neighbour that returns plenty of
+unrelated BR540 facts and nothing about sweetness has not validated
+query-gap acquisition; it has only reproduced the spillover already known
+to happen, which is the thing this run exists to go beyond.
 
 ## What would falsify it
 
-- **Arm A ≥ arm B** on new stated BR540 facts per dollar. Then
-  neighbourhood is not a schedulable signal on this evidence, and the
-  query-gap scheduler does not get built on it.
-- **Both arms produce zero BR540 facts.** Then the anchor is not reachable
-  by buying comments at all, and the right move is to stop trying to
-  answer this query rather than to spend more.
+- **Arm A ≥ arm B** on new independent BR540 *sweetness* evidence per
+  dollar. Then neighbourhood is not a schedulable signal on this evidence,
+  and the query-gap scheduler does not get built on it.
+- **Arm B adds no new creator to the sweetness axis**, whatever else it
+  returns. Condition 2 fails and the result is negative, because the
+  blocked query needs a second independent creator and nothing else will
+  unblock it.
+- **Both arms produce zero BR540 sweetness evidence.** Then the anchor is
+  not reachable by buying comments at all, and the right move is to stop
+  trying to answer this query rather than to spend more.
 
 Either outcome is worth $0.20. The failure mode this file exists to
 prevent is spending $0.20 and then deciding afterwards which number made
@@ -156,10 +191,12 @@ Narrow, deliberately.
 ## What gets recorded, per arm
 
 ```
-new stated facts about BR540          <- primary
-new creators on BR540's sweetness axis <- the product metric
-"BR540 but less sweet" ANSWERABLE?     <- the query actually unblocking
-new stated facts about the arm's own target  <- the sparse confound
+BR540 sweetness: people and creators, before/after   <- PRIMARY
+new creators on BR540's sweetness axis               <- the pass/fail gate
+"BR540 but less sweet" ANSWERABLE?                   <- the query unblocking
+new stated facts about BR540 overall                 <- secondary
+new stated facts about the arm's own target          <- the sparse confound
+new stated facts about any bottle                    <- total graph yield
 comments read, USD, stop reason, quota units
 ```
 
