@@ -73,6 +73,191 @@ VIDEO_FIELDS = (
 DISCOVERY_FIELDS = ("source", "video_id", "retrieval_query", "retrieved_at",
                     "discovery_run")
 
+RELEASES_FILE = "release_candidates.jsonl"
+
+#: Release lifecycle, minus `id` and with `fragrance_id` carried as a name.
+#:
+#: This table is exported because **it is not derivable**, which is the
+#: test every table here has to pass. Re-running the feed adapters does not
+#: reconstruct it: `status_reason` records why a person or a rule moved a
+#: candidate, `first_seen` is the day it appeared and cannot be recovered
+#: once the feed item rolls off, `REJECTED` is a decision that would
+#: silently become `DISCOVERED` again, and the probe counters were paid for
+#: in YouTube quota.
+#:
+#: `claim_attributions` and `evidence_embeddings` fail that test in the
+#: other direction and are deliberately absent — see `DERIVED_TABLES`.
+RELEASE_FIELDS = (
+    "source_type",
+    "source_id",
+    "source_url",
+    "brand",
+    "name",
+    "release_date",
+    "status",
+    "status_reason",
+    "first_seen",
+    "last_seen",
+    "last_probe_at",
+    "next_probe_at",
+    "probe_count",
+    "relevant_videos",
+    "relevant_creators",
+)
+
+EXPORT_RELEASES_SQL = f"""
+SELECT f.canonical_name AS fragrance,
+       {', '.join('r.' + name for name in RELEASE_FIELDS)}
+  FROM release_candidates r
+  LEFT JOIN fragrances f ON f.id = r.fragrance_id
+ ORDER BY r.source_type, r.source_id
+"""
+
+#: Tables a rebuild leaves empty on purpose, and the command that refills
+#: each one. Every entry is a pure function of the corpus, so exporting it
+#: would commit a derivative that can drift from its source.
+#:
+#: They are named here because *silence* was the actual defect. A database
+#: rebuilt from `data/corpus/` scored 20/22 on the recommendation benchmark
+#: against 22/22 on a developer machine, and nothing said why: the
+#: attribution pass and the descriptor embeddings had simply never been
+#: run. `scripts/checkpoint.sh` gates commits on that benchmark, so a fresh
+#: clone could not commit, for a reason unrelated to anything it changed.
+#: Each derived table, the command that rebuilds it, and how to tell
+#: whether the rows it holds still refer to claims that exist.
+#:
+#: The liveness query is not decoration. `import_corpus` deletes and
+#: re-inserts a comment's claims — they have no natural key — so every
+#: claim gets a new id on every import. `claim_attributions` has
+#: `ON DELETE CASCADE` and empties itself, which is visible.
+#: `evidence_embeddings` has no foreign key at all: its rows survive an
+#: import intact, and every one points at a claim id that no longer
+#: exists. Measured on a rebuild: 1,483 rows, 1,483 of them dead.
+#:
+#: Counting rows finds the first case and misses the second, which is
+#: worse than not checking — a table full of dead references reads as a
+#: table that is fine.
+DERIVED_TABLES = {
+    "claim_attributions": (
+        "python -m fragrance_graph.attributes infer",
+        "SELECT count(*) FROM claim_attributions a "
+        "WHERE EXISTS (SELECT 1 FROM claims c WHERE c.id = a.claim_id)",
+    ),
+    "evidence_embeddings": (
+        "python -m fragrance_graph.semantic backfill",
+        "SELECT count(*) FROM evidence_embeddings e "
+        "WHERE e.kind <> 'claim' "
+        "   OR EXISTS (SELECT 1 FROM claims c WHERE c.id = e.ref_id)",
+    ),
+}
+
+
+def _import_releases(
+    conn: psycopg.Connection, directory: Path, stats: CorpusStats
+) -> None:
+    """Restore the release lifecycle, resolving `fragrance` back to an id.
+
+    Keyed case-insensitively for the same reason claims are: migration 0009
+    forbids two bottles differing only by case, so lowering cannot merge
+    distinct rows, while not lowering silently drops the link.
+
+    `ON CONFLICT ... DO UPDATE` rather than `DO NOTHING`, because a
+    candidate's whole point is that its status moves. An import that
+    refused to overwrite would pin every candidate at whatever the database
+    happened to see first, which is the opposite of restoring a lifecycle.
+    """
+    records = _read_jsonl(directory / RELEASES_FILE)
+    if not records:
+        return
+    fragrance_ids = {
+        row["canonical_name"].lower(): row["id"]
+        for row in conn.execute("SELECT id, canonical_name FROM fragrances")
+    }
+    updates = ", ".join(f"{name} = excluded.{name}" for name in RELEASE_FIELDS)
+    columns = ("fragrance_id", *RELEASE_FIELDS)
+    for record in records:
+        named = (record.get("fragrance") or "").lower()
+        if named and named not in fragrance_ids:
+            stats.dangling_fragrances[record["fragrance"]] = (
+                stats.dangling_fragrances.get(record["fragrance"], 0) + 1
+            )
+        values = (
+            fragrance_ids.get(named),
+            *(record.get(field) for field in RELEASE_FIELDS),
+        )
+        conn.execute(
+            f"INSERT INTO release_candidates ({', '.join(columns)}) "
+            f"VALUES ({', '.join('%s' for _ in columns)}) "
+            f"ON CONFLICT (source_type, source_id) DO UPDATE SET "
+            f"{updates}, fragrance_id = excluded.fragrance_id",
+            values,
+        )
+        stats.releases += 1
+
+
+@dataclass(frozen=True)
+class DerivedCount:
+    """How many rows a derived table holds, and how many still mean anything."""
+
+    total: int
+    live: int
+
+    @property
+    def missing(self) -> bool:
+        return self.total == 0
+
+    @property
+    def stale(self) -> bool:
+        """Rows present, none pointing at a claim that still exists."""
+        return self.total > 0 and self.live == 0
+
+
+def derived_state(conn: psycopg.Connection) -> dict[str, DerivedCount]:
+    """Totals and live counts for the tables an import does not restore."""
+    state: dict[str, DerivedCount] = {}
+    for table, (_, live_sql) in DERIVED_TABLES.items():
+        try:
+            total = conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            live = conn.execute(live_sql).fetchone()[0]
+        except psycopg.Error:
+            # Older database, migration not applied. Absent, not empty.
+            conn.rollback()
+            continue
+        state[table] = DerivedCount(total, live)
+    return state
+
+
+def rebuild_notice(state: dict[str, DerivedCount]) -> str:
+    """What needs rebuilding and exactly how, or '' if nothing does.
+
+    Returned as text rather than logged from inside `derived_state` so the
+    caller decides where it goes — the import CLI prints it, and a test can
+    assert on it without capturing logs.
+    """
+    problems = [
+        (table, count) for table, count in state.items()
+        if count.missing or count.stale
+    ]
+    if not problems:
+        return ""
+    lines = [
+        "Derived tables need rebuilding. They are computed from the corpus "
+        "rather than stored in it, so an import never restores them:",
+        "",
+    ]
+    for table, count in problems:
+        why = "empty" if count.missing else f"stale ({count.total} dead rows)"
+        command, _ = DERIVED_TABLES[table]
+        lines.append(f"  {table:<22} {why:<22} uv run {command}")
+    lines += [
+        "",
+        "All are free and take seconds. Until they are run, semantic "
+        "retrieval returns nothing and the recommendation benchmark fails "
+        "cases that have nothing to do with your change.",
+    ]
+    return "\n".join(lines)
+
+
 COMMENT_FIELDS = (
     "source",
     "source_id",
@@ -194,6 +379,7 @@ class CorpusStats:
     videos: int = 0
     discoveries: int = 0
     rejects: int = 0
+    releases: int = 0
     #: Fragrance names claims point at that fragrances.jsonl does not
     #: define. They import as NULL, so the claim quietly stops being an
     #: edge and nothing says so.
@@ -207,7 +393,8 @@ class CorpusStats:
             f"{self.comments} comments, {self.claims} claims, "
             f"{self.fragrances} fragrances, {self.labels} eval labels, "
             f"{self.rejects} rejected claims, "
-            f"{self.videos} videos, {self.discoveries} discoveries"
+            f"{self.videos} videos, {self.discoveries} discoveries, "
+            f"{self.releases} release candidates"
         )
 
 
@@ -238,7 +425,8 @@ def is_scale_database(conn: psycopg.Connection) -> bool:
 #: Files an export may shrink only on purpose. Comments and claims can
 #: legitimately fall (a reset, a re-extraction); these four are records of
 #: something unrepeatable, so losing rows means the database is stale.
-GUARDED_FILES = (FRAGRANCES_FILE, LABELS_FILE, REJECTS_FILE, DISCOVERIES_FILE)
+GUARDED_FILES = (FRAGRANCES_FILE, LABELS_FILE, REJECTS_FILE, DISCOVERIES_FILE,
+                 RELEASES_FILE)
 
 
 def shrinking(directory: Path, counts: dict[str, int]) -> dict[str, tuple[int, int]]:
@@ -333,6 +521,7 @@ def export_corpus(
             "ORDER BY source, video_id, retrieval_query, discovery_run"
         )
     ]
+    releases = [dict(row) for row in conn.execute(EXPORT_RELEASES_SQL)]
 
     if not force:
         loss = shrinking(directory, {
@@ -340,6 +529,7 @@ def export_corpus(
             LABELS_FILE: len(labels),
             REJECTS_FILE: len(rejects),
             DISCOVERIES_FILE: len(discoveries),
+            RELEASES_FILE: len(releases),
         })
         if loss:
             detail = "\n".join(
@@ -368,6 +558,7 @@ def export_corpus(
         rejects=_write_jsonl(directory / REJECTS_FILE, rejects),
         videos=_write_jsonl(directory / VIDEOS_FILE, videos),
         discoveries=_write_jsonl(directory / DISCOVERIES_FILE, discoveries),
+        releases=_write_jsonl(directory / RELEASES_FILE, releases),
     )
     log.info("Exported to %s: %s", directory, stats)
     return stats
@@ -561,6 +752,8 @@ def import_corpus(
         )
         stats.discoveries += 1
 
+    _import_releases(conn, directory, stats)
+
     # Keyed case-insensitively, for the reason the upsert above is: a
     # claim names its fragrance by text, and migration 0009 says two
     # bottles cannot differ only by case — so lowering the key cannot
@@ -735,6 +928,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise SystemExit(f"Refusing to export.\n\n{exc}") from None
         else:
             import_corpus(conn, args.dir, prune=args.prune)
+            # Printed rather than logged, and after the summary rather than
+            # before it, because this is the line a fresh clone needs and
+            # the summary is the line it reads. A rebuilt database that
+            # scores 20/22 on a benchmark documented as 22/22 has no way to
+            # find out why without it.
+            notice = rebuild_notice(derived_state(conn))
+            if notice:
+                print(f"\n{notice}")
     finally:
         conn.close()
     return 0

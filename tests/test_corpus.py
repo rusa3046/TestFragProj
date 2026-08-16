@@ -726,3 +726,222 @@ def test_a_genuinely_undefined_fragrance_is_still_reported(conn, tmp_path, secon
 
     assert stats.dangling_fragrances == {"Something Nobody Curated": 1}
     fresh.close()
+
+
+# --- the release lifecycle, which is not derivable --------------------------
+
+
+def add_release(conn, *, source_id, status, fragrance=None, **overrides):
+    """One candidate, carrying the state a feed replay could not rebuild."""
+    fields = {
+        "source_type": "rss",
+        "source_id": source_id,
+        "source_url": f"https://example.test/{source_id}",
+        "brand": "Parfums de Marly",
+        "name": "Something New",
+        "release_date": "2026-09-01",
+        "status": status,
+        "status_reason": "a person decided this",
+        "first_seen": "2026-01-02T00:00:00Z",
+        "last_seen": "2026-08-16T00:00:00Z",
+        "last_probe_at": "2026-08-15T00:00:00Z",
+        "next_probe_at": "2026-08-22T00:00:00Z",
+        "probe_count": 3,
+        "relevant_videos": 8,
+        "relevant_creators": 4,
+        **overrides,
+    }
+    frag_id = None
+    if fragrance:
+        frag_id = conn.execute(
+            "SELECT id FROM fragrances WHERE lower(canonical_name) = lower(%s)",
+            (fragrance,),
+        ).fetchone()["id"]
+    columns = ("fragrance_id", *fields)
+    conn.execute(
+        f"INSERT INTO release_candidates ({', '.join(columns)}) "
+        f"VALUES ({', '.join('%s' for _ in columns)})",
+        (frag_id, *fields.values()),
+    )
+    conn.commit()
+
+
+class TestTheReleaseLifecycleSurvivesARebuild:
+    """Exported because it cannot be recomputed.
+
+    Re-running the feed adapters does not rebuild this table. A candidate
+    marked REJECTED comes back as DISCOVERED, `first_seen` becomes today,
+    `status_reason` is gone, and the probe counters — bought with YouTube
+    quota — reset to zero. That is data, not a derivative, and before this
+    it was the only table in the system that lived nowhere but one
+    disposable database.
+    """
+
+    def test_a_rejected_candidate_does_not_come_back_as_new(
+        self, conn, tmp_path, second_db
+    ):
+        populate(conn)
+        add_release(conn, source_id="rejected-1", status="REJECTED")
+        export_corpus(conn, tmp_path)
+
+        fresh = rebuild(tmp_path, tmp_path, second_db)
+        row = fresh.execute(
+            "SELECT * FROM release_candidates WHERE source_id = 'rejected-1'"
+        ).fetchone()
+        assert row["status"] == "REJECTED"
+        assert row["status_reason"] == "a person decided this"
+        fresh.close()
+
+    def test_first_seen_and_the_paid_probe_counters_survive(
+        self, conn, tmp_path, second_db
+    ):
+        """`first_seen` cannot be recovered once a feed item rolls off, and
+        the probe counts cost quota to obtain."""
+        populate(conn)
+        add_release(conn, source_id="probed-1", status="WAITING_FOR_DISCUSSION")
+        export_corpus(conn, tmp_path)
+
+        fresh = rebuild(tmp_path, tmp_path, second_db)
+        row = fresh.execute(
+            "SELECT * FROM release_candidates WHERE source_id = 'probed-1'"
+        ).fetchone()
+        assert row["first_seen"] == "2026-01-02T00:00:00Z"
+        assert (row["probe_count"], row["relevant_creators"]) == (3, 4)
+        fresh.close()
+
+    def test_the_link_to_a_catalogued_fragrance_survives_renumbering(
+        self, conn, tmp_path, second_db
+    ):
+        """Carried as a name, because a rebuilt database renumbers ids —
+        the same reason claims reference `canonical_name`."""
+        populate(conn)
+        add_release(
+            conn, source_id="cataloged-1", status="CATALOGED",
+            fragrance="Baccarat Rouge 540",
+        )
+        export_corpus(conn, tmp_path)
+
+        fresh = rebuild(tmp_path, tmp_path, second_db)
+        row = fresh.execute(
+            "SELECT f.canonical_name FROM release_candidates r "
+            "JOIN fragrances f ON f.id = r.fragrance_id "
+            "WHERE r.source_id = 'cataloged-1'"
+        ).fetchone()
+        assert row["canonical_name"] == "Baccarat Rouge 540"
+        fresh.close()
+
+    def test_importing_twice_does_not_duplicate(self, conn, tmp_path, second_db):
+        populate(conn)
+        add_release(conn, source_id="once", status="DISCOVERED")
+        export_corpus(conn, tmp_path)
+
+        fresh = rebuild(tmp_path, tmp_path, second_db)
+        import_corpus(fresh, tmp_path)
+        assert fresh.execute(
+            "SELECT count(*) FROM release_candidates"
+        ).fetchone()[0] == 1
+        fresh.close()
+
+    def test_a_status_change_is_restored_rather_than_kept(
+        self, conn, tmp_path, second_db
+    ):
+        """The corpus is the authority. An import that refused to overwrite
+        would pin a candidate at whatever the database saw first, which is
+        the opposite of restoring a lifecycle."""
+        populate(conn)
+        add_release(conn, source_id="moves", status="DISCOVERED")
+        export_corpus(conn, tmp_path)
+        fresh = rebuild(tmp_path, tmp_path, second_db)
+
+        conn.execute(
+            "UPDATE release_candidates SET status = 'EVIDENCED' "
+            "WHERE source_id = 'moves'"
+        )
+        conn.commit()
+        export_corpus(conn, tmp_path)
+        import_corpus(fresh, tmp_path)
+
+        assert fresh.execute(
+            "SELECT status FROM release_candidates WHERE source_id = 'moves'"
+        ).fetchone()["status"] == "EVIDENCED"
+        fresh.close()
+
+
+class TestDerivedTablesAreNamedRatherThanSilent:
+    """The defect was silence, not the emptiness.
+
+    A database rebuilt from the corpus scored 20/22 on a benchmark
+    documented as 22/22, and nothing connected the two facts. Both tables
+    below are pure functions of the corpus and are correctly absent from
+    it; what was missing was anything saying so.
+    """
+
+    def test_a_fresh_rebuild_says_what_is_missing_and_how_to_fix_it(
+        self, conn, tmp_path, second_db
+    ):
+        from fragrance_graph.corpus import derived_state, rebuild_notice
+
+        populate(conn)
+        export_corpus(conn, tmp_path)
+        fresh = rebuild(tmp_path, tmp_path, second_db)
+
+        notice = rebuild_notice(derived_state(fresh))
+        assert "claim_attributions" in notice
+        assert "evidence_embeddings" in notice
+        assert "fragrance_graph.semantic backfill" in notice, (
+            "naming the table without the command is half a message"
+        )
+        fresh.close()
+
+    def test_embeddings_left_pointing_at_deleted_claims_are_reported(
+        self, conn, tmp_path, second_db
+    ):
+        """The case row-counting misses, and the reason liveness is checked.
+
+        Claims have no natural key, so an import deletes and re-inserts
+        them and every id changes. `claim_attributions` cascades and goes
+        visibly empty. `evidence_embeddings` has no foreign key: every row
+        survives, every row is dead, and a count of rows says the table is
+        fine. Measured on a real rebuild at 1,483 rows, 1,483 of them dead.
+        """
+        from fragrance_graph.corpus import derived_state, rebuild_notice
+
+        populate(conn)
+        export_corpus(conn, tmp_path)
+        fresh = rebuild(tmp_path, tmp_path, second_db)
+        fresh.execute(
+            "INSERT INTO evidence_embeddings "
+            "(kind, ref_id, text, model, dim, vector, created_at) "
+            "SELECT 'claim', id, 'rosy', 'test', 2, ARRAY[0.1, 0.2], '2026-08-16' "
+            "FROM claims"
+        )
+        fresh.commit()
+
+        # A second import renumbers every claim underneath them.
+        import_corpus(fresh, tmp_path)
+        state = derived_state(fresh)
+
+        assert state["evidence_embeddings"].total > 0, "the rows are still there"
+        assert state["evidence_embeddings"].live == 0, "and every one is dead"
+        assert state["evidence_embeddings"].stale
+        assert "stale" in rebuild_notice(state)
+        fresh.close()
+
+    def test_a_populated_database_says_nothing(self, conn):
+        from fragrance_graph.corpus import derived_state, rebuild_notice
+
+        populate(conn)
+        conn.execute(
+            "INSERT INTO claim_attributions "
+            "(claim_id, role, fragrance_id, method, confidence, created_at) "
+            "SELECT c.id, 'subject', f.id, 'video-subject', 0.9, '2026-08-16' "
+            "FROM claims c, fragrances f LIMIT 1"
+        )
+        conn.execute(
+            "INSERT INTO evidence_embeddings "
+            "(kind, ref_id, text, model, dim, vector, created_at) "
+            "SELECT 'claim', id, 'rosy', 'test', 2, ARRAY[0.1, 0.2], '2026-08-16' "
+            "FROM claims LIMIT 1"
+        )
+        conn.commit()
+        assert rebuild_notice(derived_state(conn)) == ""

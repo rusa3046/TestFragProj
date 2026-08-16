@@ -81,6 +81,21 @@ else
     sed -n '/passed overall/p;/UNSUPPORTED/p' /tmp/checkpoint-bench.txt
   else
     tail -20 /tmp/checkpoint-bench.txt
+    # The benchmark reads `claim_attributions` and `evidence_embeddings`,
+    # and a `corpus import` leaves the first empty and the second full of
+    # rows pointing at claim ids it just deleted. A rebuilt database
+    # therefore scores 20/22 for reasons that have nothing to do with the
+    # commit being attempted. Say so here rather than let it read as "the
+    # benchmark broke".
+    uv run python - <<'PY' || true
+from fragrance_graph.corpus import derived_state, rebuild_notice
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection
+conn = get_connection(DEFAULT_DB_URL)
+notice = rebuild_notice(derived_state(conn))
+if notice:
+    print(f"\n{notice}")
+conn.close()
+PY
     fail "the benchmark reported unsupported assertions"
   fi
 fi

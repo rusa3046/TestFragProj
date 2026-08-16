@@ -81,6 +81,27 @@ does the remembering.
 
 `--quick` skips the audit and benchmark for work that cannot affect them.
 
+## A rebuilt database needs two more commands
+
+`corpus import` restores everything the corpus holds. Two tables are
+computed from it rather than stored in it, and neither survives:
+
+```
+uv run python -m fragrance_graph.attributes infer      # claim_attributions
+uv run python -m fragrance_graph.semantic backfill     # evidence_embeddings
+```
+
+Both are free and take seconds. The import prints this itself when either
+is empty **or stale**, and stale is the case worth knowing about: claims
+have no natural key, so an import deletes and re-inserts them and every id
+changes. `claim_attributions` cascades and goes visibly empty;
+`evidence_embeddings` has no foreign key, so every row survives pointing at
+a claim that no longer exists. Counting rows says that table is fine.
+
+Skipping them costs 22/22 on the recommendation benchmark, which
+`checkpoint.sh` gates commits on — so a fresh clone cannot commit, for a
+reason unrelated to whatever it changed.
+
 ## Never merge Codex work
 
 Harvest with `git fetch <clone-path> <branch>`, then read each diff and
