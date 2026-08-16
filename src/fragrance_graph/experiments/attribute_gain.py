@@ -516,14 +516,7 @@ def enrich_cohort(
             partial.comments_after = after.comments
             if ledger_spend and spend_before is not None:
                 partial.usd = round(ledger_spend() - spend_before, 6)
-            partial.density_before = fresh.facts
-            partial.funnel = asdict(
-                measure_funnel(
-                    conn, state.fragrance_id, queries=last_run.get("queries", []),
-                    videos=last_run.get("videos", 0),
-                    creators=last_run.get("creators", 0), **marks,
-                )
-            )
+            _instrument(conn, partial, state, fresh, marks, last_run)
             gains.append(partial)
             break
         after = _bottle_state(conn, state.fragrance_id, state.name)
@@ -537,9 +530,36 @@ def enrich_cohort(
         gain.stop_reason = stop
         gain.comments_after = after.comments
         gain.comments_before = fresh.comments
+        _instrument(conn, gain, state, fresh, marks, last_run)
         log.info("%s", gain)
         gains.append(gain)
     return gains
+
+
+def _instrument(conn, gain, state, fresh, marks, last_run) -> None:
+    """Record the funnel and the pre-run density for one bottle.
+
+    Both of these used to be set only in the `BudgetExhausted` branch. Run
+    1 hit the cap, so it produced a funnel and looked correct; run 2
+    finished all seven bottles cleanly and produced a funnel of zeros and
+    a density of zero for every bottle — which banded a 46-fact Dior
+    Sauvage as "sparse" and made the segmentation, the one output the
+    cohort was designed for, silently meaningless.
+
+    Diagnostics that only run on the failure path are worse than none:
+    they work in the rehearsal and vanish on the take.
+    """
+    gain.density_before = fresh.facts
+    gain.funnel = asdict(
+        measure_funnel(
+            conn,
+            state.fragrance_id,
+            queries=last_run.get("queries", []),
+            videos=last_run.get("videos", 0),
+            creators=last_run.get("creators", 0),
+            **marks,
+        )
+    )
 
 
 #: Pre-experiment fact counts that separate the cohort into bands. A
@@ -709,6 +729,35 @@ def render_plan(states: list[BottleState]) -> str:
     return "\n".join(lines)
 
 
+def completed_names(path: Path = RESULTS) -> set[str]:
+    """Bottles this experiment has already bought.
+
+    The cohort is a fixed ordered list and the runner took `states[:limit]`,
+    so a second invocation re-ran the first bottles from the top. With
+    three bottles already paid for that is not a wasted afternoon, it is
+    buying the same measurement twice and then diffing it against itself:
+    the second purchase finds the evidence the first one added, and reports
+    a conversion rate for money that bought nothing new.
+
+    This changes *which* bottles run, never how one is treated, so the ten
+    stay comparable.
+    """
+    if not path.exists():
+        return set()
+    done = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if row.get("kind") == "gain" and row.get("name"):
+            done.add(row["name"])
+    return done
+
+
 def write_results(rows: list[dict], path: Path = RESULTS) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
@@ -728,6 +777,13 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out", type=Path, default=Path("data/experiments/gain-before.json"))
     r = sub.add_parser("run", help="Enrich the cohort; SPENDS MONEY")
     r.add_argument("--limit", type=int, default=3)
+    r.add_argument(
+        "--redo",
+        action="store_true",
+        help="Re-buy bottles already recorded. Off by default: the cohort "
+        "resumes rather than restarting, so a cap that lands mid-run "
+        "costs nothing to pick up from.",
+    )
     rep = sub.add_parser("report", help="Re-read recorded runs; spends nothing")
     rep.add_argument("--results", type=Path, default=RESULTS)
 
@@ -871,6 +927,18 @@ def main(argv: list[str] | None = None) -> int:
             records, so it is authoritative without re-reading the file.
             """
             return budget.spent_usd
+
+        if args.redo:
+            log.warning("--redo: re-buying bottles already recorded")
+        else:
+            done = completed_names()
+            remaining = [s for s in states if s.name not in done]
+            if done:
+                log.info(
+                    "resuming: %d of %d already bought (%s)",
+                    len(done), len(states), ", ".join(sorted(done)),
+                )
+            states = remaining
 
         gains = enrich_cohort(
             conn, states, run_one=run_one, limit=args.limit,

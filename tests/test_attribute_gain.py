@@ -553,3 +553,101 @@ class TestDensitySegmentation:
         text = render_segmented(rows)
         assert "sparse" in text and "dense" in text
         assert "n/a" in text, "the band with no conversions has no unit cost"
+
+
+class TestTheCohortResumesRatherThanRestarts:
+    """The cap landed mid-cohort, so the run has to be resumable.
+
+    `enrich_cohort` took `states[:limit]` off a fixed ordered list, which
+    means a second invocation started again at bottle one. That is not
+    just wasted money: the second purchase of Layton would diff against a
+    baseline that already contains what the first purchase added, and
+    report a conversion rate for spend that bought nothing new.
+    """
+
+    def test_recorded_bottles_are_remembered(self, tmp_path):
+        from fragrance_graph.experiments.attribute_gain import completed_names
+
+        results = tmp_path / "gain.jsonl"
+        results.write_text(
+            '{"kind": "gain", "name": "Parfums de Marly Layton", "usd": 0.19}\n'
+            '{"kind": "gain", "name": "Lattafa Khamrah", "usd": 0.11}\n'
+            '{"kind": "other", "name": "Not A Bottle"}\n'
+        )
+        assert completed_names(results) == {
+            "Parfums de Marly Layton",
+            "Lattafa Khamrah",
+        }
+
+    def test_no_ledger_of_runs_means_nothing_is_skipped(self, tmp_path):
+        from fragrance_graph.experiments.attribute_gain import completed_names
+
+        assert completed_names(tmp_path / "absent.jsonl") == set()
+
+    def test_a_torn_line_does_not_silently_skip_a_bottle(self, tmp_path):
+        """A half-written line must not be read as "this bottle is done" —
+        that would drop it from the cohort without anyone noticing."""
+        from fragrance_graph.experiments.attribute_gain import completed_names
+
+        results = tmp_path / "gain.jsonl"
+        results.write_text('{"kind": "gain", "name": "Dior Sauv\n')
+        assert completed_names(results) == set()
+
+    def test_resuming_leaves_the_treatment_alone(self):
+        """Skipping decides *which* bottles run, never how one is enriched.
+
+        If resume logic ever reached into run_one the ten bottles would
+        stop being comparable, which is the whole point of the cohort.
+        """
+        import inspect
+
+        from fragrance_graph.experiments.attribute_gain import completed_names
+
+        source = inspect.getsource(completed_names)
+        for forbidden in ("run_one", "enrich_one", "extract", "budget"):
+            assert forbidden not in source
+
+
+class TestDiagnosticsRunOnBothPaths:
+    """Instrumentation that only fires when the run fails is not
+    instrumentation.
+
+    density_before and funnel were set inside the BudgetExhausted branch
+    only. Run 1 hit the cap and produced a correct funnel; run 2 finished
+    cleanly and produced zeros for all seven bottles, banding a 46-fact
+    bottle as sparse and quietly emptying the segmentation the cohort
+    exists to produce.
+    """
+
+    def test_a_clean_run_still_records_density_and_funnel(self, monkeypatch):
+        from fragrance_graph.experiments import attribute_gain as ag
+
+        state = ag.BottleState(fragrance_id=7, name="Dior Sauvage", facts=46)
+        captured = {}
+
+        def fake_instrument(conn, gain, st, fresh, marks, last_run):
+            captured["density"] = fresh.facts
+            gain.density_before = fresh.facts
+            gain.funnel = {"claims_extracted": 12}
+
+        monkeypatch.setattr(ag, "_instrument", fake_instrument)
+        monkeypatch.setattr(ag, "_bottle_state", lambda c, i, n: state)
+        monkeypatch.setattr(ag, "_high_water", lambda c: {})
+
+        gains = ag.enrich_cohort(
+            None,
+            [state],
+            run_one=lambda name: (5, 0.01, 100, "done"),
+            limit=1,
+        )
+        assert gains[0].density_before == 46, "clean runs must record density"
+        assert gains[0].funnel, "clean runs must record a funnel"
+
+    def test_a_dense_bottle_is_not_banded_sparse(self):
+        from fragrance_graph.experiments.attribute_gain import band_of
+
+        assert band_of(46) == "medium"
+        assert band_of(109) == "dense"
+        assert band_of(6) == "sparse"
+        # The zero that the unset field produced, banded as if measured.
+        assert band_of(0) == "sparse"
