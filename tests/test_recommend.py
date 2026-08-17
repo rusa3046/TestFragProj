@@ -12,7 +12,15 @@ import pytest
 
 from fragrance_graph.evidence import Strength
 from fragrance_graph.ingest.store import ingest
-from fragrance_graph.recommend import Reason, Recommendation, digest, recommend
+from fragrance_graph.notes import DeclaredNote, store_claims
+from fragrance_graph.plan import Direction, Preference, QueryPlan
+from fragrance_graph.recommend import (
+    Reason,
+    Recommendation,
+    digest,
+    recommend,
+    recommend_plan,
+)
 from fragrance_graph.resolve.entities import add_fragrance
 from tests.conftest import make_comment
 
@@ -39,6 +47,16 @@ def note(conn, i, *, frag, value, author, channel="chan_a", claim_type="NOTE_DES
         (cid, claim_type, frag, "TAG" if value else "NONE", value, body),
     )
     conn.commit()
+
+
+def declare(conn, frag, *raw_notes, claim_type="retailer_declared", source="test retailer"):
+    """One bottle's declared notes, for `TestAnchorProfileFallback` —
+    `fragrance_note_claim` rows, the retailer/brand half of the corpus,
+    never a community claim."""
+    store_claims(
+        conn, frag, [DeclaredNote(n, "unspecified") for n in raw_notes],
+        claim_type=claim_type, source_name=source,
+    )
 
 
 @pytest.fixture
@@ -699,6 +717,164 @@ class TestAComparativeIsNotAnAvoidance:
         assert _prominence(
             attribute_facts(conn, fragrance_id=anchor), pref
         ).people == 1
+
+
+class TestAnchorProfileFallback:
+    """"I like Side Effect but it's too warm" — real-corpus bug (user
+    verbatim: "i said i like side effect but its too warm ... why it
+    fits" — the engine used to recommend the *warmest* bottle it could
+    find). Post-`TOO_X` the sentence compiles honestly to an anchor plus
+    a comparative `warm` preference, but the anchor there has almost no
+    community evidence, so `_score_comparative` has no baseline and the
+    ordinary scoring loop returns zero candidates — a true refusal, but
+    a needless one: the anchor still carries a DECLARED note profile
+    (`fragrance_note_claim`, retailer data) this fallback can answer
+    from instead.
+
+    Fixture: the anchor declares {amber, vanilla, iris, musk}. "warm" is
+    a curated axis covering {amber, vanilla, ...} (see
+    `data/curation/note-axes.json`), so subtracting it leaves exactly
+    {iris, musk} — the profile every assertion below is checked against.
+    """
+
+    def _seeded(self, conn):
+        anchor = add_fragrance(conn, "Fallback Test Anchor")
+        declare(conn, anchor, "amber", "vanilla", "iris", "musk")
+
+        # A: shares both remaining notes, nothing else — ranks first.
+        candidate_a = add_fragrance(conn, "Iris Musk Twin")
+        declare(conn, candidate_a, "iris", "musk")
+
+        # B: shares only a *subtracted* note — must not appear at all.
+        candidate_b = add_fragrance(conn, "Amber Only Bottle")
+        declare(conn, candidate_b, "amber")
+
+        # C: shares the same two notes as A, but the community itself
+        # calls it warm — the exact thing being avoided. Must still
+        # qualify (2 shared notes), must rank below A, and that warm
+        # evidence must land in caveats, never reasons.
+        candidate_c = add_fragrance(conn, "Iris Musk But Warm")
+        declare(conn, candidate_c, "iris", "musk")
+        note(conn, 900, frag=candidate_c, value="warm", author="w1",
+             channel="warm_chan", claim_type="AESTHETIC")
+
+        return anchor, candidate_a, candidate_b, candidate_c
+
+    def _plan(self, anchor_id):
+        return QueryPlan(
+            text="i like fallback test anchor but its too warm",
+            anchor="Fallback Test Anchor",
+            anchor_id=anchor_id,
+            soft=[Preference("vibe", "warm", Direction.LESS_THAN_ANCHOR,
+                              said="too warm")],
+        )
+
+    def test_a_note_only_in_the_avoided_axis_does_not_qualify_a_candidate(
+        self, conn
+    ):
+        anchor, _a, candidate_b, _c = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan(anchor))
+        assert candidate_b not in {r.fragrance_id for r in answer.results}
+
+    def test_the_clean_match_ranks_first_and_declared_overlap_names_exactly_the_shared_notes(
+        self, conn
+    ):
+        anchor, candidate_a, _b, _c = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan(anchor))
+        assert answer.results, "the fallback must produce a result to rank at all"
+        assert answer.results[0].fragrance_id == candidate_a
+
+        (overlap,) = [
+            r for r in answer.results[0].reasons if r.kind == "declared_overlap"
+        ]
+        assert overlap.text == (
+            "official notes share iris and musk with Fallback Test Anchor"
+        )
+        # Declared notes contribute zero people — nothing here was said
+        # by anybody, and the wording must not imply otherwise.
+        assert overlap.people == 0
+        assert overlap.creators == 0
+
+    def test_the_avoided_attribute_never_reaches_reasons_anywhere_in_the_response(
+        self, conn
+    ):
+        """THE assertion this whole path exists to keep true: scanned
+        across every candidate, not trusted from the one fixture case
+        that happens to exercise the caveat branch."""
+        anchor, *_ = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan(anchor))
+        assert answer.results
+        for result in answer.results:
+            for reason in result.reasons:
+                assert "warm" not in reason.text.lower()
+
+    def test_a_candidate_the_community_calls_warm_is_demoted_with_a_caveat(
+        self, conn
+    ):
+        anchor, candidate_a, _b, candidate_c = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan(anchor))
+        ids = [r.fragrance_id for r in answer.results]
+        assert candidate_c in ids, "still a real match on 2 shared notes"
+        assert ids.index(candidate_a) < ids.index(candidate_c), (
+            "otherwise equal on shared notes; the avoided evidence "
+            "demotes C below A"
+        )
+        c_result = next(r for r in answer.results if r.fragrance_id == candidate_c)
+        assert any("warm" in cav.text for cav in c_result.caveats)
+        assert not any("warm" in r.text.lower() for r in c_result.reasons)
+
+    def test_zero_community_candidate_reports_honest_counts_not_fabricated_people(
+        self, conn
+    ):
+        """Every note behind candidate A is declared, not perceived — the
+        card must say zero people and zero creators, never invent some."""
+        anchor, candidate_a, _b, _c = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan(anchor))
+        top = next(r for r in answer.results if r.fragrance_id == candidate_a)
+        assert top.people == 0
+        assert top.creators == 0
+
+    def test_the_response_note_explains_the_basis_switch(self, conn):
+        anchor, *_ = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan(anchor))
+        assert "official notes" in answer.note
+        assert "warm" in answer.note
+        assert "Fallback Test Anchor" in answer.note
+
+    def test_fallback_does_not_override_a_comparative_path_that_already_succeeded(
+        self, conn
+    ):
+        """The pre-existing machinery this whole fallback defers to:
+        `TestAComparativeIsNotAnAvoidance`'s own scenario, reused rather
+        than re-derived, run through unmodified so a regression in
+        either path shows up as a failure here too."""
+        anchor = add_fragrance(conn, "Parfums de Marly Delina", aliases=["Delina"])
+        other = add_fragrance(conn, "Lattafa Khamrah")
+        for i, author in enumerate(["p1", "p2", "p3", "p4", "p5"]):
+            note(conn, i, frag=anchor, value="rose", author=author, channel=f"c{i}")
+        note(conn, 20, frag=other, value="rose", author="p9")
+        note(conn, 21, frag=other, value="dates", author="p8")
+
+        answer = recommend(conn, "i love Delina but the rose is too strong")
+
+        assert answer.results, "the comparative path already answers this"
+        assert not any(
+            r.kind == "declared_overlap"
+            for result in answer.results
+            for r in result.reasons
+        )
+
+    def test_no_anchor_means_no_fallback_attempted(self, conn):
+        """`plan.anchor_id is None` is checked first and unconditionally
+        — an anchor-less LOW preference must fall straight through to
+        the ordinary refusal, never into note-profile matching that has
+        no anchor to build a profile from."""
+        plan = QueryPlan(
+            text="not too warm",
+            soft=[Preference("vibe", "warm", Direction.LOW, said="not too warm")],
+        )
+        answer = recommend_plan(conn, plan)
+        assert answer.results == []
 
 
 class TestCodexPhase6ComparativeFindings:

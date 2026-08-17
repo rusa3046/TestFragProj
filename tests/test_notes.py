@@ -20,6 +20,7 @@ from fragrance_graph.notes import (
     declared_for,
     extract_note_lists,
     import_brand_declared,
+    load_note_axes,
     store_claims,
 )
 from fragrance_graph.resolve.entities import add_fragrance
@@ -239,3 +240,98 @@ class TestCompletenessIsOperationalOnly:
         finally:
             app.dependency_overrides.clear()
         assert "completeness" not in json.dumps(body).lower()
+
+
+class TestNoteAxisLoader:
+    """`load_note_axes` — the curated note -> axis mapping
+    (`data/curation/note-axes.json`) that `recommend._anchor_profile_
+    fallback` subtracts an avoided axis's notes with. The file is
+    authored judgment, committed for review; this loader does not trust
+    it blindly — every entry is re-checked against whatever
+    `fragrance_note_claim` actually holds *right now*, on the connection
+    it was given, because the corpus underneath the file keeps changing
+    after the file was written.
+    """
+
+    def test_entries_absent_from_the_corpus_vocabulary_are_dropped_with_a_count(
+        self, conn, caplog, tmp_path
+    ):
+        frag = add_fragrance(conn, "Some Bottle")
+        store_claims(
+            conn, frag, [DeclaredNote("amber", "unspecified")],
+            claim_type="retailer_declared", source_name="test",
+        )
+        axes_file = tmp_path / "note-axes.json"
+        axes_file.write_text(json.dumps({
+            "warm": ["amber", "not-in-this-corpus-at-all"],
+        }))
+
+        with caplog.at_level("INFO", logger="fragrance_graph.notes"):
+            axes = load_note_axes(conn, path=axes_file)
+
+        # The survivor: "amber" really is in this test's own
+        # fragrance_note_claim table.
+        assert axes["warm"] == frozenset({"amber"})
+        # The count of what did not survive, logged rather than silently
+        # dropped — "nothing was dropped" and "the check never ran" must
+        # not read the same in the log.
+        assert any("1 note-axis entr" in r.message for r in caplog.records)
+
+    def test_an_axis_the_file_never_curated_is_none_not_an_empty_set(
+        self, conn, tmp_path
+    ):
+        """`recommend._anchor_profile_fallback` tells "no axis by this
+        name" apart from "a curated axis with nothing on it" by this
+        distinction: `.get(axis)` is `None` for the former, `frozenset()`
+        for the latter. Collapsing them would turn a typo'd axis name
+        into "this axis subtracts nothing", identical to a real,
+        deliberately empty axis — the wrong silent failure for a typo."""
+        axes_file = tmp_path / "note-axes.json"
+        axes_file.write_text(json.dumps({"warm": []}))
+
+        axes = load_note_axes(conn, path=axes_file)
+
+        assert axes.get("sweet") is None
+        assert axes.get("warm") == frozenset()
+
+    def test_a_metadata_key_is_not_read_as_an_axis(self, conn, tmp_path):
+        frag = add_fragrance(conn, "Some Bottle")
+        store_claims(
+            conn, frag, [DeclaredNote("amber", "unspecified")],
+            claim_type="retailer_declared", source_name="test",
+        )
+        axes_file = tmp_path / "note-axes.json"
+        axes_file.write_text(json.dumps({
+            "_comment": ["curation notes, not an axis"],
+            "warm": ["amber"],
+        }))
+
+        axes = load_note_axes(conn, path=axes_file)
+
+        assert set(axes) == {"warm"}
+
+    def test_a_missing_file_warns_and_every_axis_resolves_as_unknown(
+        self, conn, tmp_path, caplog
+    ):
+        """The same shape as `pages.load_blocklist`'s missing-file
+        handling, for the identical reason: an absent curation file must
+        not read, downstream, as "nothing to subtract because nobody
+        asked" — it is "nobody has curated this yet"."""
+        missing = tmp_path / "does-not-exist.json"
+
+        with caplog.at_level("WARNING", logger="fragrance_graph.notes"):
+            axes = load_note_axes(conn, path=missing)
+
+        assert axes == {}
+        assert axes.get("warm") is None
+        assert any("No note-axis mapping" in r.message for r in caplog.records)
+
+    def test_the_real_curated_file_only_carries_survivors(self, conn):
+        """The file this repo ships, loaded against a corpus with none of
+        its notes declared: every entry must vanish, proving the loader
+        actually filters against the connection it is given rather than
+        trusting the file's own — already pre-filtered — contents."""
+        axes = load_note_axes(conn)  # default path, empty test corpus
+        assert axes.get("warm") == frozenset()
+        assert axes.get("sweet") == frozenset()
+        assert axes.get("fresh") == frozenset()
