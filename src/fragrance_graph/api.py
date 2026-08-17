@@ -94,20 +94,33 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
-from fragrance_graph.evidence import Attribution
+from fragrance_graph.evidence import Attribution, attribute_facts
 from fragrance_graph.gate import MIN_COMMENTERS, MIN_SOURCES
+from fragrance_graph.notes import declared_note_map
 from fragrance_graph.plan import parse_with_corpus
 from fragrance_graph.recommend import (
     Answer,
     Reason,
     Recommendation,
+    _fact_reason,
     digest,
+    fact_matches,
+    price_floor,
     recommend,
     recommend_plan,
 )
 from fragrance_graph.resolve.entities import load_candidates
 from fragrance_graph.resolve.names import EXACT_ONLY, best_match, similarity
-from fragrance_graph.session import Direction, PreferenceState, Verdict, rebuild
+from fragrance_graph.session import (
+    AvoidMode,
+    Direction,
+    PreferenceItem,
+    PreferenceState,
+    Verdict,
+    avoid_mode,
+    item_plan_attribute,
+    rebuild,
+)
 
 
 @asynccontextmanager
@@ -212,6 +225,29 @@ class RecommendRequest(BaseModel):
     text: str
 
 
+class ComposePreferenceIn(BaseModel):
+    """One composer chip over the wire. `value` names an entity
+    directly ("rose", "date night"); `entity_id` is the alternative for
+    `entity_type="fragrance"` — a UI that already resolved a name via
+    `/api/search` can send the id instead of re-typing the name for this
+    endpoint to re-resolve. Exactly one of the two is expected for a
+    fragrance item; `value` is required for every other `entity_type`
+    (`PreferenceItem.__post_init__` is the actual enforcement — this
+    model only shapes the JSON)."""
+
+    bucket: str
+    entity_type: str
+    value: str | None = None
+    entity_id: int | None = None
+    mode: str | None = None
+    operator: str | None = None
+    amount: float | None = None
+
+
+class ComposeRequest(BaseModel):
+    preferences: list[ComposePreferenceIn] = []
+
+
 # --- rendering: the one place a Reason/Recommendation becomes JSON -------
 
 
@@ -277,7 +313,17 @@ def _label(candidate: Recommendation, index: int) -> str:
     return "WORTH_TRYING"
 
 
-def _candidate_json(candidate: Recommendation, index: int) -> dict:
+def _candidate_json(
+    candidate: Recommendation, index: int, preference_status: list[dict] = (),
+) -> dict:
+    """`preference_status` defaults to an empty list — every caller
+    without a composer `PreferenceState` in scope (the stateless
+    `/api/recommend`, `/api/fragrance/{id}`, and the audit probes) has
+    nothing to report, honestly, rather than omitting the key. A session
+    caller (`_session_response`, `spray_queue`) always passes the real
+    list from `_preference_statuses`, computed once per response — see
+    that function's docstring for what `matched`/`contradicted`/
+    `unknown` mean and how each is decided."""
     return {
         "fragrance_id": candidate.fragrance_id,
         "name": candidate.name,
@@ -287,6 +333,7 @@ def _candidate_json(candidate: Recommendation, index: int) -> dict:
         "caveats": [_reason_json(r) for r in candidate.caveats],
         "people": candidate.people,
         "creators": candidate.creators,
+        "preference_status": list(preference_status),
     }
 
 
@@ -302,7 +349,11 @@ def _answer_json(answer: Answer) -> dict:
 
 def _rerank(answer: Answer, state: PreferenceState) -> Answer:
     """`answer.results`, filtered and reordered by feedback the plan
-    itself has no field for — `state.excluded_ids` (an explicit NO) and
+    itself has no field for — the union of `state.excluded_ids` (an
+    explicit spray-verdict NO) and `state.composer_excluded_ids` (an
+    active composer `avoid`+`fragrance` chip — see that property's
+    docstring for why the two exclusion sources stay independently
+    tracked even though they are merged here), plus
     `state.deprioritized_ids` (MAYBE). Nothing here re-scores a
     candidate: excluded ones are dropped outright, deprioritized ones are
     moved after every non-deprioritized one, and the relative order
@@ -310,12 +361,293 @@ def _rerank(answer: Answer, state: PreferenceState) -> Answer:
     Python's sort is stable, so this only ever *partitions*, never
     re-ranks within a partition.
     """
-    if not state.excluded_ids and not state.deprioritized_ids:
+    excluded = state.excluded_ids | state.composer_excluded_ids
+    if not excluded and not state.deprioritized_ids:
         return answer
-    kept = [r for r in answer.results if r.fragrance_id not in state.excluded_ids]
+    kept = [r for r in answer.results if r.fragrance_id not in excluded]
     kept.sort(key=lambda r: r.fragrance_id in state.deprioritized_ids)
     answer.results = kept
     return answer
+
+
+# --- composer: per-`PreferenceItem` match status, and its tie-break ------
+
+
+def _item_status(
+    item: PreferenceItem,
+    candidate: Recommendation,
+    facts: list,
+    price_floor_by_id: dict[int, float],
+) -> str:
+    """`"matched"` | `"contradicted"` | `"unknown"` for one active
+    `PreferenceItem` against one candidate — evidence-gated, per the
+    spec's MISSING DATA RULE: absence of evidence is `"unknown"`, never
+    counted as either satisfying or failing the item. `facts` is that
+    candidate's own `attribute_facts(...)` rows.
+
+    - **`fragrance`** — `like`: `"matched"` only if the candidate carries
+      a reason directly evidencing a connection to the anchor (`graph`,
+      `declared_overlap`, `comparative` — the kinds `_score`/
+      `_anchor_profile_fallback` only ever attach *because* of the
+      anchor), else `"unknown"` (this candidate surfaced through some
+      other signal — a note match, a semantic hit — with no stated
+      connection to the liked bottle). `avoid`: always `"matched"` for
+      any candidate that reaches this function at all, because
+      `_rerank`/`composer_excluded_ids` already guarantee the avoided
+      bottle itself never does.
+    - **`budget`** — `"matched"` if `price_floor_by_id` has a real price
+      for this candidate (which, by the time this runs, is a price at or
+      under the budget — `_apply_budget` already removed anything over),
+      else `"unknown"`. Never `"contradicted"`: an over-budget candidate
+      was excluded before this function ever sees it.
+    - **`occasion` + `avoid`** — `"unknown"`: not an expressible
+      combination this phase (see `to_plan`'s composer-items section),
+      so there is nothing to evaluate.
+    - everything else (`note`/`vibe`/`scent_characteristic`/
+      `performance`/`occasion`, `like`/`want`/`avoid`) — looked up via
+      `item_plan_attribute(item)`, the identical `(attribute, value)` key
+      `to_plan` compiled this item's `Preference`/`Constraint` under, and
+      graded from the matching fact's own `supporting`/`opposing` counts:
+      net support (`supporting > opposing`, and not `from_name`) means
+      the candidate's evidence *has* the trait; net opposition means the
+      evidence says it does *not*. `like`/`want` map "has it" ->
+      `"matched"`; `avoid` maps "has it" -> `"contradicted"` (the shopper
+      asked to avoid this and the evidence says the candidate has it
+      anyway — a caveat, not a win) and "does not have it" ->
+      `"matched"` (successfully avoided, on real evidence, not silence).
+    """
+    if item.entity_type == "fragrance":
+        if item.bucket == "like":
+            return "matched" if any(
+                r.kind in ("graph", "declared_overlap", "comparative")
+                for r in candidate.reasons
+            ) else "unknown"
+        return "matched"  # avoid: this candidate was never the avoided bottle
+
+    if item.entity_type == "budget":
+        return "matched" if candidate.fragrance_id in price_floor_by_id else "unknown"
+
+    if item.entity_type == "occasion" and item.bucket == "avoid":
+        return "unknown"
+
+    attribute_value = item_plan_attribute(item)
+    if attribute_value is None:
+        return "unknown"
+    attribute, value = attribute_value
+    fact = next(
+        (f for f in facts if not f.from_name and fact_matches(f, attribute, value)),
+        None,
+    )
+    if fact is None:
+        return "unknown"
+    net_supported = fact.strength.may_retrieve and fact.supporting.people > fact.opposing.people
+    net_opposed = fact.opposing.people > fact.supporting.people
+    if item.bucket == "avoid":
+        if net_supported:
+            return "contradicted"
+        if net_opposed:
+            return "matched"
+        return "unknown"
+    # like / want
+    if net_supported:
+        return "matched"
+    if net_opposed:
+        return "contradicted"
+    return "unknown"
+
+
+def _preference_statuses(
+    conn: psycopg.Connection, state: PreferenceState, candidates: list[Recommendation]
+) -> dict[int, list[dict]]:
+    """`fragrance_id -> [{bucket, entity_type, value, status}, ...]` for
+    every active composer `PreferenceItem`, for every candidate —
+    `preference_status` on the API's recommendation payload. Empty when
+    the session has no active composer items at all (the free-text/chip
+    path this module already served has no per-item status concept, and
+    nothing here invents one for it).
+
+    A fresh `attribute_facts` read per candidate, not the facts `_score`
+    already computed: `Recommendation` does not carry its own facts
+    forward (only the `Reason`s derived from them), and re-deriving
+    status from those would mean parsing rendered sentences back into
+    evidence rather than reading the evidence itself. At this product's
+    scale (`DEFAULT_LIMIT` candidates per response) the extra reads are
+    cheap; revisit if this endpoint ever needs to serve at a much larger
+    fan-out.
+    """
+    active = [item for _, item in state.active_items]
+    if not active or not candidates:
+        return {}
+    needs_price = any(item.entity_type == "budget" for item in active)
+    prices = (
+        price_floor(conn, [c.fragrance_id for c in candidates]) if needs_price else {}
+    )
+    statuses: dict[int, list[dict]] = {}
+    for candidate in candidates:
+        facts = attribute_facts(
+            conn, fragrance_id=candidate.fragrance_id, attribution=Attribution.PROPOSED
+        )
+        rows = []
+        for item in active:
+            status = _item_status(item, candidate, facts, prices)
+            rows.append(
+                {
+                    "bucket": item.bucket,
+                    "entity_type": item.entity_type,
+                    "value": item.value,
+                    # A budget item's value lives in operator/amount, so
+                    # its `value` is empty — clients key such rows by
+                    # entity_type. `display` carries the human label the
+                    # UI shows; empty for items whose value speaks.
+                    "display": (
+                        f"under ${item.amount:g}"
+                        if item.entity_type == "budget" and item.amount
+                        else ""
+                    ),
+                    "status": status,
+                }
+            )
+            # A contradicted avoid must be VISIBLE, not only machine-
+            # readable: the first shipped kiosk recommended Khamrah to a
+            # shopper avoiding warm with the warm evidence filed under
+            # "why it fits"; this layer's predecessor then carried the
+            # contradiction in preference_status while the card showed
+            # nothing. The caveat is the same audited `_fact_reason`
+            # wording the engine uses everywhere — no new sentences —
+            # and is only added when no existing caveat already carries
+            # that fact.
+            if status == "contradicted" and item.bucket == "avoid":
+                attribute_value = item_plan_attribute(item)
+                if attribute_value is None:
+                    continue
+                attribute, value = attribute_value
+                fact = next(
+                    (f for f in facts
+                     if not f.from_name and fact_matches(f, attribute, value)),
+                    None,
+                )
+                if fact is not None and not any(
+                    value in c.text for c in candidate.caveats
+                ):
+                    candidate.caveats.append(_fact_reason(fact, "attribute"))
+        statuses[candidate.fragrance_id] = rows
+    return statuses
+
+
+def _tiebreak_by_composer_matches(
+    results: list[Recommendation],
+    statuses: dict[int, list[dict]],
+    state: PreferenceState,
+) -> list[Recommendation]:
+    """Two more ranking stages, appended after every stage
+    `recommend._score` already runs — the spec's own staged ranking
+    (`composer-spec-digest.md`: "... 4 WANT targets; 5 LIKE rewards ...")
+    extended into the composer layer: candidates are reordered by count
+    of *matched* `want` items (descending), then count of matched `like`
+    items (descending). No coefficients, matching this codebase's whole
+    ranking philosophy (`recommend.py`'s own module docstring) — a
+    candidate with one more matched WANT always outranks one with fewer,
+    regardless of either candidate's underlying evidence score.
+
+    A no-op (returns `results` unchanged) when the session has no
+    composer items at all, so the free-text/chip-only path this ranking
+    did not exist for is completely unaffected. Python's `sort` is
+    stable and the original index is the explicit final tiebreak, so two
+    candidates with identical matched-want/like counts keep the relative
+    order `recommend_plan`'s own stages already gave them — this is an
+    extension of the staged ranking, not a replacement for the stages
+    underneath it.
+    """
+    if not state.items or len(results) < 2:
+        return results
+
+    def matched_counts(candidate: Recommendation) -> tuple[int, int]:
+        entries = statuses.get(candidate.fragrance_id, [])
+        want = sum(1 for e in entries if e["bucket"] == "want" and e["status"] == "matched")
+        like = sum(1 for e in entries if e["bucket"] == "like" and e["status"] == "matched")
+        return want, like
+
+    order = sorted(
+        range(len(results)),
+        key=lambda i: (
+            -matched_counts(results[i])[0], -matched_counts(results[i])[1], i,
+        ),
+    )
+    return [results[i] for i in order]
+
+
+def _interpreted_preferences(
+    state: PreferenceState, plan, unexpressed: list[dict]
+) -> dict:
+    """The composer's own read-back of what it understood — plain
+    strings, never sentences composed here beyond simple f-string labels
+    (`"budget <= $250"`, `"occasion: date night"`), because these are
+    labels a chip UI echoes next to its own chips, not audited evidence
+    prose. Derived entirely from `plan` (already compiled by `to_plan`)
+    and `state.active_items` — nothing here re-derives a mapping
+    `to_plan`/`avoid_mode` did not already decide.
+
+    - **`anchors`** — `plan.anchor` (whichever source won it — free text
+      or composer) first, then every active composer `like`+`fragrance`
+      item's name not already counted, in add order. Bare names.
+    - **`preserve`** — active `like` items, non-`fragrance`. Bare values.
+    - **`reduce`** / **`exclude`** — active `avoid` items, non-`fragrance`,
+      split by `avoid_mode(item)`. Bare values.
+    - **`target`** — active `want` items, non-`fragrance`/`budget`/
+      `occasion`. Bare values.
+    - **`constraints`** — the effective budget (`effective_budget_usd`)
+      and effective occasion (`effective_occasion`), if either is set,
+      as short labels.
+    - **`unexpressed`** — the same list `to_plan`/`_recommendations_for`
+      already produced, flattened to one string per entry
+      (`"{preference}: {reason}"`) since this dict's contract is "a list
+      of plain strings" throughout.
+    """
+    anchors: list[str] = []
+    if plan.anchor:
+        anchors.append(plan.anchor)
+    for index, item in state.active_items:
+        if item.entity_type != "fragrance" or item.bucket != "like":
+            continue
+        name = state.display_value(index, item)
+        if name not in anchors:
+            anchors.append(name)
+
+    preserve: list[str] = []
+    reduce_: list[str] = []
+    exclude: list[str] = []
+    target: list[str] = []
+    constraints: list[str] = []
+
+    for _, item in state.active_items:
+        if item.entity_type in ("fragrance", "budget"):
+            continue
+        if item.bucket == "like":
+            preserve.append(item.value)
+        elif item.bucket == "want":
+            if item.entity_type == "occasion":
+                continue  # folded into effective_occasion() below
+            target.append(item.value)
+        elif item.bucket == "avoid":
+            mode = avoid_mode(item)
+            (exclude if mode is AvoidMode.EXCLUDE else reduce_).append(item.value)
+
+    budget_amount = state.effective_budget_usd()
+    if budget_amount is not None:
+        constraints.append(f"budget <= ${budget_amount:.0f}")
+    occasion = state.effective_occasion()
+    if occasion:
+        constraints.append(f"occasion: {occasion}")
+
+    return {
+        "anchors": anchors,
+        "preserve": preserve,
+        "reduce": reduce_,
+        "exclude": exclude,
+        "target": target,
+        "constraints": constraints,
+        "unexpressed": [f"{u['preference']}: {u['reason']}" for u in unexpressed],
+    }
 
 
 # --- session persistence: events in, state replayed out ------------------
@@ -366,14 +698,20 @@ def _load_state(conn: psycopg.Connection, session_id: str) -> PreferenceState:
 
 def _recommendations_for(
     conn: psycopg.Connection, state: PreferenceState
-) -> tuple[Answer, list[dict]]:
-    """`(answer, unexpressed)` for the accumulated state — `answer.note`
-    is engine wording only, never anything glued onto it; `unexpressed`
-    is returned separately for the caller to place in its own top-level
-    field. See the module docstring's "`note`, `unexpressed`, and where
-    each sentence is allowed to come from" section.
+) -> tuple[Answer, list[dict], dict[int, list[dict]]]:
+    """`(answer, unexpressed, statuses)` for the accumulated state —
+    `answer.note` is engine wording only, never anything glued onto it;
+    `unexpressed` is returned separately for the caller to place in its
+    own top-level field; `statuses` is `fragrance_id -> preference_status
+    list` from `_preference_statuses`, computed once here so every caller
+    (`_session_response`, `spray_queue`) renders the identical data
+    rather than recomputing it (and potentially disagreeing, since a
+    recompute would re-read `attribute_facts` a second time). See the
+    module docstring's "`note`, `unexpressed`, and where each sentence is
+    allowed to come from" section.
     """
     plan, unexpressed = state.to_plan()
+    budget_usd = state.effective_budget_usd()
     if not plan.usable and not plan.refusal:
         # An empty session ("just created, nothing said yet") has nothing
         # to recommend and nothing to refuse — `recommend_plan` is not
@@ -384,18 +722,34 @@ def _recommendations_for(
         # is invented here to fill it.
         answer = Answer(plan=plan, note="")
     else:
-        answer = recommend_plan(conn, plan, attribution=Attribution.PROPOSED)
+        answer = recommend_plan(
+            conn, plan, attribution=Attribution.PROPOSED, budget_usd=budget_usd
+        )
+    if budget_usd is not None and answer.priced_candidates:
+        # `to_plan()` cannot know, at compile time, whether real price
+        # data exists for *this* query's candidates — only `recommend_plan`
+        # can, once it has run. It did, and it found some, so the "no
+        # price data yet" entry `to_plan()` wrote no longer describes what
+        # this response actually did. See `recommend_plan`'s "Why budget
+        # is a parameter" docstring section and `PreferenceState.to_plan`'s
+        # own budget paragraph.
+        unexpressed = [u for u in unexpressed if u.get("preference") != "budget"]
     answer = _rerank(answer, state)
-    return answer, unexpressed
+    statuses = _preference_statuses(conn, state, answer.results)
+    answer.results = _tiebreak_by_composer_matches(answer.results, statuses, state)
+    return answer, unexpressed, statuses
 
 
 def _session_response(conn: psycopg.Connection, state: PreferenceState) -> dict:
-    answer, unexpressed = _recommendations_for(conn, state)
+    answer, unexpressed, statuses = _recommendations_for(conn, state)
     return {
         "state": state.summary(),
         "note": answer.note,
         "unexpressed": unexpressed,
-        "results": [_candidate_json(c, i) for i, c in enumerate(answer.results)],
+        "results": [
+            _candidate_json(c, i, statuses.get(c.fragrance_id, []))
+            for i, c in enumerate(answer.results)
+        ],
     }
 
 
@@ -520,6 +874,124 @@ def prefs(session_id: str, body: PrefsRequest, conn: Conn) -> dict:
     return _session_response(conn, state)
 
 
+def _resolve_compose_value(
+    conn: psycopg.Connection, pref: ComposePreferenceIn, index: int
+) -> tuple[str | None, dict | None]:
+    """`pref.value`, or `pref.entity_id` resolved to a canonical name for
+    a `fragrance` item — `(value, error)`, exactly one non-`None`. A
+    fragrance item may name either; every other `entity_type` must use
+    `value` (`PreferenceItem.__post_init__` requires it, but the id-only
+    path is only meaningful for a fragrance, so the unresolved-id error
+    is produced here, with the request's own index, rather than as a
+    generic "needs a value" from the dataclass)."""
+    if pref.value:
+        return pref.value, None
+    if pref.entity_type == "fragrance" and pref.entity_id is not None:
+        row = conn.execute(
+            "SELECT canonical_name FROM fragrances WHERE id = %s", (pref.entity_id,)
+        ).fetchone()
+        if row is None:
+            return None, {"index": index, "error": f"No fragrance {pref.entity_id!r}"}
+        return row["canonical_name"], None
+    return pref.value, None  # let PreferenceItem's own validation say why
+
+
+@app.post("/api/session/{session_id}/compose")
+def compose(session_id: str, body: ComposeRequest, conn: Conn) -> dict:
+    """Add one or more structured preferences (chips) to the session in
+    one call. Every item is validated *before* anything is written — a
+    single bad item 400s the whole request with per-item errors and
+    records nothing, the identical "validate before recording" discipline
+    `/prefs` already holds `attribute`+`direction` to (see this module's
+    docstring). A partial write here would mean the request body and the
+    session's actual state silently disagree about which chips landed.
+
+    Each valid item is recorded as its own `"preference_item_added"`
+    event (not one event for the whole batch) so replay/removal can
+    address each chip by its own stable index — see
+    `PreferenceState.add_item`/`remove_item`.
+
+    Returns the standard session response (`state`, `note`, `unexpressed`,
+    `results`, each carrying `preference_status`) plus
+    `interpreted_preferences` — see `_interpreted_preferences`'s
+    docstring for its shape.
+
+    Chip removal is `DELETE /api/session/{id}/compose/{index}`, not a
+    field on this endpoint's body — `index` is exactly the value
+    `state.summary()["items"][i]["index"]` already carries, so a client
+    never has to invent or track a second id for the same chip.
+    """
+    _require_session(conn, session_id)
+    if not body.preferences:
+        raise HTTPException(status_code=422, detail="preferences must not be empty")
+
+    payloads: list[dict] = []
+    errors: list[dict] = []
+    for i, pref in enumerate(body.preferences):
+        value, resolve_error = _resolve_compose_value(conn, pref, i)
+        if resolve_error is not None:
+            errors.append(resolve_error)
+            continue
+        try:
+            item = PreferenceItem(
+                bucket=pref.bucket, entity_type=pref.entity_type,
+                value=value or "", mode=pref.mode,
+                operator=pref.operator, amount=pref.amount,
+            )
+        except ValueError as exc:
+            errors.append({"index": i, "error": str(exc)})
+            continue
+        payloads.append(item.as_payload())
+
+    if errors:
+        raise HTTPException(status_code=400, detail={"errors": errors})
+
+    for payload in payloads:
+        _record_event(conn, session_id, "preference_item_added", payload)
+
+    state = _load_state(conn, session_id)
+    response = _session_response(conn, state)
+    # `plan` only, not `unexpressed`, from a fresh `to_plan()` call:
+    # `response["unexpressed"]` is already the corrected list
+    # `_recommendations_for` produced (budget's entry removed when real
+    # price data existed for this candidate set) — recomputing from
+    # `to_plan()` again here would silently regress to the *uncorrected*
+    # list, so this response's two `unexpressed`-shaped fields
+    # (top-level, and inside `interpreted_preferences`) could disagree
+    # about the same fact.
+    plan, _raw_unexpressed = state.to_plan()
+    response["interpreted_preferences"] = _interpreted_preferences(
+        state, plan, response["unexpressed"]
+    )
+    return response
+
+
+@app.delete("/api/session/{session_id}/compose/{index}")
+def remove_compose_item(session_id: str, index: int, conn: Conn) -> dict:
+    """Remove one chip by the stable index `state.summary()["items"][i]
+    ["index"]`/`compose`'s own response already carries. Removing an
+    already-removed or out-of-range index is a no-op, not a 404 —
+    `PreferenceState.remove_item`'s own tolerance — because a client
+    racing a double-click against itself should not see an error for
+    "already gone", the same reasoning `_require_session` extends to a
+    session id.
+
+    Refinement, not a new session: this is exactly the spec's "editing
+    the same `PreferenceState`" — see `composer-spec-digest.md`.
+    """
+    _require_session(conn, session_id)
+    _record_event(conn, session_id, "preference_item_removed", {"index": index})
+    state = _load_state(conn, session_id)
+    response = _session_response(conn, state)
+    # See `compose`'s identical comment: `response["unexpressed"]`, not a
+    # fresh `to_plan()` call, is the corrected list.
+    plan, _raw_unexpressed = state.to_plan()
+    response["interpreted_preferences"] = _interpreted_preferences(
+        state, plan, response["unexpressed"]
+    )
+    return response
+
+
 @app.post("/api/session/{session_id}/feedback")
 def feedback(session_id: str, body: FeedbackRequest, conn: Conn) -> dict:
     _require_session(conn, session_id)
@@ -576,7 +1048,7 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
     """
     _require_session(conn, session_id)
     state = _load_state(conn, session_id)
-    answer, unexpressed = _recommendations_for(conn, state)
+    answer, unexpressed, statuses = _recommendations_for(conn, state)
     results = answer.results
     if not results:
         return {"note": answer.note, "queue": [], "unexpressed": unexpressed}
@@ -604,7 +1076,10 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
 
     return {
         "note": answer.note,
-        "queue": [_candidate_json(c, i) for i, c in enumerate(queue)],
+        "queue": [
+            _candidate_json(c, i, statuses.get(c.fragrance_id, []))
+            for i, c in enumerate(queue)
+        ],
         # The queue screen is where a shopper acts, so it is exactly where
         # held-but-unusable preferences (budget, a stale comparative) must
         # be visible — flagged found-but-unfixed in the M1 round, required
@@ -821,4 +1296,87 @@ def search(q: str, conn: Conn) -> dict:
             {"fragrance_id": fid, "name": name}
             for _score, fid, name in scored[:5]
         ],
+    }
+
+
+#: The coverage floor a value has to clear before it is offered as a
+#: default chip — spec §28: "default chips only when >= N bottles have
+#: usable evidence." A value with two bottles of community support is a
+#: value a UI must not lead with; `/api/search`-style discovery is still
+#: how a shopper reaches something rarer.
+MIN_VOCABULARY_BOTTLES = 3
+
+
+def _community_bottle_counts(conn: psycopg.Connection) -> dict[str, dict[str, set[int]]]:
+    """`attribute -> value -> {fragrance_id, ...}`, from *usable* stated
+    community evidence only — `f.strength.may_retrieve` (excludes
+    `INSUFFICIENT`) and never `f.from_name` (a note read out of a product
+    name is not a bottle anybody described; see `evidence.name_facts`).
+    One pass over `attribute_facts`, the same evidence read every other
+    surface in this codebase uses, rather than a second, bespoke
+    coverage query."""
+    grouped: dict[str, dict[str, set[int]]] = {}
+    for fact in attribute_facts(conn, attribution=Attribution.STATED):
+        if fact.from_name or not fact.strength.may_retrieve:
+            continue
+        grouped.setdefault(fact.attribute, {}).setdefault(fact.value, set()).add(
+            fact.fragrance_id
+        )
+    return grouped
+
+
+@app.get("/api/vocabulary")
+def vocabulary(conn: Conn) -> dict:
+    """Coverage-aware `supported_filter_values` (spec §28): every
+    note/vibe/occasion/performance value with usable stated community
+    evidence across at least `MIN_VOCABULARY_BOTTLES` bottles, plus the
+    declared-note vocabulary (brand/retailer `Notes:` listings — see
+    `notes.py`) with the identical bottle-count floor, each entry
+    carrying its own bottle count so a UI can show "seen on 6 bottles"
+    rather than a bare word list.
+
+    Fragrances are not enumerated here — `/api/search` already covers
+    them, and duplicating the whole catalogue behind a coverage floor
+    would just be a second, worse version of that endpoint.
+
+    `scent_characteristic` has no vocabulary of its own: it has no
+    evidence attribute (see `session.item_plan_attribute`'s docstring) —
+    a composer chip labelled "characteristic" is, once resolved, either a
+    note or a vibe, and a UI groups this response's `notes`/`vibes`
+    under that label using the identical `classify_attribute` mapping
+    composer items already go through, rather than this endpoint
+    computing a second, parallel grouping.
+    """
+    grouped = _community_bottle_counts(conn)
+
+    def entries(attribute: str) -> list[dict]:
+        return sorted(
+            (
+                {"value": value, "bottles": len(ids)}
+                for value, ids in grouped.get(attribute, {}).items()
+                if len(ids) >= MIN_VOCABULARY_BOTTLES
+            ),
+            key=lambda e: (-e["bottles"], e["value"]),
+        )
+
+    declared_counts: dict[str, int] = {}
+    for notes in declared_note_map(conn).values():
+        for note in notes:
+            declared_counts[note] = declared_counts.get(note, 0) + 1
+    declared_notes = sorted(
+        (
+            {"value": value, "bottles": count}
+            for value, count in declared_counts.items()
+            if count >= MIN_VOCABULARY_BOTTLES
+        ),
+        key=lambda e: (-e["bottles"], e["value"]),
+    )
+
+    return {
+        "min_bottles": MIN_VOCABULARY_BOTTLES,
+        "notes": entries("note"),
+        "vibes": entries("vibe"),
+        "occasions": entries("occasion"),
+        "performance": entries("longevity") + entries("projection"),
+        "declared_notes": declared_notes,
     }
