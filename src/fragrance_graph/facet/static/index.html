@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FACET</title>
+<style>
+  /* FACET identity, from the product mockups: ivory ground, near-black
+     ink, restrained gold, serif display. Kiosk-first: big targets, one
+     column, no hover-dependence. */
+  :root {
+    --ivory: #F7F3EC; --card: #FFFDF9; --ink: #1C1917; --muted: #6E675C;
+    --line: #DCD5C8; --gold: #8A6A24; --gold-soft: #EFE7D2;
+    --love: #3E6B4F; --no: #8A3B2E;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ivory); color: var(--ink);
+    font: 17px/1.55 Georgia, 'Times New Roman', serif;
+  }
+  main { max-width: 40rem; margin: 0 auto; padding: 1.2rem 1.2rem 6rem; }
+  header.brand { text-align: center; padding: 1.6rem 0 .4rem; }
+  header.brand .mark {
+    font-size: 1.9rem; letter-spacing: .35em; text-indent: .35em;
+  }
+  header.brand .tag {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .68rem;
+    letter-spacing: .22em; text-transform: uppercase; color: var(--gold);
+  }
+  h1 { font-size: 1.7rem; font-weight: 400; margin: 1rem 0 .3rem; text-wrap: balance; }
+  .sub { color: var(--muted); margin: 0 0 1.2rem; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .6rem; }
+  .chip, .tile {
+    font: inherit; background: var(--card); color: var(--ink);
+    border: 1px solid var(--line); border-radius: .35rem;
+    padding: .7rem .9rem; cursor: pointer; text-align: center;
+  }
+  .tile[aria-pressed="true"], .chip[aria-pressed="true"] {
+    border-color: var(--gold); background: var(--gold-soft);
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0 1rem; }
+  .chip { font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem; padding: .5rem .8rem; }
+  .say-row { display: flex; gap: .5rem; margin: 1.1rem 0; }
+  .say-row input {
+    flex: 1; font: inherit; padding: .7rem .9rem;
+    border: 1px solid var(--line); border-radius: .35rem; background: var(--card);
+  }
+  button.gold {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .9rem;
+    letter-spacing: .04em; background: var(--ink); color: var(--ivory);
+    border: none; border-radius: .35rem; padding: .7rem 1.2rem; cursor: pointer;
+  }
+  .section-label {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .68rem;
+    letter-spacing: .18em; text-transform: uppercase; color: var(--gold);
+    margin: 1.4rem 0 .4rem;
+  }
+  .note {
+    background: var(--gold-soft); border-left: 3px solid var(--gold);
+    padding: .7rem .9rem; margin: .8rem 0; font-size: .95rem;
+  }
+  .unexpressed { display: flex; flex-wrap: wrap; gap: .4rem; margin: .6rem 0; }
+  .unexpressed span {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .74rem;
+    color: var(--muted); border: 1px dashed var(--line); border-radius: 1rem;
+    padding: .25rem .7rem;
+  }
+  article.card {
+    background: var(--card); border: 1px solid var(--line); border-radius: .4rem;
+    padding: 1rem 1.1rem; margin: .8rem 0;
+  }
+  .badge {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .66rem;
+    font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--gold); border: 1px solid var(--gold); border-radius: .25rem;
+    padding: .15rem .5rem; display: inline-block; margin-bottom: .35rem;
+  }
+  article.card h3 { margin: .1rem 0 .3rem; font-size: 1.2rem; font-weight: 400; }
+  .digest { margin: .2rem 0 .6rem; }
+  details { margin: .4rem 0; }
+  summary {
+    cursor: pointer; font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: .84rem; color: var(--muted);
+  }
+  details ul { margin: .4rem 0; padding-left: 1.2rem; }
+  details li { margin: .25rem 0; font-size: .95rem; }
+  .ev {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .78rem;
+    color: var(--muted);
+  }
+  .verdicts { display: flex; gap: .5rem; margin-top: .7rem; }
+  .verdicts button {
+    flex: 1; font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: .85rem; padding: .55rem 0; border-radius: .35rem;
+    border: 1px solid var(--line); background: var(--card); cursor: pointer;
+  }
+  .verdicts .love { color: var(--love); border-color: var(--love); }
+  .verdicts .no { color: var(--no); border-color: var(--no); }
+  .detail-toggle {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .8rem;
+    background: none; border: none; color: var(--gold);
+    cursor: pointer; padding: 0; margin-top: .5rem; text-decoration: underline;
+  }
+  .detail { border-top: 1px dashed var(--line); margin-top: .7rem; padding-top: .7rem; }
+  .detail h4 {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .7rem;
+    letter-spacing: .15em; text-transform: uppercase; color: var(--gold);
+    margin: .8rem 0 .3rem;
+  }
+  .detail .empty { color: var(--muted); font-size: .9rem; }
+  .official-notes span {
+    display: inline-block; background: var(--gold-soft); border-radius: 1rem;
+    font-size: .84rem; padding: .2rem .7rem; margin: .15rem .2rem .15rem 0;
+  }
+  footer.actions {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--card); border-top: 1px solid var(--line);
+    display: flex; gap: .6rem; justify-content: center; padding: .7rem;
+  }
+  footer.actions button {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem;
+    background: none; border: 1px solid var(--line); border-radius: .35rem;
+    padding: .55rem 1rem; cursor: pointer; color: var(--ink);
+  }
+  .hidden { display: none !important; }
+  .price { font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+  <header class="brand">
+    <div class="mark">FACET</div>
+    <div class="tag">Fragrance discovery, refined</div>
+  </header>
+
+  <!-- SCREEN 1: vibes + free text ------------------------------------- -->
+  <section id="screen-start">
+    <h1>Let&rsquo;s find your signature.</h1>
+    <p class="sub">Tap what resonates &mdash; or just say it in your own words.
+       Every suggestion is backed by what real wearers wrote in public,
+       counted person by person.</p>
+
+    <div class="section-label">Pick a vibe (or a few)</div>
+    <!-- Every chip phrase below is drawn from the parser's own
+         vocabulary (plan.VIBE_WORDS), so a tap can never become a dead
+         filter. Chips ARE sentences: each goes through /say, the same
+         path typed words take. -->
+    <div class="tiles" id="vibes">
+      <button class="tile" data-say="feminine">Feminine</button>
+      <button class="tile" data-say="fresh">Fresh</button>
+      <button class="tile" data-say="warm and cozy">Warm &amp; Cozy</button>
+      <button class="tile" data-say="clean">Clean</button>
+      <button class="tile" data-say="romantic">Romantic</button>
+      <button class="tile" data-say="elegant">Elegant</button>
+      <button class="tile" data-say="playful">Playful</button>
+      <button class="tile" data-say="dark and mysterious">Dark &amp; Mysterious</button>
+    </div>
+
+    <div class="section-label">What matters most?</div>
+    <div class="chips">
+      <button class="chip" data-say="long lasting">Long lasting</button>
+      <button class="chip" data-say="strong projection">Noticeable</button>
+      <button class="chip" data-say="subtle">Subtle / skin scent</button>
+    </div>
+
+    <div class="section-label">Occasion</div>
+    <div class="chips">
+      <button class="chip" data-say="everyday">Everyday</button>
+      <button class="chip" data-say="work">Work</button>
+      <button class="chip" data-say="date night">Date night</button>
+      <button class="chip" data-say="wedding">Wedding</button>
+      <button class="chip" data-say="night out">Going out</button>
+      <button class="chip" data-say="summer">Summer</button>
+    </div>
+
+    <div class="section-label">Budget (optional)</div>
+    <div class="chips" id="budgets">
+      <button class="chip" data-budget="50">Under $50</button>
+      <button class="chip" data-budget="100">Under $100</button>
+      <button class="chip" data-budget="250">Under $250</button>
+    </div>
+
+    <div class="say-row">
+      <input id="say-input" placeholder="&ldquo;Like Delina but the rose is too strong&hellip;&rdquo;"
+             aria-label="Describe what you're looking for">
+      <button class="gold" id="say-go">Tell FACET</button>
+    </div>
+
+    <button class="gold" id="to-results" style="width:100%">See what to spray &rarr;</button>
+  </section>
+
+  <!-- SCREEN 2: results ------------------------------------------------ -->
+  <section id="screen-results" class="hidden">
+    <h1>Spray these first.</h1>
+    <p class="sub">At most three. Tap how each one lands and the list
+       rethinks itself.</p>
+    <div id="engine-note" class="note hidden"></div>
+    <div id="unexpressed" class="unexpressed"></div>
+    <div id="queue"></div>
+    <div class="say-row">
+      <input id="refine-input" placeholder="&ldquo;Too sweet&hellip; something brighter?&rdquo;"
+             aria-label="Refine in your own words">
+      <button class="gold" id="refine-go">Refine</button>
+    </div>
+  </section>
+
+  <footer class="actions">
+    <button id="back-start" class="hidden">&larr; Preferences</button>
+    <button id="start-over">Start over</button>
+  </footer>
+</main>
+
+<script>
+"use strict";
+/* FACET kiosk. Renders ONLY what the API says: every sentence about
+   evidence arrives pre-worded from the audited layer and is inserted as
+   text (never HTML). This file composes chrome, never claims. */
+
+let SESSION = null;
+
+const $ = (sel) => document.querySelector(sel);
+const api = async (path, opts) => {
+  const r = await fetch(path, Object.assign({
+    headers: { "Content-Type": "application/json" },
+  }, opts));
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  return r.json();
+};
+
+async function ensureSession() {
+  if (!SESSION) {
+    const body = await api("/api/session", {
+      method: "POST", body: JSON.stringify({ mode: "self_serve" }),
+    });
+    SESSION = body.session_id;
+  }
+  return SESSION;
+}
+
+async function say(text) {
+  const sid = await ensureSession();
+  return api(`/api/session/${sid}/say`, {
+    method: "POST", body: JSON.stringify({ text }),
+  });
+}
+
+async function setBudget(usd) {
+  const sid = await ensureSession();
+  return api(`/api/session/${sid}/prefs`, {
+    method: "POST", body: JSON.stringify({ budget_usd: usd }),
+  });
+}
+
+async function feedback(fragranceId, verdict) {
+  const sid = await ensureSession();
+  return api(`/api/session/${sid}/feedback`, {
+    method: "POST", body: JSON.stringify({ fragrance_id: fragranceId, verdict }),
+  });
+}
+
+async function sprayQueue() {
+  const sid = await ensureSession();
+  return api(`/api/session/${sid}/spray-queue`);
+}
+
+/* --- rendering (text nodes only for API content) --------------------- */
+
+const LABELS = {
+  BEST_MATCH: "Best match", STRONG_MATCH: "Strong match",
+  WORTH_TRYING: "Worth trying", ALTERNATIVE_DIRECTION: "Alternative direction",
+};
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function renderUnexpressed(list) {
+  const box = $("#unexpressed");
+  box.replaceChildren();
+  (list || []).forEach((u) => {
+    box.append(el("span", "", `not used: ${u.preference} — ${u.reason}`));
+  });
+}
+
+function renderNote(note) {
+  const box = $("#engine-note");
+  box.classList.toggle("hidden", !note);
+  box.textContent = note || "";
+}
+
+function card(candidate) {
+  const art = el("article", "card");
+  art.append(el("span", "badge", LABELS[candidate.label] || candidate.label));
+  art.append(el("h3", "", candidate.name));
+  if (candidate.digest) art.append(el("p", "digest", candidate.digest));
+
+  if ((candidate.reasons || []).length) {
+    const d = el("details");
+    d.append(el("summary", "", `why it fits (${candidate.reasons.length})`));
+    const ul = el("ul");
+    candidate.reasons.forEach((r) => ul.append(el("li", "", r.text)));
+    d.append(ul);
+    art.append(d);
+  }
+  if ((candidate.caveats || []).length) {
+    const d = el("details");
+    d.append(el("summary", "", `worth knowing (${candidate.caveats.length})`));
+    const ul = el("ul");
+    candidate.caveats.forEach((r) => ul.append(el("li", "", r.text)));
+    d.append(ul);
+    art.append(d);
+  }
+  art.append(el("p", "ev",
+    `${candidate.people} people across ${candidate.creators} channels behind everything cited`));
+
+  const verdicts = el("div", "verdicts");
+  [["LOVE", "Love it", "love"], ["MAYBE", "Maybe", ""], ["NO", "Not for me", "no"]]
+    .forEach(([verdict, label, cls]) => {
+      const b = el("button", cls, label);
+      b.addEventListener("click", async () => {
+        await feedback(candidate.fragrance_id, verdict);
+        await refreshQueue();
+      });
+      verdicts.append(b);
+    });
+  art.append(verdicts);
+
+  const toggle = el("button", "detail-toggle", "the full story");
+  toggle.addEventListener("click", () => loadDetail(candidate.fragrance_id, art, toggle));
+  art.append(toggle);
+  return art;
+}
+
+/* Bottle detail: the three separated truths, separated on screen too. */
+async function loadDetail(fragranceId, art, toggle) {
+  toggle.remove();
+  const body = await api(`/api/fragrance/${fragranceId}`);
+  const box = el("div", "detail");
+
+  box.append(el("h4", "", "Official"));
+  const official = body.official || { declared_notes: [], listings: [] };
+  if (official.declared_notes.length) {
+    const wrap = el("div", "official-notes");
+    official.declared_notes.forEach((n) => {
+      wrap.append(el("span", "", n.stage === "unspecified" ? n.note : `${n.note} (${n.stage})`));
+    });
+    box.append(wrap);
+  }
+  (official.listings || []).forEach((l) => {
+    const p = el("p", "price");
+    const price = l.price_min_usd === null ? "" :
+      (l.price_min_usd === l.price_max_usd ? ` — $${l.price_min_usd}` :
+       ` — $${l.price_min_usd}–$${l.price_max_usd}`);
+    p.textContent = `at ${l.retailer}${price}`;
+    box.append(p);
+  });
+  if (!official.declared_notes.length && !(official.listings || []).length) {
+    box.append(el("p", "empty", "No official data yet."));
+  }
+
+  box.append(el("h4", "", "What people say"));
+  if ((body.results || []).length) {
+    const ul = el("ul");
+    body.results.forEach((r) => {
+      (r.reasons || []).forEach((reason) => ul.append(el("li", "", reason.text)));
+      (r.caveats || []).forEach((reason) => ul.append(el("li", "", reason.text)));
+    });
+    box.append(ul);
+  } else {
+    box.append(el("p", "empty",
+      body.note || "Not enough independent voices yet."));
+  }
+  art.append(box);
+}
+
+async function refreshQueue() {
+  const body = await sprayQueue();
+  const queue = $("#queue");
+  queue.replaceChildren();
+  renderNote(body.note);
+  renderUnexpressed(body.unexpressed);
+  if (!(body.queue || []).length && !body.note) {
+    renderNote("Nothing meets the evidence bar for these preferences yet — try fewer filters, or ask in your own words.");
+  }
+  (body.queue || []).forEach((c) => queue.append(card(c)));
+}
+
+/* --- screens ---------------------------------------------------------- */
+
+function show(which) {
+  $("#screen-start").classList.toggle("hidden", which !== "start");
+  $("#screen-results").classList.toggle("hidden", which !== "results");
+  $("#back-start").classList.toggle("hidden", which === "start");
+}
+
+async function handleSay(inputSel, after) {
+  const input = $(inputSel);
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  const body = await say(text);
+  renderNote(body.note);
+  renderUnexpressed(body.unexpressed);
+  if (after) await after();
+}
+
+document.addEventListener("click", async (event) => {
+  const tile = event.target.closest("[data-say]");
+  if (tile) {
+    const pressed = tile.getAttribute("aria-pressed") === "true";
+    if (!pressed) {
+      tile.setAttribute("aria-pressed", "true");
+      await say(tile.dataset.say);
+    }
+    return;
+  }
+  const budget = event.target.closest("[data-budget]");
+  if (budget) {
+    document.querySelectorAll("[data-budget]").forEach((b) =>
+      b.setAttribute("aria-pressed", "false"));
+    budget.setAttribute("aria-pressed", "true");
+    await setBudget(Number(budget.dataset.budget));
+  }
+});
+
+$("#say-go").addEventListener("click", () => handleSay("#say-input"));
+$("#say-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") handleSay("#say-input");
+});
+$("#to-results").addEventListener("click", async () => {
+  show("results");
+  await refreshQueue();
+});
+$("#refine-go").addEventListener("click", () =>
+  handleSay("#refine-input", refreshQueue));
+$("#refine-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") handleSay("#refine-input", refreshQueue);
+});
+$("#back-start").addEventListener("click", () => show("start"));
+$("#start-over").addEventListener("click", () => {
+  SESSION = null;
+  document.querySelectorAll("[aria-pressed]").forEach((b) =>
+    b.setAttribute("aria-pressed", "false"));
+  renderNote("");
+  renderUnexpressed([]);
+  $("#queue").replaceChildren();
+  show("start");
+});
+</script>
+</body>
+</html>

@@ -85,10 +85,12 @@ import re
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Literal
 
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
@@ -124,6 +126,17 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="FACET discovery service", lifespan=_lifespan)
+
+# The kiosk. One static file, no build step: `uvicorn fragrance_graph.api:app`
+# is the entire deployment. The page composes chrome only — every sentence
+# about evidence arrives from this API pre-worded by the audited layer and
+# is rendered as text, never markup. See facet/static/index.html's header.
+_FACET_STATIC = Path(__file__).parent / "facet" / "static"
+
+
+@app.get("/", include_in_schema=False)
+def facet_kiosk() -> FileResponse:
+    return FileResponse(_FACET_STATIC / "index.html", media_type="text/html")
 
 #: A fuzzy suggestion is offered as a clickable "did you mean", never
 #: auto-navigated to — the cost of a bad suggestion is a shopper seeing
@@ -563,10 +576,10 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
     """
     _require_session(conn, session_id)
     state = _load_state(conn, session_id)
-    answer, _unexpressed = _recommendations_for(conn, state)
+    answer, unexpressed = _recommendations_for(conn, state)
     results = answer.results
     if not results:
-        return {"note": answer.note, "queue": []}
+        return {"note": answer.note, "queue": [], "unexpressed": unexpressed}
 
     def signature(candidate: Recommendation) -> tuple[str, str] | None:
         if not candidate.reasons:
@@ -592,6 +605,11 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
     return {
         "note": answer.note,
         "queue": [_candidate_json(c, i) for i, c in enumerate(queue)],
+        # The queue screen is where a shopper acts, so it is exactly where
+        # held-but-unusable preferences (budget, a stale comparative) must
+        # be visible — flagged found-but-unfixed in the M1 round, required
+        # by the kiosk, pinned by tests/test_facet_ui.py.
+        "unexpressed": unexpressed,
     }
 
 
