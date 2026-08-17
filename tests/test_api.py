@@ -11,9 +11,15 @@ manager, which is exactly the trick that keeps it from trying to migrate
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 
-from fragrance_graph.api import app, get_conn
+# A core-only install (`uv sync --extra dev`, no [api]) has no fastapi by
+# design; these tests then skip rather than kill collection for the whole
+# suite. CI installs both extras so they always actually run there — a
+# workflow test below pins that, because this exact failure shipped once.
+pytest.importorskip("fastapi")
+from fastapi.testclient import TestClient  # noqa: E402
+
+from fragrance_graph.api import app, get_conn  # noqa: E402
 from fragrance_graph.evidence import Strength
 from fragrance_graph.ingest.store import ingest
 from fragrance_graph.recommend import Reason, Recommendation

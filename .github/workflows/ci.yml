@@ -55,7 +55,11 @@ jobs:
         with:
           enable-cache: true
 
-      - run: uv sync --extra dev
+      # Both extras: fastapi lives in [api] on purpose (core installs must
+      # not grow it), but the suite includes the API tests, so the TEST
+      # environment needs it. The first M1 CI run failed at collection —
+      # ModuleNotFoundError: fastapi — because this line declared only dev.
+      - run: uv sync --extra dev --extra api
 
       - name: Lint
         run: uv run ruff check .
