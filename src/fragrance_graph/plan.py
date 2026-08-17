@@ -314,6 +314,21 @@ TOO_MUCH = re.compile(
     r"(?:much|strong|overpowering|dominant|intense|loud|heavy)\b"
 )
 
+#: The mirror shape: "it's too warm" — pronoun subject, the attribute
+#: AFTER "too". The first shipped kiosk missed it, so "i like side effect
+#: but its too warm" read `warm` as a *positive* vibe preference and
+#: recommended the warmest bottle it could cite — a working engine
+#: executing an inverted instruction. "not too warm" is excluded here:
+#: the negation patterns already own it.
+TOO_X = re.compile(
+    r"(?<!not )\b(?:way |so |a bit |a little |kinda |kind of )?"
+    r"too ([a-z]+)\b"
+)
+
+#: Words after "too" that need the left-attribute form to mean anything:
+#: "too much" names no attribute at all.
+TOO_X_EMPTY = {"much", "many"}
+
 #: "like X but ..." / "similar to X but ..."
 #: Where a fragrance name stops. Anything that starts a new clause or
 #: introduces a requirement ends the name — without "with" and "and" here,
@@ -521,6 +536,31 @@ def _read_complaints(text: str, plan: QueryPlan) -> list[tuple[int, int]]:
                 attribute=attribute,
                 value=term,
                 direction=direction,
+                said=match.group(0),
+            )
+        )
+
+    for match in TOO_X.finditer(text):
+        span = (match.start(), match.end())
+        if any(s < span[1] and span[0] < e for s, e in consumed):
+            continue  # inside a TOO_MUCH phrase already read
+        term = match.group(1).strip()
+        if term in TOO_X_EMPTY:
+            continue
+        consumed.append(span)
+        attribute = "note"
+        if term in SENTIMENT_AXES or term in ATTRIBUTE_WORDS:
+            attribute = ATTRIBUTE_WORDS.get(term, term)
+        elif term in VIBE_WORDS:
+            attribute = "vibe"
+        plan.soft.append(
+            Preference(
+                attribute=attribute,
+                value=term,
+                direction=(
+                    Direction.LESS_THAN_ANCHOR if plan.anchor
+                    else Direction.LOW
+                ),
                 said=match.group(0),
             )
         )

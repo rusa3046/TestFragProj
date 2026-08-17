@@ -221,6 +221,14 @@ PROBES = (
     ("recommendation", "a crowd-pleasing fragrance with raspberry"),
     ("recommendation", "a feminine fruity fragrance with strong projection"),
     ("recommendation", "a vanilla that doesn't smell edible"),
+    # The anchor-profile fallback: an anchor with almost no community
+    # evidence has no comparative baseline for "warm", so the ordinary
+    # path finds zero candidates and `recommend._anchor_profile_fallback`
+    # takes over, wording the answer from the anchor's declared notes
+    # instead. This is the one probe that reaches `kind="declared_overlap"`
+    # and `_declared_basis_note` — without it, neither is exercised by
+    # this audit at all, on the real corpus or a fixture one.
+    ("recommendation", "i like side effect but its too warm"),
     ("semantic", "something that smells like an expensive hotel lobby"),
     ("semantic", "something like Rosy"),
     ("profile", "what do people disagree about for Parfums de Marly Layton?"),

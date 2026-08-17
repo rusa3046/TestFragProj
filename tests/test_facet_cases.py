@@ -53,7 +53,7 @@ from fragrance_graph.recommend import recommend_plan  # noqa: E402
 from fragrance_graph.resolve.entities import add_fragrance  # noqa: E402
 from fragrance_graph.session import PreferenceState  # noqa: E402
 from tests.conftest import make_comment  # noqa: E402
-from tests.test_recommend import note  # noqa: E402
+from tests.test_recommend import declare, note  # noqa: E402
 
 # --- shared fixture wiring, duplicated from tests/test_api.py verbatim ---
 # (that file's own docstring explains why: `get_conn` overridden per test
@@ -664,3 +664,95 @@ class TestBudgetAndAvoidSweetThenPersistentExclusion:
             {"preference": "budget", "reason": "no price data yet"}
         ]
         assert_honest(refine_body)
+
+
+# --- Case 7 ------------------------------------------------------------
+
+
+class TestSideEffectButTooWarm:
+    """Retail mockup, the user's exact words, verbatim from the real
+    corpus bug report: "i said i like side effect but its too warm and
+    it gave Lattafa Khamrah -- one commenter said rich warm addictive --
+    why it fits." Before `TOO_X` (see `plan.py`'s "'too warm' is a
+    complaint, not a wish" commit) this inverted the request outright,
+    recommending the *warmest* bottle the corpus could cite. After
+    `TOO_X`, the sentence compiles honestly to an anchor plus a
+    comparative "less warm" preference — but the anchor here has almost
+    no community evidence, so the comparative path has no baseline and
+    would refuse with nothing to show for it.
+
+    This is the fallback's own scenario: the anchor still carries a
+    DECLARED note profile (`fragrance_note_claim`), and this test proves
+    the *whole stack* — `plan.parse`'s grammar, `recommend_plan`'s
+    trigger, `_anchor_profile_fallback`'s matching, and the API's JSON
+    rendering — answers from it, through the real HTTP layer, subject to
+    every rule `assert_honest` checks.
+    """
+
+    def _seeded(self, conn):
+        anchor = add_fragrance(
+            conn, "Initio Parfums Privés Side Effect", aliases=["Side Effect"]
+        )
+        # "tobacco" and "rum" are curated warm-axis notes
+        # (data/curation/note-axes.json; rum joined the axis when the
+        # boozy family was added) and get subtracted; "saffron" and
+        # "sandalwood" are not on that axis and survive into the
+        # anchor's usable profile. This fixture broke once by assuming
+        # rum would stay off the axis — the axes file is curated truth,
+        # and fixtures follow it, not the other way round.
+        declare(conn, anchor, "tobacco", "rum", "saffron", "sandalwood")
+
+        match = add_fragrance(conn, "Saffron Sandalwood Cousin")
+        declare(conn, match, "saffron", "sandalwood")
+
+        # A second, real fixture bottle sharing only the subtracted note —
+        # proving it is excluded by evidence, not merely absent from a
+        # thin fixture.
+        warm_only = add_fragrance(conn, "Tobacco Only Bottle")
+        declare(conn, warm_only, "tobacco")
+
+        return anchor, match, warm_only
+
+    def test_the_users_exact_query_gets_an_honest_answer_from_the_anchors_official_notes(
+        self, client, conn
+    ):
+        anchor, match, warm_only = self._seeded(conn)
+        session_id = _create(client)
+        resp = client.post(
+            f"/api/session/{session_id}/say",
+            json={"text": "i like side effect but its too warm"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["state"]["liked_fragrances"] == [
+            "Initio Parfums Privés Side Effect"
+        ]
+
+        results = body["results"]
+        assert results, (
+            "the anchor's declared notes must produce a real answer, not "
+            "the old refusal"
+        )
+        ids = {r["fragrance_id"] for r in results}
+        assert anchor not in ids, "the anchor must never recommend itself"
+        assert match in ids
+        assert warm_only not in ids, (
+            "sharing only the subtracted note is not 2 shared notes"
+        )
+
+        # The whole point of the fixed bug: nothing said "warm" as a
+        # reason to pick a bottle — not the old inverted "warmest wins"
+        # behaviour, not a leak of the avoided attribute through this
+        # new path either.
+        for result in results:
+            for reason in result["reasons"]:
+                assert "warm" not in reason["text"].lower()
+
+        # The note explains the basis switch in its own words, engine
+        # wording only, never invented in this file or in api.py.
+        assert "official notes" in body["note"]
+        assert "warm" in body["note"]
+        assert "Initio Parfums Privés Side Effect" in body["note"]
+
+        assert_honest(body)

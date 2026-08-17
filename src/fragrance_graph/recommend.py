@@ -60,6 +60,7 @@ from fragrance_graph.evidence import (
     name_facts,
 )
 from fragrance_graph.gate import MIN_COMMENTERS, MIN_SOURCES
+from fragrance_graph.notes import declared_note_map, load_note_axes
 from fragrance_graph.plan import (
     CONCEPTS,
     RELATED_CONCEPTS,
@@ -113,7 +114,14 @@ class Reason:
         never sees a `Strength`; they see "8 people across 4 channels say"
         or "one commenter said", and those must not be interchangeable.
         """
-        if self.kind in ("graph", "semantic", "absence"):
+        if self.kind in ("graph", "semantic", "absence", "declared_overlap"):
+            # `declared_overlap`'s text is already fully composed by
+            # `_declared_overlap_text` -- "official notes share iris and
+            # musk with X" -- and returned verbatim for the same reason
+            # `graph`/`semantic`/`absence` are: nothing here may append a
+            # people-count clause to a fact that carries zero people by
+            # design (declared notes contribute zero people; see
+            # `_anchor_profile_fallback`'s docstring).
             return self.text
         if self.strength is Strength.CANONICAL:
             return f"{self.text} (official listing)"
@@ -594,6 +602,26 @@ def recommend_plan(
         candidates.append(result)
 
     candidates.sort(key=lambda r: (-r.score, -r.people, r.name))
+
+    if not candidates and plan.anchor_id is not None:
+        # The precise trigger this fallback exists for: an anchor, at
+        # least one preference shaped like "avoid this" (a plain LOW, or
+        # a comparative that only means something *with* an anchor —
+        # `Preference.relative_to_anchor`), and the ordinary scoring loop
+        # above landing on zero candidates — the same "zero candidates"
+        # state `_note`'s own comparative-refusal branch reads below.
+        avoid_prefs = [
+            p for p in plan.soft
+            if p.direction in (Direction.LESS_THAN_ANCHOR, Direction.LOW)
+        ]
+        if avoid_prefs:
+            fallback = _anchor_profile_fallback(
+                conn, plan, avoid_prefs, grouped, names, limit
+            )
+            if fallback is not None:
+                answer.results, answer.note = fallback
+                return answer
+
     answer.results = candidates[:limit]
     answer.note = _note(plan, candidates, rejected_by_hard, grouped)
     return answer
@@ -1122,6 +1150,201 @@ def _weight(fact: AttributeFact) -> float:
     }[fact.strength]
 
 
+#: --- the anchor-profile fallback -------------------------------------
+#:
+#: "I like Side Effect but it's too warm" refuses honestly on the
+#: comparative path: the anchor has almost no community evidence, so
+#: there is no baseline to compare "warm" against (`_score_comparative`'s
+#: `anchor_level is None` branch). But the anchor still carries a
+#: DECLARED note profile — the retailer's own listing, `fragrance_note_
+#: claim` — that answers a related, honest question instead: not "is this
+#: bottle less warm than Side Effect" (unanswerable, no baseline) but
+#: "what shares Side Effect's official notes, once the warm ones are set
+#: aside" (answerable from data already in the corpus). The two questions
+#: are not the same and the wording below never conflates them — see
+#: `_declared_basis_note`.
+
+
+def _declared_overlap_text(shared_notes: set[str], anchor: str) -> str:
+    """"official notes share iris and musk with Initio Parfums Privés
+    Side Effect" — the one sentence `Reason(kind="declared_overlap")`
+    ever carries, always naming a retailer/brand listing, never a
+    person. "official notes" is load-bearing wording, not decoration:
+    it is the phrase the audit's `DISCLOSURES`-style check and this
+    project's provenance rule both key on to tell a shopper this did not
+    come from a comment. See `Reason.phrase()`'s `declared_overlap`
+    branch, which returns this text verbatim."""
+    return f"official notes share {_join_and(sorted(shared_notes))} with {anchor}"
+
+
+def _declared_basis_note(anchor: str, avoided: str) -> str:
+    """The `Answer.note` for a response built on this fallback, naming
+    the basis switch explicitly rather than leaving a shopper to infer
+    from the reasons alone why there is no "X people compared these"
+    lead. `avoided` is the literal word(s) the request asked to avoid
+    ("warm"), never the axis name, because the axis is an internal
+    curation detail (`note-axes.json`) the user never typed and would
+    not recognise."""
+    return (
+        "Not enough people have compared these directly; matches below "
+        f"share {anchor}'s official notes, leaving out its {avoided} ones."
+    )
+
+
+def _perceived_notes(facts: list[AttributeFact]) -> frozenset[str]:
+    """The note values a bottle's own facts assert, never a name-derived
+    or purely-denied one. `from_name` facts are excluded on purpose —
+    `evidence.name_facts`'s own docstring is exactly why a note read out
+    of a product name may demote a candidate and must never promote one,
+    and folding it into a "perceived" set here would let a bottle called
+    "Rose 01" pass as community evidence of rose."""
+    return frozenset(
+        f.value for f in facts
+        if f.attribute == "note" and not f.from_name and f.supporting.people > 0
+    )
+
+
+def _anchor_profile_fallback(
+    conn: psycopg.Connection,
+    plan: QueryPlan,
+    avoid_prefs: list[Preference],
+    grouped: dict[int, list[AttributeFact]],
+    names: dict[int, str],
+    limit: int,
+) -> tuple[list[Recommendation], str] | None:
+    """"Less warm than Side Effect" has no comparative baseline; "what
+    shares Side Effect's official notes, minus the warm ones" does — this
+    is that second, answerable question.
+
+    Only ever called when the ordinary comparative/avoidance scoring in
+    `recommend_plan` produced zero candidates and the plan carries at
+    least one avoid-shaped preference against a resolved anchor
+    (`recommend_plan`'s own trigger check, not repeated here). Returns
+    `None` — never an empty-but-truthy result — when this path *also*
+    finds nothing, so the caller falls through to `_note`'s ordinary
+    refusal wording rather than silently claiming a different, empty
+    answer is better than the honest one.
+
+    ## The structural guarantee
+
+    Evidence FOR the avoided attribute can never reach `reasons[]` here,
+    and not because every call site remembers to check: `remaining`
+    (the anchor's profile with the avoided axis and the literal avoided
+    word already subtracted) is the *only* set `shared` is ever computed
+    against, so the avoided value cannot be a member of `shared` in the
+    first place — there is no branch that could leak it into a
+    `declared_overlap` or `prefer` reason. A candidate's own evidence
+    *for* the avoided thing is looked up separately, on purpose, and can
+    only ever land in `caveats[]` with a rank demotion, never in
+    `reasons[]`. `tests/test_recommend.py`'s
+    `TestAnchorProfileFallback::test_no_reason_ever_names_the_avoided_value`
+    asserts this by scanning every candidate this function returns for
+    every avoided term, rather than trusting the one fixture case that
+    happens to exercise the caveat branch.
+    """
+    anchor_id = plan.anchor_id
+    if anchor_id is None:
+        return None
+
+    declared_map = declared_note_map(conn)
+    axis_map = load_note_axes(conn)
+
+    avoid_literal = {p.value for p in avoid_prefs}
+    avoid_notes: set[str] = set()
+    for p in avoid_prefs:
+        axis_notes = axis_map.get(p.value)
+        if axis_notes is None:
+            # Unknown axis: no subtraction beyond the literal word itself.
+            # A typo or a genuinely uncurated axis must not silently widen
+            # into "subtract nothing at all", but it must not crash the
+            # fallback either — the literal-value drop below still applies.
+            log.info(
+                "recommend: %r is not a curated note axis; only the "
+                "literal term is dropped from the anchor profile",
+                p.value,
+            )
+            continue
+        avoid_notes |= axis_notes
+
+    anchor_declared = declared_map.get(anchor_id, frozenset())
+    anchor_perceived = _perceived_notes(
+        attribute_facts(conn, fragrance_id=anchor_id, attribution=Attribution.STATED)
+    )
+    remaining = (anchor_declared | anchor_perceived) - avoid_notes - avoid_literal
+    if len(remaining) < 2:
+        return None
+    remaining_declared = anchor_declared - avoid_notes - avoid_literal
+
+    scored: list[tuple[tuple, Recommendation]] = []
+    candidate_ids = (set(declared_map) | set(grouped)) - {anchor_id}
+    for frag_id in candidate_ids:
+        name = names.get(frag_id)
+        if name is None:
+            continue
+        facts = grouped.get(frag_id, [])
+        candidate_profile = declared_map.get(frag_id, frozenset()) | _perceived_notes(facts)
+        shared = candidate_profile & remaining
+        if len(shared) < 2:
+            continue
+
+        shared_declared = shared & remaining_declared
+        shared_other = shared - shared_declared
+        reasons: list[Reason] = []
+        if shared_declared:
+            reasons.append(
+                Reason(
+                    kind="declared_overlap",
+                    text=_declared_overlap_text(shared_declared, plan.anchor or "the anchor"),
+                    strength=Strength.CANONICAL,
+                )
+            )
+        # Notes shared only through community perception (not the brand's
+        # own listing) get the ordinary "prefer" wording — real people,
+        # real counts, through the same audited path every other soft
+        # match uses. Never folded into `declared_overlap`'s text: doing
+        # so would put a person's remark inside a sentence that says
+        # "official notes".
+        for value in sorted(shared_other):
+            fact = next(
+                (f for f in facts
+                 if f.attribute == "note" and f.value == value and not f.from_name),
+                None,
+            )
+            if fact is not None:
+                reasons.append(_fact_reason(fact, "prefer"))
+        if not reasons:
+            continue  # defensive: shared >= 2 should always yield at least one
+
+        caveats: list[Reason] = []
+        demoted = False
+        for p in avoid_prefs:
+            fact = _preference_fact(facts, p)
+            if (
+                fact is not None
+                and not fact.from_name
+                and fact.strength.may_retrieve
+                and fact.opposing.people <= fact.supporting.people
+            ):
+                caveats.append(_fact_reason(fact, "avoid"))
+                demoted = True
+
+        everything = reasons + caveats
+        people = max((r.people for r in everything), default=0)
+        creators = max((r.creators for r in everything), default=0)
+        rec = Recommendation(
+            fragrance_id=frag_id, name=name, reasons=reasons, caveats=caveats,
+            people=people, creators=creators,
+        )
+        scored.append(((-len(shared), demoted, -people, -creators, frag_id), rec))
+
+    if not scored:
+        return None
+    scored.sort(key=lambda pair: pair[0])
+    results = [rec for _, rec in scored][:limit]
+    avoided_desc = _join_and(sorted(avoid_literal))
+    return results, _declared_basis_note(plan.anchor or "the anchor", avoided_desc)
+
+
 def _note(
     plan: QueryPlan,
     candidates: list[Recommendation],
@@ -1158,7 +1381,17 @@ def _note(
         )
     comparatives = [p for p in plan.soft if p.relative_to_anchor]
     if comparatives and not candidates:
-        wanted = ", ".join(f"{p.value} than {plan.anchor}" for p in comparatives)
+        # "Insufficient comparative evidence for warm than X" used to drop
+        # the direction word entirely — grammatical only by accident, for
+        # the one case where a reader's ear supplied "less" on its own.
+        # Naming the direction (`less`/`more`) the preference actually
+        # carries is both the readable fix and the honest one: it is the
+        # comparison the corpus was actually asked to make.
+        wanted = ", ".join(
+            f"{'less' if p.direction is Direction.LESS_THAN_ANCHOR else 'more'} "
+            f"{p.value} than {plan.anchor}"
+            for p in comparatives
+        )
         return (
             f"Insufficient comparative evidence for {wanted}. The corpus "
             "would need people describing that quality in both bottles to "

@@ -237,6 +237,96 @@ def declared_for(
     return rows
 
 
+def declared_note_map(conn: psycopg.Connection) -> dict[int, frozenset[str]]:
+    """Every fragrance's declared notes, any `claim_type`, as canonical
+    strings -- one query for the whole catalogue rather than one per
+    bottle, for `recommend._anchor_profile_fallback`, which needs both the
+    anchor's declared set and every candidate's."""
+    grouped: dict[int, set[str]] = {}
+    for row in conn.execute(
+        "SELECT fragrance_id, canonical_note FROM fragrance_note_claim"
+    ):
+        grouped.setdefault(row["fragrance_id"], set()).add(row["canonical_note"])
+    return {fid: frozenset(notes) for fid, notes in grouped.items()}
+
+
+#: Curated note -> axis mapping. Repo-relative for the same reason
+#: `pages.BLOCKLIST_PATH` is: it is meant to be opened and argued with, not
+#: shipped and forgotten. See the file's own "_comment" key for how each
+#: entry was chosen and what did not survive the vocabulary check.
+NOTE_AXES_FILE = Path("data/curation/note-axes.json")
+
+
+def load_note_axes(
+    conn: psycopg.Connection, path: Path = NOTE_AXES_FILE
+) -> dict[str, frozenset[str]]:
+    """axis name -> the notes that count as that axis, re-checked against
+    the corpus that exists right now.
+
+    The curated file is authored judgment, committed for review like
+    `data/blocklist.txt` -- but the corpus underneath it keeps changing
+    (an import can drop a retailer listing, a note can get re-canonicalised),
+    so this loader does not trust the file blindly. Every note it lists is
+    re-checked against `SELECT DISTINCT canonical_note FROM
+    fragrance_note_claim` at load time; anything the corpus no longer
+    carries is dropped, and the drop count is logged rather than silently
+    swallowed -- the same shape as `pages.load_blocklist`'s missing-file
+    warning, for the same reason: "nothing was dropped" and "the check
+    never ran" must not look identical in the log.
+
+    A caller asking for an axis this file does not define (a typo, or a
+    genuinely uncurated axis) gets back `None` from `.get(axis)` --
+    deliberately not an empty set, so the caller can tell "no notes on
+    this axis" apart from "no axis by this name at all" and fall back to
+    subtracting only the literal word the user typed, logging that it did
+    so. See `recommend._anchor_profile_fallback`.
+
+    An absent file logs a warning and returns `{}` -- every axis then
+    resolves to "unknown", which is the same safe fallback as a typo.
+    """
+    if not path.exists():
+        log.warning("No note-axis mapping at %s -- axis subtraction is a no-op", path)
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    vocabulary = {
+        (row["canonical_note"] or "").strip().lower()
+        for row in conn.execute("SELECT DISTINCT canonical_note FROM fragrance_note_claim")
+    }
+    axes: dict[str, frozenset[str]] = {}
+    dropped = 0
+    for axis, notes in raw.items():
+        if axis.startswith("_"):
+            continue  # "_comment" and any future metadata key, not an axis
+        kept = set()
+        for note in notes:
+            normalized = note.strip().lower()
+            # Token containment, not substring and not fuzzy: the axis
+            # entry "cinnamon" claims the corpus note "cinnamon bark"
+            # (its word tokens include the entry's) but can never claim
+            # "ambergris" from "amber" -- one token is not two. Exact
+            # matching alone let "cinnamon bark" survive a warm
+            # subtraction because the file said only "cinnamon", which
+            # is under-subtraction the user notices ("remove the warm
+            # notes" did not remove cinnamon).
+            entry_tokens = set(normalized.split())
+            matched = {
+                v for v in vocabulary
+                if entry_tokens <= set(v.split())
+            }
+            if matched:
+                kept |= matched
+            else:
+                dropped += 1
+        axes[axis] = frozenset(kept)
+    if dropped:
+        log.info(
+            "%d note-axis entr%s dropped at load: not in the current "
+            "fragrance_note_claim vocabulary",
+            dropped, "y" if dropped == 1 else "ies",
+        )
+    return axes
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m fragrance_graph.notes")
     parser.add_argument("--db-url", default=None)
