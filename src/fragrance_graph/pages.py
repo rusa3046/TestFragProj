@@ -286,10 +286,17 @@ class Statement:
 
         A tie keeps `asked` in front, so the sentence does not depend on
         which end the page was built from.
+
+        Decided by **people, not rows**. It used to compare
+        `outbound_claims` against `claims`, both row counts, while the
+        sentence beneath printed `commenters`, a head count. One person
+        writing "A is a dupe of B" four times therefore outvoted three
+        separate people writing the reverse, and the page then reported all
+        four of them as supporting the direction one of them chose.
         """
         if self.row.claim_type == "BETTER_THAN":
             return self.asked
-        if self.row.outbound_claims * 2 < self.row.claims:
+        if self.row.outbound_commenters * 2 < self.row.commenters:
             return self.other
         return self.asked
 
@@ -1124,6 +1131,7 @@ def render_index(
     indexes: list[ReverseIndex] | None = None,
     base: str = "",
     analytics: str = "",
+    extra_sections: str = "",
 ) -> str:
     """The list of pages, in the order the pages themselves are ranked."""
     e = html.escape
@@ -1157,6 +1165,10 @@ def render_index(
                 f"{len(index.pairs)} comparisons</li>"
             )
         out.append("</ul>")
+    if extra_sections:
+        # Composed by `ask.py` from already-escaped parts; the index takes
+        # it whole rather than re-learning how to phrase evidence.
+        out.append(extra_sections)
     out += ["</body>", "</html>"]
     return "\n".join(out) + "\n"
 
@@ -1198,8 +1210,57 @@ def build(
             render_reverse(index, facts, base, analytics), encoding="utf-8"
         )
         slugs.append(f"{index.slug}.html")
+    # The ask and profile pages: the recommender's audited output, laid
+    # out statically. Rendered before the index so the index only links
+    # what actually got written.
+    from fragrance_graph import ask as _ask
+    from fragrance_graph.recommend import recommend as _recommend
+
+    def _page_head(title: str, filename: str) -> list[str]:
+        return _head(
+            title,
+            canonical=f"{base}{filename}" if base else "",
+            analytics=analytics,
+        )
+
+    asked = []
+    for slug, question in _ask.QUESTIONS:
+        filename = _ask.ask_slug(slug)
+        page = _ask.render_answer(
+            question, _recommend(conn, question),
+            head=_page_head(f"{question} — fragrance graph", filename),
+        )
+        (out_dir / filename).write_text(page, encoding="utf-8")
+        slugs.append(filename)
+        asked.append((slug, question))
+
+    profiles = _ask.profile_pages(conn)
+    for name, slug, answer in profiles:
+        (out_dir / slug).write_text(
+            _ask.render_profile(
+                name, answer,
+                head=_page_head(f"What people say about {name}", slug),
+            ),
+            encoding="utf-8",
+        )
+        slugs.append(slug)
+
+    extra = [_ask.render_ask_index_section(asked)]
+    if profiles:
+        import html as _html
+
+        rows = "".join(
+            f'<li><a href="{_html.escape(slug)}">{_html.escape(name)}</a></li>'
+            for name, slug, _ in profiles
+        )
+        extra.append(
+            f"<section><h2>What people say, bottle by bottle</h2><ul>{rows}</ul></section>"
+        )
+
     (out_dir / "index.html").write_text(
-        render_index(pairs, indexes, base, analytics), encoding="utf-8"
+        render_index(pairs, indexes, base, analytics,
+                     extra_sections="\n".join(extra)),
+        encoding="utf-8",
     )
 
     (out_dir / "robots.txt").write_text(render_robots(base), encoding="utf-8")

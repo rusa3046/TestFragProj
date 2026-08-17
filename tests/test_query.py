@@ -13,6 +13,7 @@ from fragrance_graph.ingest.store import ingest
 from fragrance_graph.query import (
     aggregate_sentiment,
     find_fragrance,
+    pair_stats,
     render,
     sentiment_rollup,
     similar_to,
@@ -109,11 +110,16 @@ def test_ranking_counts_distinct_commenters_not_claim_rows(conn):
     assert (results[1].commenters, results[1].claims) == (1, 4)
 
 
-def test_unknown_authors_count_as_separate_people(conn):
-    """'' is missing data, not one shared person.
+def test_unknown_authors_collapse_into_one_person(conn):
+    """Reversed on 2026-08-15. This test previously asserted 3.
 
-    Collapsing them would silently under-count; the fallback keeps each
-    comment its own commenter.
+    Its rationale — "collapsing them would silently under-count" — had the
+    two failures the wrong way round, and so did the docstring on
+    `_commenter_key` that it was pinning. Collapsing under-counts *several*
+    anonymous people into one. Splitting over-counts *one* anonymous person
+    into several, which is the failure that puts a fabricated "3 people" on
+    a page. Since every count this system publishes is a floor on how many
+    humans agreed, only under-counting is safe.
     """
     target = add_fragrance(conn, "Layton")
     other = add_fragrance(conn, "Khamrah")
@@ -125,7 +131,7 @@ def test_unknown_authors_count_as_separate_people(conn):
         add_claim(conn, cid, subject=other, obj=target)
 
     (result,) = similar_to(conn, target)
-    assert result.commenters == 3
+    assert result.commenters == 1
 
 
 def test_ties_break_deterministically(conn):
@@ -781,3 +787,87 @@ def test_render_shows_sources_and_pair_total(conn):
     out = render("Creed Aventus", similar_to(conn, target))
     assert "1 source" in out
     assert "for the pair" in out
+
+
+# --- who counts as one person ----------------------------------------------
+
+
+class TestAuthorlessCommentsCountAsOnePerson:
+    """Three comments with no recorded author are one unknown person, not
+    three. The gate is a floor on how many humans agreed; a fallback that
+    mints a fresh identity per comment lets one poster clear it alone.
+
+    Found by Codex on 2026-08-15 and confirmed against the source. No
+    comment in the corpus has a blank author today, but
+    `models.author_from_payload` returns `''` for any payload without one,
+    so the path is reachable rather than theoretical.
+    """
+
+    def _authorless(self, conn, i, *, body, channel="fragrance"):
+        """A comment whose payload names nobody — what `author_from_payload`
+        sees when YouTube omits `authorChannelId`."""
+        ingest(
+            conn,
+            [
+                make_comment(
+                    i,
+                    body=body,
+                    source_channel=channel,
+                    permalink=f"https://example.test/c/{i}",
+                    raw_json=json.dumps({"id": f"fake{i:05d}"}),
+                )
+            ],
+        )
+        return conn.execute(
+            "SELECT id FROM comments WHERE source_id = %s", (f"t1_fake{i:05d}",)
+        ).fetchone()[0]
+
+    def test_three_authorless_comments_are_one_commenter(self, conn):
+        a = add_fragrance(conn, "Baccarat Rouge 540")
+        b = add_fragrance(conn, "Cloud")
+        for i, channel in enumerate(["chan_a", "chan_b", "chan_c"]):
+            cid = self._authorless(conn, i, body="same thing", channel=channel)
+            add_claim(conn, cid, subject=b, obj=a, evidence="same thing")
+
+        ev = pair_stats(conn, a, b)
+        assert ev.commenters == 1, (
+            "one unknown person, however many comments they left"
+        )
+        assert ev.creators == 3, "creator counting is unaffected"
+
+    def test_they_cannot_publish_a_pair_on_their_own(self, conn):
+        """The failure that matters: the gate wants three humans."""
+        from fragrance_graph.pages import qualifying_pairs
+
+        a = add_fragrance(conn, "Baccarat Rouge 540")
+        b = add_fragrance(conn, "Cloud")
+        for i, channel in enumerate(["chan_a", "chan_b", "chan_c"]):
+            cid = self._authorless(conn, i, body="same thing", channel=channel)
+            add_claim(conn, cid, subject=b, obj=a, evidence="same thing")
+
+        assert qualifying_pairs(conn) == [], (
+            "3 authorless comments across 3 channels must not become a page"
+        )
+
+    def test_a_known_author_is_still_their_own_person(self, conn):
+        """The fix must not collapse real people into the unknown bucket."""
+        a = add_fragrance(conn, "Baccarat Rouge 540")
+        b = add_fragrance(conn, "Cloud")
+        for i, author in enumerate(["alice", "bob", "carol"]):
+            cid = add_comment(conn, i, body="x", author=author)
+            add_claim(conn, cid, subject=b, obj=a, evidence="x")
+
+        assert pair_stats(conn, a, b).commenters == 3
+
+    def test_one_unknown_plus_two_known_is_three(self, conn):
+        """Collapsing is per-corpus, not per-pair: the unknown bucket is one
+        person alongside however many named people there are."""
+        a = add_fragrance(conn, "Baccarat Rouge 540")
+        b = add_fragrance(conn, "Cloud")
+        for i, author in enumerate(["alice", "bob"]):
+            cid = add_comment(conn, i, body="x", author=author)
+            add_claim(conn, cid, subject=b, obj=a, evidence="x")
+        cid = self._authorless(conn, 9, body="x", channel="chan_z")
+        add_claim(conn, cid, subject=b, obj=a, evidence="x")
+
+        assert pair_stats(conn, a, b).commenters == 3

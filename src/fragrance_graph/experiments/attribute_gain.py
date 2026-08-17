@@ -1,0 +1,968 @@
+"""Does buying more comments about a bottle turn opinions into agreement?
+
+    uv run python -m fragrance_graph.experiments.attribute_gain plan
+    uv run python -m fragrance_graph.experiments.attribute_gain before
+    uv run python -m fragrance_graph.experiments.attribute_gain run --limit 3
+    uv run python -m fragrance_graph.experiments.attribute_gain report
+
+An earlier experiment enriched nine bottles for $1.09 and produced one
+page, and the conclusion recorded was "enrichment scatters". That
+conclusion is not reusable here, because it measured **pages**. The
+question now is whether enrichment converts *singleton attribute
+observations into repeated ones* — a different outcome that the same run
+might well have produced while being scored against something else.
+
+So this re-runs the experiment against the metric that matters for
+recommendation, and it is built to be able to say **no**.
+
+## What counts as success, decided before the run
+
+Not new facts. A run that adds six hundred one-off descriptors moves
+`facts` and answers nothing, because a comparison needs two bottles to
+have said the same thing. The outcomes worth money, in order:
+
+    singleton -> repeated     an opinion becomes a second opinion
+    singleton -> supported    it clears the bar to be stated
+    new comparable attribute  a second bottle joins one that exists
+    newly answerable query    the benchmark moves
+
+and the number that decides everything is **cost per repeated fact**,
+against the measured $0.17 of a targeted pair verification.
+
+## What the first run measured, and what it does not license
+
+Three bottles, $0.3909, on 2026-08-15:
+
+    facts 664 -> 699, of which 29 of the 35 net gain are singletons
+    2 singleton -> repeated conversions, at $0.1955 each
+    0 new supported, 0 new declarable, 0 newly answerable comparisons
+
+Read narrowly that is a clear negative: **on this cohort, at this cost, on
+this corpus**, enrichment did not densify the matrix. Read as a general
+verdict on enrichment it is not supported, and the difference matters
+because a scheduler would act on the second.
+
+Two conversions is a sample of two. The three bottles run were the *dense*
+end of the cohort — Layton, Khamrah, Angels' Share — so the thin end is
+untested, and the hypothesis that enrichment works better where evidence
+is already dense has not been separated from the hypothesis that it works
+nowhere. The remaining seven bottles are what would separate them.
+
+One caution the numbers themselves carry: Layton took $0.1941 and returned
+zero Layton-attributed facts. Paying to read a bottle's own review section
+does not reliably produce evidence about that bottle, and that is a
+finding about the *mechanism* rather than about the cohort.
+
+## Why the cohort looks like this
+
+Ten bottles spanning the range rather than the ten best. Layton has 81
+singletons and 163 comments already read; Oajan has 7 and 12. If
+enrichment only works where evidence is already dense, that is a finding
+about *scheduling* — it would mean spending on well-covered bottles and
+leaving thin ones alone, which is the opposite of what "under-covered"
+scheduling assumes.
+
+## Nothing here can spend without the ledger
+
+`run` takes its extractor by injection and the CLI supplies
+`budget.guard`. There is no client construction in this module, which is
+checked by a test rather than promised: a paid module that can build its
+own client is how the cap has been escaped four times.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+from dataclasses import asdict, dataclass, field, fields
+from datetime import UTC, datetime
+from pathlib import Path
+
+import psycopg
+
+from fragrance_graph.coverage import Snapshot, snapshot
+from fragrance_graph.db import DEFAULT_DB_URL, get_connection
+from fragrance_graph.evidence import Attribution, attribute_facts
+
+log = logging.getLogger("fragrance_graph.experiments.attribute_gain")
+
+RESULTS = Path("data/experiments/attribute-gain.jsonl")
+
+#: What one bottle's enrichment is expected to cost, from the measured
+#: extraction rate of ~$0.42 per 1,000 comments against a 400-comment
+#: ceiling. Checked before the first bottle so the run refuses rather than
+#: trimming the cohort to fit.
+ESTIMATED_PER_BOTTLE = 0.17
+
+
+class _NullLog:
+    """A run log that discards. `enrich_one` needs somewhere to write."""
+
+    def write(self, row: dict) -> None:  # pragma: no cover - trivial
+        pass
+
+
+def _candidate_for(conn: psycopg.Connection, name: str):
+    """A `frontier.Candidate` for any catalogue bottle, by name.
+
+    Built directly rather than filtered out of `frontier.candidates`,
+    whose 4-9 claim band answers a different question. The counts come
+    from the bottle's own resolved evidence so `enrich_one`'s early stops
+    still see a truthful starting point.
+    """
+    from fragrance_graph.frontier import Candidate
+
+    row = conn.execute(
+        "SELECT id, canonical_name FROM fragrances"
+        " WHERE lower(canonical_name) = lower(%s)",
+        (name,),
+    ).fetchone()
+    if row is None:
+        return None
+    stats = conn.execute(
+        "SELECT count(*) AS claims,"
+        "       count(DISTINCT NULLIF(co.source_channel, '')) AS creators,"
+        "       count(DISTINCT COALESCE(NULLIF(co.author_id, ''),"
+        "                               'author:unknown')) AS people"
+        "  FROM claims cl JOIN comments co ON co.id = cl.comment_id"
+        " WHERE cl.subject_frag_id = %s AND cl.polarity = 'ASSERTED'",
+        (row["id"],),
+    ).fetchone()
+    return Candidate(
+        text=row["canonical_name"],
+        claims=stats["claims"],
+        creators=stats["creators"],
+        people=stats["people"],
+    )
+
+
+def _llm_client():
+    """The extraction client, built only inside `run`.
+
+    Imported at call time so that importing this module — which `plan`,
+    `before` and `report` all do — cannot construct anything that spends.
+    """
+    from fragrance_graph.extract.llm import build_client as build_llm
+
+    return build_llm()
+
+#: Ten bottles spanning the evidence range, chosen from the singleton
+#: census on 2026-08-15 rather than hand-picked. The spread is the point:
+#: a strategy that only works on Layton is a strategy for one bottle.
+COHORT = (
+    "Parfums de Marly Layton",           # 81 singletons, 163 comments read
+    "Lattafa Khamrah",                   # 68, 75
+    "Kilian Angels' Share",              # 49, 31
+    "Dior Sauvage",                      # 40, 13
+    "Parfums de Marly Delina",           # 31, 31
+    "Creed Aventus Cologne",             # 23, 40
+    "Lattafa Khamrah Qahwa",             # 20, 50
+    "French Avenue Liquid Brun",         # 14, 38
+    "Parfums de Marly Oajan",            # 7, 12
+    "Fragrance World Oud Wonder",        # 6, 9
+)
+
+
+@dataclass
+class BottleState:
+    """One bottle's evidence, at one moment."""
+
+    fragrance_id: int
+    name: str
+    facts: int = 0
+    singleton: int = 0
+    repeated: int = 0
+    supported: int = 0
+    contested: int = 0
+    declarable: int = 0
+    distinct_attributes: int = 0
+    creators: int = 0
+    comments: int = 0
+    #: The exact (attribute, value) keys, so a diff can name *which*
+    #: singleton became repeated rather than only counting them.
+    singleton_keys: list = field(default_factory=list)
+    repeated_keys: list = field(default_factory=list)
+    #: Kept separately so `diff` can report the second success criterion.
+    #: Without it, a singleton that reached SUPPORTED showed as
+    #: "0 ->supported" for a conversion that did happen.
+    supported_keys: list = field(default_factory=list)
+
+
+def _bottle_state(
+    conn: psycopg.Connection, fragrance_id: int, name: str
+) -> BottleState:
+    facts = [
+        f
+        for f in attribute_facts(
+            conn, fragrance_id=fragrance_id, attribution=Attribution.PROPOSED
+        )
+        if f.supporting.people > 0
+    ]
+    comments = conn.execute(
+        "SELECT count(DISTINCT c.id) FROM claims cl"
+        "  JOIN comments c ON c.id = cl.comment_id"
+        " WHERE cl.subject_frag_id = %s",
+        (fragrance_id,),
+    ).fetchone()[0]
+    return BottleState(
+        fragrance_id=fragrance_id,
+        name=name,
+        facts=len(facts),
+        singleton=sum(1 for f in facts if f.supporting.people == 1),
+        repeated=sum(1 for f in facts if f.supporting.people >= 2),
+        supported=sum(1 for f in facts if f.strength.name == "SUPPORTED"),
+        contested=sum(1 for f in facts if f.opposing.people > 0),
+        declarable=sum(1 for f in facts if f.may_declare),
+        distinct_attributes=len({(f.attribute, f.value) for f in facts}),
+        creators=max((f.supporting.creators for f in facts), default=0),
+        comments=comments,
+        singleton_keys=sorted(
+            [f.attribute, f.value] for f in facts if f.supporting.people == 1
+        ),
+        repeated_keys=sorted(
+            [f.attribute, f.value] for f in facts if f.supporting.people >= 2
+        ),
+        supported_keys=sorted(
+            [f.attribute, f.value]
+            for f in facts
+            if f.strength.name == "SUPPORTED"
+        ),
+    )
+
+
+def catalogue_ids(conn: psycopg.Connection) -> dict[str, int]:
+    return {
+        row["canonical_name"]: row["id"]
+        for row in conn.execute("SELECT id, canonical_name FROM fragrances")
+    }
+
+
+def before(
+    conn: psycopg.Connection, cohort: tuple[str, ...] = COHORT
+) -> tuple[list[BottleState], Snapshot]:
+    """Record the state every claim in the report will be measured against."""
+    ids = catalogue_ids(conn)
+    states = [
+        _bottle_state(conn, ids[name], name) for name in cohort if name in ids
+    ]
+    missing = [n for n in cohort if n not in ids]
+    if missing:
+        log.warning("not in the catalogue: %s", ", ".join(missing))
+    return states, snapshot(conn)
+
+
+@dataclass
+class Funnel:
+    """Where one bottle's money went, stage by stage.
+
+    Purely observational. Every field is read from database state around
+    an otherwise unchanged run — no query is altered, no ceiling moved, no
+    video chosen differently — because the first three bottles ran without
+    this and the cohort is only comparable if the treatment is identical.
+    Improvements suggested by what it shows are recorded and **not
+    applied** until the cohort completes.
+
+    The stage that matters is `target_claims`. Layton cost $0.1941 and
+    produced zero Layton-attributed facts, and only a per-stage count can
+    say whether that was a search that found the wrong videos, comments
+    that discussed other bottles, or an attribution step that could not
+    tell which bottle "it" meant.
+    """
+
+    queries: list = field(default_factory=list)
+    videos_selected: int = 0
+    creators: int = 0
+    comments_seen: int = 0
+    comments_new: int = 0
+    #: Every claim this bottle's run wrote, before any filtering.
+    claims_extracted: int = 0
+    claims_invalid: int = 0
+    #: Of those, how they landed.
+    target_claims: int = 0
+    target_unary: int = 0
+    target_pairwise: int = 0
+    other_bottle_claims: int = 0
+    floating_claims: int = 0
+
+    @property
+    def target_share(self) -> float:
+        return (
+            self.target_claims / self.claims_extracted
+            if self.claims_extracted
+            else 0.0
+        )
+
+    def render(self) -> str:
+        def pct(n: int, of: int) -> str:
+            return f"{n / of:.0%}" if of else "  -"
+
+        return (
+            f"      search {len(self.queries)} -> {self.videos_selected} videos"
+            f" / {self.creators} creators -> {self.comments_seen} comments"
+            f" -> {self.claims_extracted} claims"
+            f" -> {self.target_claims} on target ({pct(self.target_claims, self.claims_extracted)})"
+            f" [{self.target_unary} unary, {self.target_pairwise} pair]"
+            f" | {self.other_bottle_claims} other, {self.floating_claims} floating,"
+            f" {self.claims_invalid} invalid"
+        )
+
+
+def _high_water(conn: psycopg.Connection) -> dict:
+    """The last id in each table this run will append to.
+
+    Everything written after these marks belongs to the bottle about to
+    run, which makes the funnel exact rather than estimated. Safe because
+    nothing else writes during a run — and the cross-process budget race
+    documented in `budget.py` is the reason concurrent workers must not be
+    used, which this relies on too.
+    """
+    return {
+        "since_claim_id": conn.execute(
+            "SELECT COALESCE(max(id), 0) FROM claims"
+        ).fetchone()[0],
+        "since_comment_id": conn.execute(
+            "SELECT COALESCE(max(id), 0) FROM comments"
+        ).fetchone()[0],
+        "since_reject_id": conn.execute(
+            "SELECT COALESCE(max(id), 0) FROM rejected_claims"
+        ).fetchone()[0],
+    }
+
+
+def measure_funnel(
+    conn: psycopg.Connection,
+    fragrance_id: int,
+    *,
+    since_claim_id: int,
+    since_comment_id: int,
+    since_reject_id: int,
+    queries: list,
+    videos: int,
+    creators: int,
+) -> Funnel:
+    """Classify everything one bottle's run produced.
+
+    Keyed on autoincrement ids captured before the run, which is exact:
+    every claim written during the run has a higher id, and nothing else
+    was writing.
+    """
+    rows = conn.execute(
+        "SELECT cl.id, cl.claim_type, cl.subject_frag_id, cl.object_frag_id"
+        "  FROM claims cl WHERE cl.id > %s",
+        (since_claim_id,),
+    ).fetchall()
+    comparisons = {"SIMILAR_TO", "DUPE_OF", "BETTER_THAN"}
+
+    funnel = Funnel(
+        queries=list(queries),
+        videos_selected=videos,
+        creators=creators,
+        claims_extracted=len(rows),
+        comments_new=conn.execute(
+            "SELECT count(*) FROM comments WHERE id > %s", (since_comment_id,)
+        ).fetchone()[0],
+        claims_invalid=conn.execute(
+            "SELECT count(*) FROM rejected_claims WHERE id > %s",
+            (since_reject_id,),
+        ).fetchone()[0],
+    )
+    for row in rows:
+        on_target = fragrance_id in (row["subject_frag_id"], row["object_frag_id"])
+        if on_target:
+            funnel.target_claims += 1
+            if row["claim_type"] in comparisons:
+                funnel.target_pairwise += 1
+            else:
+                funnel.target_unary += 1
+        elif row["subject_frag_id"] is None and row["object_frag_id"] is None:
+            funnel.floating_claims += 1
+        else:
+            funnel.other_bottle_claims += 1
+    return funnel
+
+
+@dataclass
+class BottleGain:
+    """What one bottle's enrichment actually converted."""
+
+    name: str
+    fragrance_id: int
+    singleton_to_repeated: list = field(default_factory=list)
+    singleton_to_supported: list = field(default_factory=list)
+    new_facts: list = field(default_factory=list)
+    new_declarable: int = 0
+    new_contested: int = 0
+    creators_before: int = 0
+    creators_after: int = 0
+    comments_before: int = 0
+    comments_after: int = 0
+    usd: float = 0.0
+    quota_units: int = 0
+    stop_reason: str = ""
+    #: Pre-experiment evidence density, so results can be segmented rather
+    #: than averaged. A mechanism that behaves differently on sparse and
+    #: dense bottles is not described by its mean.
+    density_before: int = 0
+    funnel: dict = field(default_factory=dict)
+
+    @property
+    def comments_read(self) -> int:
+        return max(0, self.comments_after - self.comments_before)
+
+    @property
+    def converted(self) -> int:
+        return len(self.singleton_to_repeated)
+
+    @property
+    def usd_per_conversion(self) -> float | None:
+        """Cost per singleton converted, or **None** when nothing converted.
+
+        Not 0.0. Money spent for no conversions is the worst possible
+        result, and returning zero made it read as the best possible unit
+        cost — in the one metric this experiment exists to decide on. The
+        original test pinned that behaviour, which is how it survived.
+        """
+        return self.usd / self.converted if self.converted else None
+
+    def __str__(self) -> str:
+        return (
+            f"{self.name}: {self.converted} singleton->repeated, "
+            f"{len(self.singleton_to_supported)} ->supported, "
+            f"{len(self.new_facts)} new facts, "
+            f"+{self.new_declarable} declarable, "
+            f"{self.comments_read} comments, ${self.usd:.4f}"
+        )
+
+
+def diff(before_state: BottleState, after_state: BottleState) -> BottleGain:
+    """What changed, named rather than counted.
+
+    Naming which singleton became repeated is what separates "the numbers
+    moved" from "this specific opinion became agreement", and only the
+    second tells a scheduler where to spend next.
+    """
+    was_singleton = {tuple(k) for k in before_state.singleton_keys}
+    now_repeated = {tuple(k) for k in after_state.repeated_keys}
+    known = was_singleton | {tuple(k) for k in before_state.repeated_keys}
+    now_all = {tuple(k) for k in after_state.singleton_keys} | now_repeated
+
+    now_supported = {tuple(k) for k in after_state.supported_keys}
+    return BottleGain(
+        name=after_state.name,
+        fragrance_id=after_state.fragrance_id,
+        singleton_to_repeated=sorted(list(k) for k in was_singleton & now_repeated),
+        singleton_to_supported=sorted(
+            list(k) for k in was_singleton & now_supported
+        ),
+        new_facts=sorted(list(k) for k in now_all - known),
+        new_declarable=max(0, after_state.declarable - before_state.declarable),
+        new_contested=max(0, after_state.contested - before_state.contested),
+        creators_before=before_state.creators,
+        creators_after=after_state.creators,
+        comments_before=before_state.comments,
+        comments_after=after_state.comments,
+    )
+
+
+def enrich_cohort(
+    conn: psycopg.Connection,
+    states: list[BottleState],
+    *,
+    run_one,
+    limit: int,
+    ledger_spend=None,
+    last_run: dict | None = None,
+) -> list[BottleGain]:
+    """Enrich each bottle and diff its evidence around the run.
+
+    `run_one(name)` does the buying and returns `(comments, usd, quota,
+    stop_reason)`. Injected so the whole measurement is exercisable
+    without a key, a quota or a cent — and so the thing being measured and
+    the thing doing the measuring are separable.
+
+    Baselines are re-read per bottle immediately before its own run rather
+    than taken from the file, because an earlier bottle's enrichment can
+    add evidence about a later one: they are discussed in the same
+    comments. Diffing a late bottle against a file written before any of
+    it would credit this run with conversions another bottle bought.
+    """
+    from fragrance_graph.budget import BudgetExhausted
+
+    last_run = {} if last_run is None else last_run
+    gains = []
+    for state in states[:limit]:
+        fresh = _bottle_state(conn, state.fragrance_id, state.name)
+        # Read from the ledger around each bottle, not from what the runner
+        # reports. On the first real run the cap landed mid-bottle, the
+        # exception escaped before `trial.usd` was read, and $0.082 of
+        # charged spend vanished from the per-bottle totals — understating
+        # cost by 21% and flattering the one number the experiment exists
+        # to produce. The ledger is what was actually billed.
+        spend_before = ledger_spend() if ledger_spend else None
+        marks = _high_water(conn)
+        try:
+            comments, usd, quota, stop = run_one(state.name)
+        except BudgetExhausted as exc:
+            # Stop the cohort, keep everything already bought. Wrapping the
+            # whole loop instead discarded six completed bottles when the
+            # cap landed on the seventh — paying for measurements and then
+            # throwing them away, which is the worst of both.
+            log.warning("cap reached during %s: %s", state.name, exc)
+            after = _bottle_state(conn, state.fragrance_id, state.name)
+            partial = diff(fresh, after)
+            partial.stop_reason = "daily-cap"
+            partial.comments_before = fresh.comments
+            partial.comments_after = after.comments
+            if ledger_spend and spend_before is not None:
+                partial.usd = round(ledger_spend() - spend_before, 6)
+            _instrument(conn, partial, state, fresh, marks, last_run)
+            gains.append(partial)
+            break
+        after = _bottle_state(conn, state.fragrance_id, state.name)
+        gain = diff(fresh, after)
+        gain.usd = (
+            round(ledger_spend() - spend_before, 6)
+            if ledger_spend and spend_before is not None
+            else usd
+        )
+        gain.quota_units = quota
+        gain.stop_reason = stop
+        gain.comments_after = after.comments
+        gain.comments_before = fresh.comments
+        _instrument(conn, gain, state, fresh, marks, last_run)
+        log.info("%s", gain)
+        gains.append(gain)
+    return gains
+
+
+def _instrument(conn, gain, state, fresh, marks, last_run) -> None:
+    """Record the funnel and the pre-run density for one bottle.
+
+    Both of these used to be set only in the `BudgetExhausted` branch. Run
+    1 hit the cap, so it produced a funnel and looked correct; run 2
+    finished all seven bottles cleanly and produced a funnel of zeros and
+    a density of zero for every bottle — which banded a 46-fact Dior
+    Sauvage as "sparse" and made the segmentation, the one output the
+    cohort was designed for, silently meaningless.
+
+    Diagnostics that only run on the failure path are worse than none:
+    they work in the rehearsal and vanish on the take.
+    """
+    gain.density_before = fresh.facts
+    gain.funnel = asdict(
+        measure_funnel(
+            conn,
+            state.fragrance_id,
+            queries=last_run.get("queries", []),
+            videos=last_run.get("videos", 0),
+            creators=last_run.get("creators", 0),
+            **marks,
+        )
+    )
+
+
+#: Pre-experiment fact counts that separate the cohort into bands. A
+#: mechanism behaving differently on sparse and dense bottles is not
+#: described by its mean, and the cohort was chosen to span this range
+#: precisely so the difference could be seen.
+DENSITY_BANDS = (("sparse", 0, 19), ("medium", 20, 49), ("dense", 50, 10**6))
+
+
+def band_of(facts: int) -> str:
+    for name, low, high in DENSITY_BANDS:
+        if low <= facts <= high:
+            return name
+    return "dense"
+
+
+def render_segmented(gains: list[BottleGain]) -> str:
+    """Results by pre-experiment density, never only as an aggregate."""
+    bands: dict[str, list[BottleGain]] = {}
+    for gain in gains:
+        bands.setdefault(band_of(gain.density_before), []).append(gain)
+
+    lines = [
+        f"  {'band':<10}{'bottles':>8}{'spend':>10}{'conv':>6}"
+        f"{'new facts':>11}{'$/conv':>10}"
+    ]
+    for name, _, _ in DENSITY_BANDS:
+        rows = bands.get(name, [])
+        if not rows:
+            lines.append(f"  {name:<10}{'—':>8}")
+            continue
+        spend = sum(g.usd for g in rows)
+        conv = sum(g.converted for g in rows)
+        new = sum(len(g.new_facts) for g in rows)
+        unit = f"${spend / conv:.4f}" if conv else "n/a"
+        lines.append(
+            f"  {name:<10}{len(rows):>8}{spend:>10.4f}{conv:>6}{new:>11}{unit:>10}"
+        )
+    return "\n".join(lines)
+
+
+def render_funnel(gains: list[BottleGain]) -> str:
+    """Where the money went, summed over the cohort.
+
+    Drop-off per stage is the diagnostic: a search that returns the wrong
+    videos, comments that discuss other bottles, and an attribution step
+    that cannot place "it" are three different problems with three
+    different fixes, and they are indistinguishable from the totals alone.
+    """
+    totals = Funnel()
+    for gain in gains:
+        if not gain.funnel:
+            continue
+        one = Funnel(**gain.funnel)
+        totals.videos_selected += one.videos_selected
+        totals.creators += one.creators
+        totals.comments_new += one.comments_new
+        totals.claims_extracted += one.claims_extracted
+        totals.claims_invalid += one.claims_invalid
+        totals.target_claims += one.target_claims
+        totals.target_unary += one.target_unary
+        totals.target_pairwise += one.target_pairwise
+        totals.other_bottle_claims += one.other_bottle_claims
+        totals.floating_claims += one.floating_claims
+        totals.queries.extend(one.queries)
+
+    def stage(label: str, value: int, of: int | None) -> str:
+        share = f"{value / of:.0%}" if of else ""
+        return f"  {label:<34}{value:>8}  {share:>5}"
+
+    conversions = sum(g.converted for g in gains)
+    supported = sum(len(g.singleton_to_supported) for g in gains)
+    return "\n".join([
+        stage("searches issued", len(totals.queries), None),
+        stage("videos returned", totals.videos_selected, None),
+        stage("distinct creators", totals.creators, None),
+        stage("comments newly ingested", totals.comments_new, None),
+        stage("claims extracted", totals.claims_extracted, None),
+        stage("  invalid / filtered", totals.claims_invalid,
+              totals.claims_extracted),
+        stage("  about the target bottle", totals.target_claims,
+              totals.claims_extracted),
+        stage("    target, unary", totals.target_unary, totals.target_claims),
+        stage("    target, pairwise", totals.target_pairwise,
+              totals.target_claims),
+        stage("  about another bottle", totals.other_bottle_claims,
+              totals.claims_extracted),
+        stage("  unattributed / floating", totals.floating_claims,
+              totals.claims_extracted),
+        stage("singleton -> repeated", conversions, totals.target_claims),
+        stage("repeated -> supported", supported, totals.target_claims),
+    ])
+
+
+def render_report(
+    gains: list[BottleGain], corpus_before: Snapshot, corpus_after: Snapshot
+) -> str:
+    """The answer, in the units the decision needs."""
+    converted = sum(g.converted for g in gains)
+    supported = sum(len(g.singleton_to_supported) for g in gains)
+    spent = sum(g.usd for g in gains)
+    comments = sum(g.comments_read for g in gains)
+
+    lines = ["per bottle:", ""]
+    for gain in gains:
+        unit = (
+            f"${gain.usd_per_conversion:.4f}/conversion"
+            if gain.usd_per_conversion is not None
+            else "no conversions"
+        )
+        lines.append(f"  {gain}  [{unit}]")
+
+    lines += [
+        "",
+        "by pre-experiment density:",
+        render_segmented(gains),
+        "",
+        "funnel (where the money went):",
+        render_funnel(gains),
+        "",
+        "corpus:",
+        corpus_before.render(corpus_after),
+        "",
+        "economics:",
+        f"  spent                       ${spent:.4f}",
+        f"  comments read               {comments}",
+        f"  singleton -> repeated       {converted}",
+        f"  singleton -> supported      {supported}",
+    ]
+    if converted:
+        lines.append(f"  cost per repeated fact      ${spent / converted:.4f}")
+    else:
+        lines.append(
+            "  cost per repeated fact      n/a — nothing converted, which "
+            "is the negative result this was built to be able to report"
+        )
+    gained = (
+        corpus_after.comparable_attributes - corpus_before.comparable_attributes
+    )
+    lines.append(f"  new comparable attributes   {gained:+}")
+    lines.append(
+        f"  relative cases answerable   "
+        f"{corpus_before.answerable_relative} -> "
+        f"{corpus_after.answerable_relative}"
+    )
+    return "\n".join(lines)
+
+
+def render_plan(states: list[BottleState]) -> str:
+    lines = [
+        f"cohort of {len(states)}, spanning the evidence range",
+        "",
+        f"  {'bottle':<36}{'facts':>7}{'singleton':>11}{'repeated':>10}"
+        f"{'creators':>10}{'comments':>10}",
+    ]
+    for state in states:
+        lines.append(
+            f"  {state.name:<36}{state.facts:>7}{state.singleton:>11}"
+            f"{state.repeated:>10}{state.creators:>10}{state.comments:>10}"
+        )
+    lines += [
+        "",
+        f"  {'TOTAL':<36}{sum(s.facts for s in states):>7}"
+        f"{sum(s.singleton for s in states):>11}"
+        f"{sum(s.repeated for s in states):>10}",
+    ]
+    return "\n".join(lines)
+
+
+def completed_names(path: Path = RESULTS) -> set[str]:
+    """Bottles this experiment has already bought.
+
+    The cohort is a fixed ordered list and the runner took `states[:limit]`,
+    so a second invocation re-ran the first bottles from the top. With
+    three bottles already paid for that is not a wasted afternoon, it is
+    buying the same measurement twice and then diffing it against itself:
+    the second purchase finds the evidence the first one added, and reports
+    a conversion rate for money that bought nothing new.
+
+    This changes *which* bottles run, never how one is treated, so the ten
+    stay comparable.
+    """
+    if not path.exists():
+        return set()
+    done = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if row.get("kind") == "gain" and row.get("name"):
+            done.add(row["name"])
+    return done
+
+
+def write_results(rows: list[dict], path: Path = RESULTS) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m fragrance_graph.experiments.attribute_gain",
+        description="Does enrichment turn opinions into agreement?",
+    )
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("plan", help="The cohort and its current evidence")
+    b = sub.add_parser("before", help="Record the baseline; spends nothing")
+    b.add_argument("--out", type=Path, default=Path("data/experiments/gain-before.json"))
+    r = sub.add_parser("run", help="Enrich the cohort; SPENDS MONEY")
+    r.add_argument("--limit", type=int, default=3)
+    r.add_argument(
+        "--redo",
+        action="store_true",
+        help="Re-buy bottles already recorded. Off by default: the cohort "
+        "resumes rather than restarting, so a cap that lands mid-run "
+        "costs nothing to pick up from.",
+    )
+    rep = sub.add_parser("report", help="Re-read recorded runs; spends nothing")
+    rep.add_argument("--results", type=Path, default=RESULTS)
+
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    conn = get_connection(args.db_url)
+    try:
+        if args.command == "plan":
+            states, _ = before(conn)
+            print(render_plan(states))
+            return 0
+        if args.command == "report":
+            if not args.results.exists():
+                print(f"No runs recorded at {args.results}.")
+                return 0
+            rows = [
+                json.loads(line)
+                for line in args.results.read_text().splitlines()
+                if line.strip()
+            ]
+            gains = [
+                BottleGain(
+                    **{
+                        k: v
+                        for k, v in row.items()
+                        if k in {f.name for f in fields(BottleGain)}
+                    }
+                )
+                for row in rows
+                if row.get("kind") == "gain"
+            ]
+            now = snapshot(conn)
+            print(render_report(gains, now, now))
+            return 0
+        if args.command == "before":
+            states, overall = before(conn)
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            args.out.write_text(
+                json.dumps(
+                    {
+                        "recorded_at": datetime.now(UTC).isoformat(
+                            timespec="seconds"
+                        ),
+                        "bottles": [asdict(s) for s in states],
+                        "corpus": asdict(overall),
+                    },
+                    indent=2,
+                )
+            )
+            print(render_plan(states))
+            print(f"\nbaseline written to {args.out}")
+            return 0
+
+        # `run` spends. Everything it needs is imported here so that
+        # `plan` and `before` cannot reach a paid path even by accident.
+        from fragrance_graph.budget import Budget, BudgetExhausted
+        from fragrance_graph.frontier import (
+            Ceiling,
+            QuotaTracker,
+            Trial,
+            budgeted_extractor,
+            enrich_one,
+            query_for,
+            search_with_creators,
+            store_hits,
+        )
+        from fragrance_graph.ingest.youtube import build_client
+
+        budget = Budget.load(require_ledger=True)
+        try:
+            budget.check(ESTIMATED_PER_BOTTLE)
+        except BudgetExhausted as exc:
+            print(f"Not running: {exc}")
+            print(
+                f"  The experiment needs roughly ${ESTIMATED_PER_BOTTLE} per "
+                "bottle. Re-run after the UTC date rolls over."
+            )
+            return 2
+
+        states, corpus_before = before(conn)
+        client, api_key = build_client()
+        quota = QuotaTracker()
+        extract_fn = budgeted_extractor(_llm_client(), budget)
+        ceiling = Ceiling()
+        run_id = f"attribute-gain-{datetime.now(UTC).date().isoformat()}"
+
+        observed: dict = {}
+
+        def run_one(name: str):
+            """Buy comments about one bottle, broadly.
+
+            `query_for` produces "<name> fragrance review" — never "dupe",
+            because this job exists to learn what a bottle is like and the
+            corpus is already dupe-shaped.
+
+            The candidate is built **from the catalogue name**, not looked
+            up in `frontier.candidates`. That function selects mentions in
+            a 4-9 comparison-claim band for a different job — finding
+            bottles whose *pair* evidence is nearly enough — and seven of
+            these ten fall outside it, Layton because it has two hundred
+            comparison claims rather than too few. Filtering the cohort
+            through it would have skipped most of the experiment while
+            reporting success.
+            """
+            match = _candidate_for(conn, name)
+            if match is None:
+                log.warning("%s is not in the catalogue; skipping", name)
+                return 0, 0.0, 0, "not-in-catalogue"
+            trial = Trial(
+                text=match.text, claims_before=match.claims,
+                creators_before=match.creators,
+                started_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                query=query_for(match.text),
+            )
+            # One search, then comments. `enrich_one` reads recorded hits
+            # rather than searching again, so the search happens here and
+            # its quota is attributed to this bottle.
+            hits = search_with_creators(
+                client, api_key, trial.query, limit=25, quota=quota
+            )
+            store_hits(conn, hits, trial.query, run=run_id)
+            trial.searches = 1
+            # Recorded, not acted on. The query, the videos and the
+            # creators are exactly what they would have been without this.
+            observed["queries"] = [trial.query]
+            observed["videos"] = len(hits)
+            observed["creators"] = len({h.channel_id for h in hits})
+            enrich_one(
+                conn, client, api_key, match, quota=quota, ceiling=ceiling,
+                run=run_id, extract_fn=extract_fn, trial=trial,
+            )
+            return (
+                trial.comments_seen, trial.usd, trial.quota_units,
+                trial.stop_reason,
+            )
+
+        def ledger_spend() -> float:
+            """Today's charged total, re-read each time.
+
+            `budget.spent_usd` accumulates in this process as `guard`
+            records, so it is authoritative without re-reading the file.
+            """
+            return budget.spent_usd
+
+        if args.redo:
+            log.warning("--redo: re-buying bottles already recorded")
+        else:
+            done = completed_names()
+            remaining = [s for s in states if s.name not in done]
+            if done:
+                log.info(
+                    "resuming: %d of %d already bought (%s)",
+                    len(done), len(states), ", ".join(sorted(done)),
+                )
+            states = remaining
+
+        gains = enrich_cohort(
+            conn, states, run_one=run_one, limit=args.limit,
+            ledger_spend=ledger_spend, last_run=observed,
+        )
+
+        corpus_after = snapshot(conn)
+        report = render_report(gains, corpus_before, corpus_after)
+        print(report)
+        write_results(
+            [
+                {
+                    "kind": "gain",
+                    "run": run_id,
+                    "at": datetime.now(UTC).isoformat(timespec="seconds"),
+                    **asdict(gain),
+                }
+                for gain in gains
+            ]
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

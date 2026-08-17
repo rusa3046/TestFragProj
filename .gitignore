@@ -31,3 +31,13 @@ labels*.json
 todraft*.json
 review*.json
 blind*.json
+
+# Codex review output. Ignored so `git status --porcelain` stays empty —
+# scripts/codex-agent.sh refuses to run on a dirty tree, and findings written
+# into the repo would otherwise block the next review.
+.codex-findings/
+
+# The spend ledger's lock file. Created beside the ledger on every paid
+# path; it carries no data and must never dirty the tree, because both
+# codex-agent.sh lanes refuse to run on a dirty tree.
+*.jsonl.lock

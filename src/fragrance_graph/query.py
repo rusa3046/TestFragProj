@@ -137,6 +137,11 @@ class Related:
     #: the £200 bottle imitates the £30 one. A caller that wants to quote
     #: the claim rather than count it needs to know which way it ran.
     outbound_claims: int
+    #: Distinct *people* who made the claim in the outbound direction.
+    #: Separate from `outbound_claims` because direction must be decided by
+    #: people and not by rows: one person repeating themselves four times
+    #: could otherwise choose which way the sentence reads for everybody.
+    outbound_commenters: int
     sentiment: str
     sentiment_counts: dict[str, int]
     evidence: list[Evidence] = field(default_factory=list)
@@ -341,13 +346,32 @@ def pair_stats(conn: psycopg.Connection, a_id: int, b_id: int) -> PairEvidence:
     )
 
 
+#: The key every authorless comment collapses to. One key, so N comments
+#: with no recorded author count as one person rather than N.
+UNKNOWN_COMMENTER = "author:unknown"
+
+
 def _commenter_key(row: Row) -> str:
     """Who wrote this, for distinct-person counting.
 
-    An empty author falls back to the comment id, so unknown authors are
-    counted as separate people instead of collapsing into one.
+    Every comment with no recorded author collapses to a single key, so a
+    pair supported only by authorless comments counts as **one** person and
+    cannot reach `MIN_COMMENTERS` on its own.
+
+    This used to fall back to the comment id, which gave each authorless
+    comment its own identity and let three of them clear a gate meant to
+    need three humans. The docstring defending that choice argued the
+    opposite of what the code did: it said "over-counting consensus is the
+    worse error of the two" and then chose the over-counting direction.
+    Splitting inflates one anonymous poster into many; collapsing deflates
+    many anonymous posters into one. Only the second failure is safe here,
+    because the product's whole claim is a floor on how many people agreed.
+
+    No comment in the corpus has a blank author today — YouTube supplies
+    `authorChannelId` — but `models.author_from_payload` returns `''`
+    whenever a payload lacks it, so the path is reachable and was live.
     """
-    return row["author_id"] or f"comment:{row['comment_id']}"
+    return row["author_id"] or UNKNOWN_COMMENTER
 
 
 def similar_to(
@@ -414,6 +438,9 @@ def similar_to(
                 pair_sources=len(per_pair_sources.get(other_id, ())),
                 claims=len(group),
                 outbound_claims=sum(1 for r in group if r["outbound"]),
+                outbound_commenters=len(
+                    {_commenter_key(r) for r in group if r["outbound"]}
+                ),
                 sentiment=aggregate_sentiment(counts),
                 sentiment_counts=dict(counts),
                 evidence=_pick_evidence(group, quotes),
@@ -456,8 +483,11 @@ def _pick_evidence(rows: list[Row], quotes: int) -> list[Evidence]:
 SENTIMENT_SQL = """
 SELECT c.claim_type AS claim_type, c.sentiment AS sentiment,
        count(*) AS claims,
+       -- Mirrors `_commenter_key`: authorless comments collapse to one
+       -- key. Two counters that disagree about who counts as a person are
+       -- two different products.
        count(DISTINCT CASE WHEN co.author_id <> '' THEN co.author_id
-                           ELSE 'comment:' || co.id END) AS commenters
+                           ELSE 'author:unknown' END) AS commenters
   FROM claims c
   JOIN comments co ON co.id = c.comment_id
  WHERE c.subject_frag_id = %(fragrance_id)s

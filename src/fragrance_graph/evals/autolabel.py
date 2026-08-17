@@ -31,12 +31,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import psycopg
 
+from fragrance_graph.budget import Budget, BudgetExhausted
 from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.evals.labels import export_template, load_labels
 from fragrance_graph.evals.score import edge_score, match_key, score
@@ -327,12 +329,21 @@ def draft(
     pronoun_policy: str = DEFAULT_PRONOUN_POLICY,
     batch_size: int = DEFAULT_BATCH_SIZE,
     model: str = MODEL,
+    on_spend: Callable[[float, int], None] | None = None,
 ) -> tuple[list[dict], DraftStats]:
     """Fill the `claims` list on each template entry. Returns (entries, stats).
 
     A failed batch leaves its entries with empty claims and is counted, not
     retried silently — an empty list is a meaningful label, so a batch that
     failed must never be indistinguishable from one that found nothing.
+
+    `on_spend(usd, comments)` is charged after each batch. This module
+    computed its cost and printed it for months without ever telling the
+    ledger, so drafting labels was a normal paid CLI path that walked
+    straight past the daily cap — the same defect class as the two the cap
+    has already suffered, in the one paid module nobody had checked.
+    Optional so the pure drafting logic stays testable without a ledger;
+    `main` always supplies it.
     """
     prompt = build_prompt(pronoun_policy)
     stats = DraftStats()
@@ -350,8 +361,14 @@ def draft(
             log.error("Batch at offset %d failed: %s", start, exc)
             continue
 
+        before = stats.cost_usd
         stats.input_tokens += tokens_in
         stats.output_tokens += tokens_out
+        if on_spend is not None:
+            # After the batch is accounted for and before the next one is
+            # sent, so a cap breach stops the run with the work so far
+            # kept rather than discarded.
+            on_spend(stats.cost_usd - before, len(batch))
         for index, claims in by_index.items():
             batch[index]["claims"] = claims
             stats.claims += len(claims)
@@ -599,14 +616,21 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         conn.close()
 
+    budget = Budget.load(require_ledger=True)
+    budget.check()
     client = build_client()
-    drafted, stats = draft(
-        client,
-        entries,
-        pronoun_policy=args.pronoun_policy,
-        batch_size=args.batch_size,
-        model=args.model,
-    )
+    try:
+        drafted, stats = draft(
+            client,
+            entries,
+            pronoun_policy=args.pronoun_policy,
+            batch_size=args.batch_size,
+            model=args.model,
+            on_spend=budget.guard("autolabel"),
+        )
+    except BudgetExhausted as exc:
+        log.error("%s", exc)
+        raise SystemExit(1) from exc
     args.out.write_text(json.dumps(drafted, indent=2, ensure_ascii=False))
     log.info("%s", stats)
     log.info("Wrote %s. Review every entry before importing.", args.out)

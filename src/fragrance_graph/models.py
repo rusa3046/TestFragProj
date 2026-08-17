@@ -25,6 +25,7 @@ so the reasoning survives:
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
@@ -232,6 +233,66 @@ def normalize_for_match(text: str) -> str:
     return " ".join(folded.split()).casefold()
 
 
+#: A word this long or longer, shared as a prefix, is treated as the same
+#: word said differently — "fem" for "feminine". Shorter prefixes match far
+#: too much.
+GROUNDING_PREFIX = 3
+
+#: Claim types whose object must appear in the comment, because for these
+#: the object **is** the claim: a NOTE_DESCRIPTOR is nothing but its
+#: descriptor.
+#:
+#: Comparison types are deliberately excluded, and the exclusion is the
+#: load-bearing part. Their object is an *entity*, and a commenter
+#: legitimately names it somewhere this comment cannot see — a reply
+#: saying "I have a dupe only" under a thread about Baccarat Rouge 540 is
+#: a real DUPE_OF whose object lives in the parent. Applying grounding to
+#: those demoted 126 claims against 9 real ones, and comparisons are the
+#: scarcest evidence in the corpus.
+GROUNDED_TYPES = frozenset({"NOTE_DESCRIPTOR", "AESTHETIC", "OCCASION"})
+
+
+def value_is_grounded(value: str | None, body: str) -> bool:
+    """Whether a claim's *value* traces back to what the commenter wrote.
+
+    `evidence_is_quoted` checks the quotation. Nothing checked the
+    descriptor inside it, so a claim could quote "It smells wonderful"
+    verbatim, carry `raw_object_text = "rose"`, and be stored as verified
+    evidence that somebody said rose. The adversarial review found this,
+    and the corpus already held a milder case: evidence span "It is not a
+    daily wear at all" with the occasion recorded as "special occasion
+    scent for the cooler seasons".
+
+    It matters more now than it did. The extraction prompt was just
+    changed to require these types to carry an object, which turns
+    "missing descriptor" into "descriptor the model supplied" — and a
+    verifier that only checks the quotation cannot tell that from
+    something a person wrote.
+
+    Deliberately generous, because the model normalises and should:
+    "more fem" grounds "feminine", "smells good on a man" does not ground
+    "masculine" and is correctly refused. Any word of the value sharing a
+    3-character prefix with any word of the comment is enough. Unicode
+    aware — the corpus has Bengali and Vietnamese comments, and a check
+    that stripped them to nothing would refuse every claim from those
+    commenters.
+    """
+    if not value:
+        return True
+    words = re.findall(r"\w+", value.lower(), re.UNICODE)
+    if not words:
+        return True
+    body_words = re.findall(r"\w+", (body or "").lower(), re.UNICODE)
+    for word in words:
+        head = word[:GROUNDING_PREFIX]
+        if any(
+            other.startswith(head) or word.startswith(other[:GROUNDING_PREFIX])
+            for other in body_words
+        ):
+            return True
+    return False
+
+
 def evidence_is_quoted(span: str, body: str) -> bool:
     """Whether `span` is genuinely quoted from `body`.
 
@@ -313,8 +374,12 @@ class Claim(BaseModel):
         )
 
     def evidence_matches(self, body: str) -> bool:
-        """Whether evidence_span is genuinely quoted from the comment body."""
-        return evidence_is_quoted(self.evidence_span, body)
+        """Whether evidence_span is quoted and its value traces back."""
+        if not evidence_is_quoted(self.evidence_span, body):
+            return False
+        if self.claim_type.value not in GROUNDED_TYPES:
+            return True
+        return value_is_grounded(self.raw_object_text, body)
 
 
 class ExtractionResult(BaseModel):

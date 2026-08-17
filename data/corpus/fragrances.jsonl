@@ -1,8 +1,10 @@
 {"aliases": ["Abercromie and Fitch Fierce"], "brand": "Abercrombie & Fitch", "canonical_name": "Abercrombie & Fitch Fierce", "house_year": null}
 {"aliases": ["Afnan N.O.I", "N.O.I"], "brand": "Afnan", "canonical_name": "Afnan N.O.I", "house_year": null}
+{"aliases": ["Kaaf by Ahmed Al Maghribi"], "brand": "Ahmed Al Maghribi", "canonical_name": "Ahmed Al Maghribi Kaaf", "house_year": null}
 {"aliases": ["Amber Oud Black Edition", "Amber Oud Black Edition by Al Haramain"], "brand": "Al Haramain", "canonical_name": "Al Haramain Amber Oud Black Edition", "house_year": null}
+{"aliases": ["Amber Oud Exclusif Bleu", "amber oud exclusif bleu"], "brand": "Al Haramain", "canonical_name": "Al Haramain Amber Oud Exclusif Bleu", "house_year": null}
 {"aliases": ["Amber Oud Ruby", "al haramain amber oud ruby"], "brand": "Al Haramain", "canonical_name": "Al Haramain Amber Oud Ruby", "house_year": null}
-{"aliases": ["Detour Noir", "Détour Noir"], "brand": "Al Haramain", "canonical_name": "Al Haramain Detour Noir", "house_year": null}
+{"aliases": ["Detour", "Detour Noir", "Détour Noir"], "brand": "Al Haramain", "canonical_name": "Al Haramain Detour Noir", "house_year": null}
 {"aliases": ["Al Haramain L'Aventure Intense", "L'Aventure Intense"], "brand": "Al Haramain", "canonical_name": "Al Haramain L'Aventure Intense", "house_year": null}
 {"aliases": ["Gametime by Alexandria"], "brand": "Alexandria Fragrances", "canonical_name": "Alexandria Fragrances Gametime", "house_year": null}
 {"aliases": ["Club de nuit Iconic"], "brand": "Armaf", "canonical_name": "Armaf Club De Nuit Iconic", "house_year": null}
@@ -13,23 +15,30 @@
 {"aliases": ["Craze"], "brand": "Armaf", "canonical_name": "Armaf Craze", "house_year": null}
 {"aliases": ["Atomic Rose"], "brand": "Initio Parfums Prives", "canonical_name": "Atomic Rose", "house_year": null}
 {"aliases": ["Aventus", "Creed Aventus"], "brand": "Creed", "canonical_name": "Creed Aventus", "house_year": null}
+{"aliases": ["Absolu", "Absolu Aventus", "The Absolu", "absolu"], "brand": "Creed", "canonical_name": "Creed Aventus Absolu", "house_year": null}
+{"aliases": ["AVENTUS COLOGNE", "Aventus Cologne", "Aventus cologne", "aventus cologne"], "brand": "Creed", "canonical_name": "Creed Aventus Cologne", "house_year": null}
 {"aliases": ["Centaurus", "Creed Centaurus"], "brand": "Creed", "canonical_name": "Creed Centaurus", "house_year": null}
 {"aliases": ["Green Irish Tweed"], "brand": "Creed", "canonical_name": "Creed Green Irish Tweed", "house_year": null}
 {"aliases": ["Virgin Island Water"], "brand": "Creed", "canonical_name": "Creed Virgin Island Water", "house_year": null}
 {"aliases": ["Dior Sauvage", "Sauvage"], "brand": "Dior", "canonical_name": "Dior Sauvage", "house_year": null}
 {"aliases": ["Sauvage Elixir"], "brand": "Christian Dior", "canonical_name": "Dior Sauvage Elixir", "house_year": null}
+{"aliases": ["Dumont Celerio Oros"], "brand": "Dumont", "canonical_name": "Dumont Celerio Oros", "house_year": null}
 {"aliases": ["Dumont nitro black intense", "Nitro Black Intense"], "brand": "Dumont", "canonical_name": "Dumont Nitro Black Intense", "house_year": null}
 {"aliases": ["Fragrance World Carlisle", "fragrance world carlisle"], "brand": "Fragrance World", "canonical_name": "Fragrance World Carlisle", "house_year": null}
 {"aliases": ["Oud Wonder"], "brand": "Fragrance World", "canonical_name": "Fragrance World Oud Wonder", "house_year": null}
 {"aliases": ["Pure Addiction"], "brand": "Franck Olivier", "canonical_name": "Franck Olivier Pure Addiction", "house_year": null}
+{"aliases": ["Liquid Brun", "Liquid brun", "liquid brun"], "brand": "French Avenue", "canonical_name": "French Avenue Liquid Brun", "house_year": null}
 {"aliases": ["Zenith Blue"], "brand": "French Avenue", "canonical_name": "French Avenue Zenith Blue", "house_year": null}
+{"aliases": ["Ambre Narguile by Hermes"], "brand": "Hermes", "canonical_name": "Hermes Ambre Narguile", "house_year": null}
 {"aliases": ["Azure Velvet", "Khadlaj Azure Velvet"], "brand": "Khadlaj", "canonical_name": "Khadlaj Azure Velvet", "house_year": null}
 {"aliases": ["AS", "Angel Share", "Angel Shares", "Angel's Share", "Angels Share", "Angels' Share"], "brand": "By Kilian", "canonical_name": "Kilian Angels' Share", "house_year": null}
 {"aliases": ["Kismet angel", "kismet angel"], "brand": null, "canonical_name": "Kismet Angel", "house_year": null}
 {"aliases": ["Lalique White in Black"], "brand": "Lalique", "canonical_name": "Lalique White in Black", "house_year": null}
 {"aliases": ["Amethyst", "BAO Amethyst", "Bade'e Al Oud Amethyst"], "brand": "Lattafa", "canonical_name": "Lattafa Bade'e Al Oud Amethyst", "house_year": null}
 {"aliases": ["Kamrah", "Khamra", "Khamrah", "OG Khamrah"], "brand": "Lattafa", "canonical_name": "Lattafa Khamrah", "house_year": null}
+{"aliases": ["Dukhan"], "brand": "Lattafa", "canonical_name": "Lattafa Khamrah Dukhan", "house_year": null}
 {"aliases": ["Khamrah Qahwa", "Qahwa", "Qahwa Khamrah", "qawha"], "brand": "Lattafa", "canonical_name": "Lattafa Khamrah Qahwa", "house_year": null}
+{"aliases": ["Khamrah Rouge"], "brand": "Lattafa", "canonical_name": "Lattafa Khamrah Rouge", "house_year": null}
 {"aliases": ["Maahir Legacy"], "brand": "Lattafa", "canonical_name": "Lattafa Maahir Legacy", "house_year": null}
 {"aliases": ["qaed al fursan"], "brand": "Lattafa", "canonical_name": "Lattafa Qaed Al Fursan", "house_year": null}
 {"aliases": ["Lataffa Rave Now", "Rave Now"], "brand": "Lattafa", "canonical_name": "Lattafa Rave Now", "house_year": null}
@@ -44,12 +53,14 @@
 {"aliases": ["Explorer", "Mont Blanc Explorer"], "brand": "Montblanc", "canonical_name": "Montblanc Explorer", "house_year": null}
 {"aliases": ["Hacivat"], "brand": "Nishane", "canonical_name": "Nishane Hacivat", "house_year": null}
 {"aliases": ["Orientica Royal Bleu", "Royal Bleu"], "brand": "Orientica", "canonical_name": "Orientica Luxury Collection Royal Bleu", "house_year": null}
+{"aliases": ["Nirvana by Paradis des Sens"], "brand": "Paradis des Sens", "canonical_name": "Paradis des Sens Nirvana", "house_year": null}
 {"aliases": ["Layton Exclusif"], "brand": "Parfums De Marly", "canonical_name": "Parfums De Marly Layton Exclusif", "house_year": null}
 {"aliases": ["Althair"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Althair", "house_year": null}
 {"aliases": ["Carlisle", "Carlyle", "PDM Carlisle"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Carlisle", "house_year": null}
 {"aliases": ["Darcy", "Darcy by Parfums de Marly"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Darcy", "house_year": null}
-{"aliases": ["Delina"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Delina", "house_year": null}
+{"aliases": ["Delina", "The original Delina"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Delina", "house_year": null}
 {"aliases": ["Delina Exclusif"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Delina Exclusif", "house_year": null}
+{"aliases": ["Delina La Rosée"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Delina La Rosée", "house_year": null}
 {"aliases": ["Haltane"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Haltane", "house_year": null}
 {"aliases": ["Herod"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Herod", "house_year": null}
 {"aliases": ["Kalan"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Kalan", "house_year": null}
@@ -60,7 +71,8 @@
 {"aliases": ["PdM Perseus"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Perseus", "house_year": null}
 {"aliases": ["Sedley"], "brand": "Parfums de Marly", "canonical_name": "Parfums de Marly Sedley", "house_year": null}
 {"aliases": ["Pineapple Vintage Intense"], "brand": "Pineapple Vintage", "canonical_name": "Pineapple Vintage Intense", "house_year": null}
+{"aliases": ["Paradox 13"], "brand": "Pocket Bombs", "canonical_name": "Pocket Bombs Paradox 13", "house_year": null}
 {"aliases": ["Rose 01", "Rose 01 by swiss arabian"], "brand": "Swiss Arabian", "canonical_name": "Swiss Arabian Rose 01", "house_year": null}
 {"aliases": ["Dusk"], "brand": "The Woods Collection", "canonical_name": "The Woods Collection Dusk", "house_year": null}
 {"aliases": ["Thomas Kosmala No. 4", "Thomas Kosmala no.4"], "brand": "Thomas Kosmala", "canonical_name": "Thomas Kosmala No. 4", "house_year": null}
-{"aliases": ["Oud Wood"], "brand": "Tom Ford", "canonical_name": "Tom Ford Oud Wood", "house_year": null}
+{"aliases": ["Oud Wood", "The TF Oud Wood"], "brand": "Tom Ford", "canonical_name": "Tom Ford Oud Wood", "house_year": null}
