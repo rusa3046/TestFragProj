@@ -266,6 +266,8 @@ RENDERERS = (
     "answer.render",
     "release status",
     "semantic search",
+    "site ask pages",
+    "site profile pages",
 )
 
 
@@ -286,6 +288,15 @@ def _audit_rendered_text(conn: psycopg.Connection, report: AuditReport) -> None:
         "\n".join(f"{m.score:.2f} {m.text} {m.canonical_name}"
                    for m in nearest(conn, "rosy", limit=5)),
     ))
+
+    # The static site's answer and profile pages. They compose sentences
+    # around `Reason.phrase()` output like every renderer above, and a
+    # surface that composes is a surface that can overstate — which is the
+    # lesson RENDERERS exists to record. Checked as the built HTML, since
+    # that is exactly what a stranger receives.
+    from fragrance_graph.ask import page_texts
+
+    blocks += page_texts(conn)
 
     for surface, text in blocks:
         report.checked[surface] = report.checked.get(surface, 0) + 1

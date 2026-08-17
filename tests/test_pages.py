@@ -174,7 +174,16 @@ def test_one_pair_produces_exactly_one_page(conn, tmp_path):
     pairs = build(conn, tmp_path / "site")
     assert len(pairs) == 1
     written = sorted(p.name for p in (tmp_path / "site").glob("*.html"))
-    assert written == ["aventus-vs-club-de-nuit-intense-man.html", "index.html"]
+    # Ask pages are unconditional output — the curated questions render
+    # whatever the corpus holds, including honest refusals — so the exact
+    # set here is the pair page, the index, and one page per question.
+    from fragrance_graph.ask import QUESTIONS, ask_slug
+
+    expected = sorted(
+        ["aventus-vs-club-de-nuit-intense-man.html", "index.html"]
+        + [ask_slug(slug) for slug, _ in QUESTIONS]
+    )
+    assert written == expected
 
 
 # --- the pair is counted as a pair, not as one end of one ------------------

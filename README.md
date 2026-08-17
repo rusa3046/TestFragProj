@@ -779,6 +779,23 @@ score. `skip` (the default) omits them, since a pronoun can never resolve to a
 bottle; `literal` keeps them. Apply the same rule in your hand labels or the
 disagreement you measure is your own drift.
 
+## The demo surface
+
+`pages build` writes three kinds of static page, all pure functions of the
+corpus, all covered by the provenance audit:
+
+- **Ask pages** — curated natural-language questions ("I love Delina but
+  the rose is too strong") answered by the deterministic recommender, with
+  the parsed plan shown and every evidence count worded by strength. One
+  page is a deliberate refusal, because declining is part of the product.
+- **Bottle profiles** — "what people say about X", one per bottle the
+  corpus can actually speak about.
+- **Pair pages** — the original comparisons, each behind the 3-people /
+  2-creators gate.
+
+No server: the recommender parses without a model, so an answer page costs
+nothing to serve and nothing to rebuild.
+
 ## Trust rules
 
 These are product requirements, enforced in code and tests — not guidelines.
