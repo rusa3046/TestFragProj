@@ -60,6 +60,20 @@ EXACT_ONLY = 1.01
 TIMESTAMP = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 
 
+def fold_accents(text: str) -> str:
+    """Strip diacritics via NFKD decomposition, leaving the base letters.
+
+    "Privés" and "Prives" have to reduce to the same thing, here and
+    anywhere else in the codebase that turns a name into a plain-ASCII
+    token — `pages.slugify` shares this rather than re-deriving it, which
+    is what fixed `profile_slug("Hermès ...")` producing "herm-s-..."
+    instead of "hermes-...": a hyphen-collapse pass alone treats an
+    accented letter as punctuation to replace, not a letter to keep.
+    """
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
 def normalize_name(text: str) -> str:
     """Casefold, strip accents and punctuation, drop filler, collapse space.
 
@@ -67,9 +81,7 @@ def normalize_name(text: str) -> str:
     naming differences. Anything cleverer risks merging distinct
     fragrances, which is the one failure this module must not make.
     """
-    decomposed = unicodedata.normalize("NFKD", text)
-    without_accents = "".join(c for c in decomposed if not unicodedata.combining(c))
-    lowered = without_accents.casefold()
+    lowered = fold_accents(text).casefold()
     # Keep alphanumerics; everything else becomes a separator, so "no.4"
     # and "no. 4" converge.
     words = re.split(r"[^a-z0-9]+", lowered)

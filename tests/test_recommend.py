@@ -12,7 +12,7 @@ import pytest
 
 from fragrance_graph.evidence import Strength
 from fragrance_graph.ingest.store import ingest
-from fragrance_graph.recommend import Reason, recommend
+from fragrance_graph.recommend import Reason, Recommendation, digest, recommend
 from fragrance_graph.resolve.entities import add_fragrance
 from tests.conftest import make_comment
 
@@ -249,6 +249,216 @@ class TestEvidenceCounts:
         answer = recommend(conn, "something like Delina")
         (result,) = [r for r in answer.results if r.name == "Maison Alhambra Delilah"]
         assert result.people == 3
+
+
+class TestDigest:
+    """`digest()` — the two-sentence summary `ask._card` leads with.
+    Composed only from what a card already carries; see the function's
+    own docstring for the exclusions and rules that keep it safe and
+    honestly worded rather than merely short.
+    """
+
+    def test_a_one_person_fact_renders_weakly(self):
+        """User feedback asked for a summary; it did not ask for a
+        one-person remark to start sounding like consensus. The whole
+        provenance discipline `Reason.phrase()` enforces has to survive
+        being folded into two sentences, or the digest undoes it."""
+        weak = Reason(kind="prefer", text="raspberry",
+                      strength=Strength.OBSERVED, people=1, creators=1)
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[weak],
+                             people=1, creators=1)
+        text = digest(rec)
+        assert "one commenter said" in text
+        assert "People mostly" not in text
+
+    def test_no_distribution_word_is_used_anywhere(self):
+        """"Mostly" claims a share of the card's reasons this function
+        never computes — it only names the *declarable* subset, which can
+        be three people out of a card whose largest facts are fifteen,
+        non-declarable, and sitting right below it. Checked against every
+        digest shape the other tests in this class produce, not just one."""
+        cases = [
+            Recommendation(fragrance_id=1, name="X", reasons=[
+                Reason(kind="prefer", text="raspberry",
+                       strength=Strength.SUPPORTED, people=8, creators=4),
+            ], people=8, creators=4),
+            Recommendation(fragrance_id=1, name="X", reasons=[
+                Reason(kind="graph",
+                       text="9 people across 6 channels compared this with Delina",
+                       strength=Strength.SUPPORTED, people=9, creators=6),
+            ], people=9, creators=6),
+        ]
+        for rec in cases:
+            text = digest(rec)
+            for word in ("mostly", "mainly", "generally"):
+                assert word not in text.lower()
+
+    def test_a_contested_facts_disagreement_number_appears(self):
+        contested = Reason(kind="profile", text="longevity long lasting",
+                           strength=Strength.CONTESTED, people=6, creators=3,
+                           against=4)
+        rec = Recommendation(fragrance_id=1, name="X", caveats=[contested],
+                             people=6, creators=3)
+        text = digest(rec)
+        assert "4 of 10 disagree" in text
+
+    def test_the_disagreement_clause_names_the_attribute_not_the_value(self):
+        """"disagree on projection strong" is not English — the clause
+        must read against the attribute alone. `Reason.text` for a
+        sentiment axis is `"{attribute} {value}"`; the fix takes the
+        first word rather than building a per-attribute phrase table."""
+        declarable = Reason(kind="prefer", text="dates",
+                            strength=Strength.SUPPORTED, people=3, creators=3)
+        contested = Reason(kind="profile", text="projection strong",
+                           strength=Strength.CONTESTED, people=7, creators=4,
+                           against=3)
+        rec = Recommendation(
+            fragrance_id=1, name="X", reasons=[declarable],
+            caveats=[contested], people=15, creators=6,
+        )
+        text = digest(rec)
+        assert "disagree on projection" in text
+        assert "disagree on projection strong" not in text
+
+    def test_the_tail_attributes_the_total_to_the_card_not_the_named_fact(self):
+        """Sentence one may name a 3-person fact; sentence two states what
+        the whole card has behind it — a different, larger number — so it
+        must not read as if the total stood behind the one named fact.
+        Reuses the wording the old collapsed `<p class=ev>` line used."""
+        declarable = Reason(kind="prefer", text="dates",
+                            strength=Strength.SUPPORTED, people=3, creators=3)
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[declarable],
+                             people=15, creators=6)
+        text = digest(rec)
+        assert "15 people across 6 channels behind everything cited." in text
+        assert "are behind that" not in text
+        assert "15 people are behind" not in text
+
+    def test_two_sentence_max_is_enforced(self):
+        """Count sentence terminators directly rather than trust the
+        shape of the code that produces them — the guarantee that matters
+        is in the output, not in how confident the implementation looks.
+        'Chanel No. 4' as the anchor is the reviewer's exact case: a real
+        catalogue name shape carrying a period, reaching the digest
+        through the graph clause exactly the way a real comparison card
+        would."""
+        declarable = Reason(kind="prefer", text="raspberry",
+                            strength=Strength.SUPPORTED, people=8, creators=4)
+        graph = Reason(
+            kind="graph",
+            text="9 people across 6 channels compared this with Chanel No. 4",
+            strength=Strength.SUPPORTED, people=9, creators=6,
+        )
+        contested = Reason(kind="profile", text="longevity long lasting",
+                           strength=Strength.CONTESTED, people=6, creators=3,
+                           against=4)
+        rec = Recommendation(
+            fragrance_id=1, name="X", reasons=[declarable, graph],
+            caveats=[contested], people=31, creators=12,
+        )
+        text = digest(rec)
+        assert text.count(".") == 2
+        assert "compare this to Chanel No" in text
+        assert "call it raspberry" in text
+        assert "31 people across 12 channels behind everything cited." in text
+
+    def test_a_period_bearing_declarable_fact_does_not_break_the_cap(self):
+        """The same defect, reached through the "call it ..." clause
+        instead of the graph clause — a note value or catalogue-derived
+        text carrying a period must not add a sentence either."""
+        declarable = Reason(kind="prefer", text="No. 5 vibes",
+                            strength=Strength.SUPPORTED, people=8, creators=4)
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[declarable],
+                             people=8, creators=4)
+        text = digest(rec)
+        assert text.count(".") == 2
+        assert "No 5 vibes" in text or "No5 vibes" in text
+
+    def test_a_period_bearing_fallback_does_not_break_the_cap(self):
+        """The weak-fallback path embeds `Reason.phrase()` verbatim, which
+        can itself carry a period-bearing name for a `kind="graph"` or
+        `"comparative"` reason — the fallback is not exempt from the cap
+        just because it is the safe branch."""
+        weak_graph = Reason(
+            kind="graph",
+            text="1 person across 1 channel compared this with Chanel No. 4",
+            strength=Strength.OBSERVED, people=1, creators=1,
+        )
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[weak_graph],
+                             people=1, creators=1)
+        text = digest(rec)
+        assert text.count(".") == 2
+
+    def test_a_semantic_quote_never_reaches_the_digest_as_a_named_fact(self):
+        """A semantic reason quotes a commenter's own words and can carry
+        arbitrary punctuation — exactly what the two-sentence guarantee
+        cannot survive if it leaked in. Excluded outright; see `digest`'s
+        docstring."""
+        quote = Reason(
+            kind="semantic", text="someone described it as 'rich. warm. cozy.'",
+            strength=Strength.OBSERVED, people=1, creators=1,
+        )
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[quote],
+                             people=1, creators=1)
+        assert digest(rec) == ""
+
+    def test_no_facts_at_all_yields_an_empty_digest(self):
+        rec = Recommendation(fragrance_id=1, name="X")
+        assert digest(rec) == ""
+
+    def test_a_declarable_fact_is_stated_as_settled(self):
+        strong = Reason(kind="prefer", text="raspberry",
+                        strength=Strength.SUPPORTED, people=8, creators=4)
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[strong],
+                             people=8, creators=4)
+        text = digest(rec)
+        assert "People call it raspberry." in text
+        assert "8 people across 4 channels behind everything cited." in text
+
+
+class TestTheAuditCatchesAViolatingDigest:
+    """`digest()` composes from `Reason.text` values it does not invent —
+    if an upstream `Reason` ever carried forbidden wording (which
+    `Reason.phrase()` is itself careful never to produce; see
+    `test_audit.TestTheAuditCatchesWhatItClaims` for the identical
+    argument applied to `phrase()`), the digest inherits it rather than
+    laundering it away. `_card` embeds the digest verbatim into the pages
+    `audit._audit_rendered_text` scans for `FORBIDDEN` phrasing, so this
+    is the same backstop every other composed sentence on the site gets —
+    proven directly against it, the same way the phrase-level rules are.
+    """
+
+    def test_forbidden_wording_reaching_digest_is_still_flagged(self):
+        from fragrance_graph.audit import FORBIDDEN
+
+        bad = Reason(kind="prefer", text="the community agrees on rose",
+                    strength=Strength.SUPPORTED, people=8, creators=4)
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[bad],
+                             people=8, creators=4)
+        sentence = digest(rec)
+        assert any(phrase in sentence.lower() for phrase in FORBIDDEN)
+
+    def test_the_rendered_card_carries_it_through_to_what_the_audit_scans(self):
+        """Not just the string `digest()` returns — the actual HTML
+        `page_texts` hands the audit, so a violation could not be fixed
+        by `_card` quietly declining to embed it."""
+        from fragrance_graph.ask import render_answer
+        from fragrance_graph.audit import FORBIDDEN
+
+        class FakePlan:
+            def render(self) -> str:
+                return "intent recommend"
+
+        bad = Reason(kind="prefer", text="the community agrees on rose",
+                    strength=Strength.SUPPORTED, people=8, creators=4)
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[bad],
+                             people=8, creators=4)
+        from fragrance_graph.recommend import Answer
+
+        page = render_answer(
+            "q", Answer(plan=FakePlan(), results=[rec]), head=[]
+        )
+        assert any(phrase in page.lower() for phrase in FORBIDDEN)
 
 
 class TestDisputesAreDisclosed:

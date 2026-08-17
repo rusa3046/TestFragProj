@@ -8,12 +8,24 @@ let commenter-written text reach a browser unescaped.
 from fragrance_graph.ask import (
     QUESTIONS,
     profile_pages,
+    profile_slug,
     render_answer,
     render_profile,
 )
 from fragrance_graph.evidence import Strength
 from fragrance_graph.pages import build
 from fragrance_graph.recommend import Answer, Reason, Recommendation
+
+
+def test_profile_slug_folds_accents():
+    """`profile_slug` used to run its own regex and produce
+    "about-herm-s-eau-d-orange-verte.html" — an accented letter treated
+    as punctuation. It now delegates to `pages.slugify`, which folds
+    accents first; see that function's docstring for the real page this
+    changed and why it is safe to change."""
+    assert profile_slug("Hermès Eau d'Orange Verte") == (
+        "about-hermes-eau-d-orange-verte.html"
+    )
 
 
 class FakePlan:
@@ -79,6 +91,42 @@ class TestTheWordingIsCarriedNotRestated:
                                    reasons=[contested], people=10, creators=4)
         page = render_profile("X", answer_with(candidate), head=[])
         assert "4 disagree" in page
+
+    def test_the_digest_is_exactly_what_the_page_ships(self):
+        """Not a page that says roughly what `digest()` says — the same
+        string, byte for byte once escaped. A page free to reword its own
+        summary is a second place the wording could drift from the rule
+        `Reason.phrase()` enforces."""
+        import html as _html
+
+        from fragrance_graph.recommend import digest
+
+        strong = Reason(kind="prefer", text="raspberry",
+                        strength=Strength.SUPPORTED, people=8, creators=4)
+        candidate = Recommendation(fragrance_id=1, name="X",
+                                   reasons=[strong], people=8, creators=4)
+        expected = digest(candidate)
+        assert expected  # sanity: this scenario does produce a digest
+
+        page = render_answer("q", answer_with(candidate), head=[])
+        assert _html.escape(expected) in page
+
+    def test_the_full_reason_list_is_collapsed_behind_details(self):
+        """The digest leads; the full phrase list — what used to be the
+        whole card — is still present in the HTML, just behind a
+        <details> a reader opens rather than scrolls past."""
+        reasons = [
+            Reason(kind="prefer", text=f"note-{i}", strength=Strength.SUPPORTED,
+                   people=8, creators=4)
+            for i in range(5)
+        ]
+        candidate = Recommendation(fragrance_id=1, name="X", reasons=reasons,
+                                   people=8, creators=4)
+        page = render_answer("q", answer_with(candidate), head=[])
+        assert "<details>" in page
+        assert "show the comments" in page
+        for r in reasons:
+            assert r.phrase() in page
 
 
 class TestTheBuildShipsThem:
