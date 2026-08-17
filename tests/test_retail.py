@@ -656,3 +656,96 @@ class TestCLI:
         """Confirms --db-url is top-level, matching every sibling CLI."""
         with pytest.raises(SystemExit):
             main(["ingest", str(tmp_path / "x.json"), "--db-url", "x"])
+
+
+class TestSeedingFromListings:
+    """The shelf grows the catalogue, with the same guards verify() has."""
+
+    def _listing(self, conn, item_id, brand, title):
+        conn.execute(
+            """INSERT INTO retailer_listings
+               (retailer, retailer_item_id, url, title_raw, brand_raw,
+                retrieved_at, collection_mode, rights_basis, image_ref_only)
+               VALUES ('nordstrom', %s, 'https://x', %s, %s,
+                       '2026-08-17T00:00:00Z', 'test', 'test', true)""",
+            (item_id, title, brand),
+        )
+        conn.commit()
+
+    def _house(self, conn, name):
+        conn.execute(
+            "INSERT INTO houses (house_id, name) VALUES (%s, %s)"
+            " ON CONFLICT DO NOTHING",
+            (f"h-{name.lower().replace(' ', '-')}", name),
+        )
+        conn.commit()
+
+    def test_a_known_house_bottle_seeds_and_then_resolves(self, conn):
+        from fragrance_graph.retail import resolve_listings, seed_from_listings
+
+        self._house(conn, "Chanel")
+        self._listing(conn, "1", "CHANEL", "Coco Mademoiselle Eau de Parfum")
+        stats = seed_from_listings(conn)
+        assert stats["seeded"] == 1
+        row = conn.execute(
+            "SELECT canonical_name, brand FROM fragrances"
+        ).fetchone()
+        assert row["canonical_name"] == "Chanel Coco Mademoiselle"
+        resolve_listings(conn)
+        linked = conn.execute(
+            "SELECT count(*) FROM retailer_listings WHERE fragrance_id IS NOT NULL"
+        ).fetchone()[0]
+        assert linked == 1
+
+    def test_unknown_brand_and_sets_and_junk_are_refused(self, conn):
+        from fragrance_graph.retail import seed_from_listings
+
+        self._house(conn, "Chanel")
+        self._listing(conn, "1", "Mystery House", "Real Perfume Eau de Parfum")
+        self._listing(conn, "2", "CHANEL", "Coco Fragrance Set $187 Value")
+        self._listing(conn, "3", "CHANEL", "3:32")
+        stats = seed_from_listings(conn)
+        assert stats["seeded"] == 0
+        assert stats["unknown_brand"] == 1
+        assert stats["set_like"] == 1
+        assert stats["junk_or_empty"] == 1
+
+    def test_two_concentrations_collapse_to_one_bottle_documented(self, conn):
+        from fragrance_graph.retail import seed_from_listings
+
+        self._house(conn, "Dior")
+        self._listing(conn, "1", "DIOR", "Sauvage Eau de Toilette")
+        self._listing(conn, "2", "DIOR", "Sauvage Eau de Parfum")
+        stats = seed_from_listings(conn)
+        assert stats["seeded"] == 1
+        assert stats["already_seeded_this_run"] == 1
+
+    def test_reseeding_is_idempotent(self, conn):
+        from fragrance_graph.retail import resolve_listings, seed_from_listings
+
+        self._house(conn, "Chanel")
+        self._listing(conn, "1", "CHANEL", "Coco Mademoiselle Eau de Parfum")
+        seed_from_listings(conn)
+        resolve_listings(conn)
+        stats = seed_from_listings(conn)
+        assert stats["seeded"] == 0
+        n = conn.execute("SELECT count(*) FROM fragrances").fetchone()[0]
+        assert n == 1
+
+    def test_le_parfum_strips_whole_never_leaving_a_dangling_article(self):
+        from fragrance_graph.retail import strip_concentration_suffix
+
+        assert strip_concentration_suffix("Black Opium Le Parfum") == "Black Opium"
+        assert strip_concentration_suffix("Paradigme Le Parfum") == "Paradigme"
+
+    def test_wrapping_quotes_are_stripped_but_possessives_survive(self, conn):
+        from fragrance_graph.retail import seed_from_listings
+
+        self._house(conn, "Dior")
+        self._house(conn, "Kilian Paris")
+        self._listing(conn, "1", "DIOR", "'Hypnotic Poison' Eau de Parfum")
+        self._listing(conn, "2", "Kilian Paris", "Angels' Share Eau de Parfum")
+        seed_from_listings(conn)
+        names = sorted(r["canonical_name"] for r in
+                       conn.execute("SELECT canonical_name FROM fragrances"))
+        assert names == ["Dior Hypnotic Poison", "Kilian Paris Angels' Share"]

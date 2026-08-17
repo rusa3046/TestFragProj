@@ -722,6 +722,33 @@ def import_corpus(
                         f"WHERE {column} IN ({marks})",
                         ids,
                     )
+                # Retailer listings let go the same way and for the same
+                # reason: back to unresolved, never deleted — the listing
+                # is a fact about the store, and `retail resolve` will
+                # re-link it if the bottle ever returns. Without this the
+                # 0016 foreign key (correctly) refuses the prune. Existence
+                # is checked via to_regclass rather than try/except because
+                # a rollback here would also undo the claim unlinking above.
+                if conn.execute(
+                    "SELECT to_regclass('retailer_listings')"
+                ).fetchone()[0]:
+                    conn.execute(
+                        f"UPDATE retailer_listings SET fragrance_id = NULL "
+                        f"WHERE fragrance_id IN ({marks})",
+                        ids,
+                    )
+                # claim_attributions is DERIVED (attributes infer): a
+                # proposal about a bottle that no longer exists means
+                # nothing, so the rows are deleted, not unlinked — the
+                # next `attributes infer` recomputes from scratch anyway.
+                if conn.execute(
+                    "SELECT to_regclass('claim_attributions')"
+                ).fetchone()[0]:
+                    conn.execute(
+                        f"DELETE FROM claim_attributions "
+                        f"WHERE fragrance_id IN ({marks})",
+                        ids,
+                    )
             conn.cursor().executemany(
                 "DELETE FROM fragrances WHERE canonical_name = %s",
                 [(name,) for name in extras],

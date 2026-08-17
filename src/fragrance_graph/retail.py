@@ -145,6 +145,18 @@ def is_fragrance(record: dict) -> bool:
 #: trailing fragment of it in the wrong pass.
 _CONCENTRATION_SUFFIXES = (
     "eau de parfum", "eau de toilette", "eau de cologne",
+    # Compound concentrations, longest first: stripping bare "parfum" out
+    # of "Extrait de Parfum" left dangling "Extrait de" in 20+ seeded
+    # names -- found in the corpus export diff, root-caused here.
+    "extrait de parfum", "extraits de parfum", "elixir de parfum",
+    "absolu de parfum", "essence de parfum",
+    "eau de parfum intense", "parfum intense",
+    "extrait de", "absolu de", "elixir de",
+    # "le parfum" before bare "parfum": stripping only "parfum" out of
+    # "Black Opium Le Parfum" left the dangling article "Black Opium Le",
+    # which the first bulk seeding then catalogued verbatim — found by
+    # the post-seed fuzzy sweep.
+    "le parfum",
     "parfum", "toilette", "cologne", "fragrance", "spray",
     "edp", "edt", "edc",
 )
@@ -679,6 +691,134 @@ def render_coverage(stats: CoverageStats) -> str:
     ])
 
 
+#: Titles that are bundles, not bottles. A gift set is a retail SKU of
+#: several products; cataloguing it as a fragrance would give the graph a
+#: bottle nobody can smell. The $ catches "…Set $187 Value" shapes.
+SET_LIKE = re.compile(
+    r"(?i)\b(set|duo|trio|value|refill|sample|discovery|collection)\b|\$"
+)
+
+#: Listing formats that are products but not bottles: a hair mist or a
+#: room spray belongs in retailer_listings (it is real, priced, sold),
+#: but cataloguing it as a fragrance would hand the recommender a
+#: candidate nobody wears. Found as "Byredo ... Hair Perfume", "... Body
+#: Mist", "... Room" in the first bulk seed.
+FORMAT_LIKE = re.compile(
+    r"(?i)\b(mist|hair (?:perfume|mist)|room|candle|roll-?on|"
+    r"perfumed oil|oil|soap|lotion|shower|deodorant|travel)\b"
+)
+
+
+def seed_from_listings(conn: psycopg.Connection) -> dict:
+    """Catalogue new fragrances from unresolved listings — the same move
+    `releases.verify()` makes for Wikidata announcements, with the same
+    conservatism, so a store's shelf can grow the catalogue instead of
+    sitting parked in the unresolved queue.
+
+    A listing seeds a bottle only when ALL hold:
+      - its brand maps into the houses registry (`brand_tokens` membership
+        against `houses` — an unknown brand is future registry curation,
+        never a guessed house);
+      - its title is not set-like (`SET_LIKE`);
+      - the concentration-stripped name is not junk (`looks_like_junk`)
+        and not empty.
+
+    Canonical name follows `verify()`'s convention: house-prefixed unless
+    the stripped name already starts with the house; the stripped bare
+    name becomes an alias so the listing itself resolves on the next
+    `resolve_listings` pass by exact alias.
+
+    Documented limitation, deliberate: concentrations sharing a bare name
+    ("Sauvage Eau de Toilette" / "Sauvage Eau de Parfum") collapse to one
+    catalogue bottle in this pass — the first listing seeds it, the rest
+    resolve to it. Splitting concentration into identity is a schema
+    decision for its own review, not a side effect of seeding.
+
+    Every addition here enlarges the fuzzy matcher's target surface for
+    claim resolution (the Angelic Elixir lesson, commit 5100c97), so the
+    caller MUST run the fuzzy sweep over claim mentions after a bulk
+    seed. `retail seed-from-listings` prints that reminder.
+    """
+    from fragrance_graph.resolve.entities import add_fragrance
+    from fragrance_graph.resolve.names import brand_tokens, looks_like_junk
+
+    known = {
+        tuple(brand_tokens(row["name"])): row["name"]
+        for row in conn.execute("SELECT name FROM houses")
+    }
+    existing = {
+        row["canonical_name"].lower()
+        for row in conn.execute("SELECT canonical_name FROM fragrances")
+    }
+    stats = {"seeded": 0, "unknown_brand": 0, "set_like": 0,
+             "format_like": 0, "junk_or_empty": 0,
+             "already_seeded_this_run": 0}
+    seeded_keys: set[tuple] = set()
+    for row in conn.execute(
+        """SELECT brand_raw, title_raw FROM retailer_listings
+           WHERE fragrance_id IS NULL ORDER BY retailer, retailer_item_id"""
+    ).fetchall():
+        brand_key = tuple(brand_tokens(row["brand_raw"] or ""))
+        if brand_key not in known:
+            stats["unknown_brand"] += 1
+            continue
+        if SET_LIKE.search(row["title_raw"] or ""):
+            stats["set_like"] += 1
+            continue
+        if FORMAT_LIKE.search(row["title_raw"] or ""):
+            stats["format_like"] += 1
+            continue
+        # Wrapping quotes in a retailer title ("Dior 'Hypnotic Poison'")
+        # are the retailer's typography, not the bottle's name — found as
+        # leaked apostrophes in seeded canonical names by the fuzzy
+        # sweep. Only OPENING quotes (after whitespace or at the start)
+        # and one string-final close-quote are stripped: the possessive
+        # in "Angels' Share" sits directly after a letter mid-string and
+        # is part of the name, so it survives.
+        title = row["title_raw"] or ""
+        title = re.sub(r"(^|\s)['\"‘’]+", r"\1", title)
+        title = re.sub(r"['\"’]+$", "", title)
+        stripped = strip_concentration_suffix(title).strip()
+        # Suffix-stripping can expose a close-quote ("'Hypnotic Poison'
+        # Eau de Parfum" ends at the quote once the suffix goes), so the
+        # terminal strip runs again here.
+        stripped = re.sub(r"['\"\u2019]+$", "", stripped).strip()
+        stripped = re.sub(r"\s+", " ", stripped)
+        # A fragrance name cannot end in a bare French connective or a
+        # concentration fragment -- "CHANCE EAU TENDRE Eau de" is a
+        # half-stripped "Eau de Parfum", not a name. Trailing tokens only:
+        # the EAU inside CHANCE EAU TENDRE survives.
+        _DANGLING = {"de", "du", "des", "le", "la", "les", "eau", "d", "l",
+                     "extrait", "extraits", "essence", "elixir", "absolu",
+                     "absolue"}
+        words = stripped.split()
+        while words and words[-1].lower().strip("'’") in _DANGLING:
+            words.pop()
+        stripped = " ".join(words)
+        if not stripped or looks_like_junk(stripped):
+            stats["junk_or_empty"] += 1
+            continue
+        house = known[brand_key]
+        if tuple(brand_tokens(stripped))[: len(brand_key)] == brand_key:
+            canonical_name = stripped
+        else:
+            canonical_name = f"{house} {stripped}"
+        # normalize_name folds accents, so "EAU FRAÍCHE" and "EAU
+        # FRAÎCHE" (both real rows in the first collection) dedupe.
+        from fragrance_graph.resolve.names import normalize_name
+        key = (brand_key, normalize_name(stripped))
+        if key in seeded_keys or canonical_name.lower() in existing:
+            stats["already_seeded_this_run"] += 1
+            continue
+        seeded_keys.add(key)
+        add_fragrance(conn, canonical_name, brand=row["brand_raw"],
+                      aliases=[stripped])
+        existing.add(canonical_name.lower())
+        stats["seeded"] += 1
+    conn.commit()
+    return stats
+
+
 #: The components a "complete" catalogue entry holds. Operational only:
 #: this drives the ingestion worklist and is NEVER a match score, never
 #: shown to a shopper, never an input to ranking. Each is (label, SQL
@@ -785,6 +925,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Per-fragrance data completeness + the ingestion worklist. "
              "Operational only — never a match score.",
     )
+    sub.add_parser(
+        "seed-from-listings",
+        help="Catalogue new bottles from unresolved listings (known house, "
+             "not a set, not junk), then re-resolve.",
+    )
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -816,6 +961,20 @@ def main(argv: list[str] | None = None) -> int:
             print(render_coverage(coverage(conn)))
         elif args.command == "completeness":
             print(render_completeness(completeness(conn)))
+        elif args.command == "seed-from-listings":
+            stats = seed_from_listings(conn)
+            resolution = resolve_listings(conn)
+            print(f"Seeded {stats['seeded']} new fragrance(s); skipped "
+                  f"{stats['unknown_brand']} unknown-brand, "
+                  f"{stats['set_like']} set-like, "
+                  f"{stats['format_like']} non-bottle format, "
+                  f"{stats['junk_or_empty']} junk/empty, "
+                  f"{stats['already_seeded_this_run']} duplicate.")
+            print(f"Re-resolved: {resolution.resolved} of {resolution.total} "
+                  f"listing(s) now linked.")
+            print("Reminder: bulk seeding enlarges the fuzzy surface — run "
+                  "the claim-mention fuzzy sweep before the next corpus "
+                  "export (see commit 5100c97).")
     finally:
         conn.close()
     return 0
