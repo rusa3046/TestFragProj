@@ -58,6 +58,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -253,6 +254,123 @@ def discover(
 
 
 @dataclass
+class SeedStats:
+    seen: int = 0
+    inserted: int = 0
+    skipped: int = 0
+    duplicate: int = 0
+
+    def __str__(self) -> str:
+        return (
+            f"{self.seen} release(s) in the file: {self.inserted} inserted "
+            f"as DISCOVERED, {self.skipped} skipped (no usable name), "
+            f"{self.duplicate} already seeded"
+        )
+
+
+#: A product name that is nothing but a raw Wikidata entity id — the
+#: batch's own matching failed to find a real name for this release, and
+#: the id leaked into the field meant for one. `discover()` filters through
+#: `looks_like_junk`, which would *not* catch this (`normalize_name` sees
+#: 8 alphanumeric characters, not all-digits, and passes it); this is a
+#: narrower, purpose-built check for the one bad shape actually observed
+#: in the committed file — see `data/curation/wikidata-releases.jsonl`.
+QID_ONLY = re.compile(r"^Q\d+$")
+
+#: `DO NOTHING`, not the upsert `UPSERT_SQL` (`discover`) uses — see
+#: `seed_wikidata`'s docstring. After the first insert the lifecycle owns
+#: the row; re-seeding must never refresh or resurrect it.
+SEED_WIKIDATA_SQL = """
+INSERT INTO release_candidates
+    (source_type, source_id, source_url, brand, name, release_date,
+     status, status_reason, first_seen, last_seen)
+VALUES ('wikidata', %(source_id)s, %(source_url)s, %(brand)s, %(name)s,
+        %(release_date)s, 'DISCOVERED', %(reason)s, %(now)s, %(now)s)
+ON CONFLICT (source_type, source_id) DO NOTHING
+RETURNING id
+"""
+
+
+def seed_wikidata(
+    conn: psycopg.Connection,
+    path: Path = Path("data/curation/wikidata-releases.jsonl"),
+) -> SeedStats:
+    """Load a one-time CC0 batch of dated releases as DISCOVERED.
+
+    Earlier versions of this function matched each row against the
+    catalogue itself and wrote CATALOGED/VERIFIED directly, skipping
+    `verify()` entirely. That duplicated — worse — what `verify()` already
+    does: it merges onto an existing catalogue row, refuses a name with no
+    brand rather than guessing, de-duplicates by product identity
+    (`_existing_by_identity`, e.g. concentration-suffix variants), and
+    auto-catalogues a well-formed new release with its brand and alias
+    recorded. None of that is reproduced here, on purpose. VERIFIED was
+    also a dead end: nothing in this file, `scheduler.py` or `daily.py`
+    ever selects `status = 'VERIFIED'`, so a row written that way could
+    never be probed, never reach ENRICHABLE, never carry evidence — 68 of
+    the 70 real rows would sit inert forever. DISCOVERED is what
+    `verify()` actually reads (`WHERE status = 'DISCOVERED'`), so seeding
+    into it is what puts these rows in the machine the rest of the module
+    describes rather than parking them beside it.
+
+    This is Wikidata structured data under CC0 (see
+    `data/curation/wikidata-releases.jsonl`'s own `license`/
+    `license_basis` fields), which is why `status_reason` names the
+    licence rather than a URL a person can no longer see — but licence
+    alone answers "is this record trustworthy", not "is this the same
+    bottle as an existing catalogue row", which is exactly the resolution
+    judgement `verify()` exists to make and this function no longer
+    duplicates.
+
+    `ON CONFLICT (source_type, source_id) DO NOTHING` rather than the
+    upsert `discover` uses: after the first insert the lifecycle owns the
+    row, and re-seeding the same file a month later — after `verify` has
+    moved it on, or a curator has rejected it — must not silently rewind
+    that decision back to the Wikidata snapshot. A no-op re-seed is the
+    correct behaviour, not a missed update.
+
+    A row whose `name` is bare Wikidata id shape (`QID_ONLY`) or empty is
+    skipped and counted rather than seeded: `verify()`'s auto-catalogue
+    path would otherwise create a fragrance literally named e.g.
+    "Chanel Q3697345" from the one such row the committed file carries.
+    """
+    stats = SeedStats()
+    now = _now()
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        stats.seen += 1
+
+        name = (record.get("name") or "").strip()
+        if not name or QID_ONLY.match(name):
+            stats.skipped += 1
+            continue
+
+        row = conn.execute(
+            SEED_WIKIDATA_SQL,
+            {
+                "source_id": record["wikidata_qid"],
+                "source_url": record["source_url"] or "",
+                "brand": record["house"],
+                "name": name,
+                "release_date": str(record["release_year"]),
+                "reason": "Wikidata structured data (CC0 1.0 Universal)",
+                "now": now,
+            },
+        ).fetchone()
+        if row is None:
+            stats.duplicate += 1
+            continue
+        stats.inserted += 1
+
+    conn.commit()
+    log.info("%s", stats)
+    return stats
+
+
+@dataclass
 class VerifyStats:
     verified: int = 0
     cataloged: int = 0
@@ -335,11 +453,32 @@ def verify(conn: psycopg.Connection, *, dry_run: bool = False) -> VerifyStats:
       fragrance nobody can trace, and an unresolved candidate is a row
       somebody can look at later — which is the whole reason `fragrance_id`
       is nullable.
+
+    The full-name attempt (`brand + name`, fuzzy included) is left exactly
+    as it was: an announcement string is messy and the brand is embedded
+    in it, so fuzzy drift there is the same trade `best_match` always
+    makes. The **bare-name fallback** — matching on `name` alone, brand
+    dropped — is different: with no brand check at all it will merge two
+    houses' same-named releases onto one node the moment they exist,
+    because a bare product name is the dominant collision shape in
+    fragrance ("Vetiver", "Dune", "Obsession", "Aventus" all name more
+    than one real bottle). `seed_wikidata` used to route real rows past
+    this without a brand check; now that it seeds them as DISCOVERED for
+    `verify` to resolve, this path sees real announcements and the defect
+    stopped being latent. So the bare-name match is only *accepted* when
+    the row gave a brand, the matched candidate has one recorded, and the
+    two agree (`resolve.names.brands_agree`) — the same ambiguity-aware
+    rule the trailing-brand resolver uses. A brand-less announcement never
+    reaches this fallback at all: `full_name` already equals `name` when
+    `row['brand']` is empty, so the first attempt already tried it.
     """
     from fragrance_graph.resolve.entities import add_fragrance
+    from fragrance_graph.resolve.entities import known_brands as _known_brands
+    from fragrance_graph.resolve.names import brand_tokens, brands_agree
 
     stats = VerifyStats()
     candidates = _catalogue(conn)
+    known = _known_brands(conn)
     rows = conn.execute(
         "SELECT * FROM release_candidates WHERE status = 'DISCOVERED'"
         " ORDER BY id"
@@ -347,9 +486,19 @@ def verify(conn: psycopg.Connection, *, dry_run: bool = False) -> VerifyStats:
 
     for row in rows:
         full_name = f"{row['brand']} {row['name']}".strip()
-        match = best_match(full_name, candidates) or best_match(
-            row["name"], candidates
-        )
+        match = best_match(full_name, candidates)
+        if not match and row["brand"]:
+            bare = best_match(row["name"], candidates)
+            if bare:
+                bare_brand = next(
+                    (c.brand for c in candidates
+                     if c.fragrance_id == bare.fragrance_id),
+                    "",
+                )
+                if bare_brand and brands_agree(
+                    brand_tokens(bare_brand), brand_tokens(row["brand"]), known
+                ):
+                    match = bare
         if match:
             stats.verified += 1
             stats.merged += 1
@@ -569,6 +718,15 @@ def main(argv: list[str] | None = None) -> int:
     ver = sub.add_parser("verify", help="Resolve announcements to bottles")
     ver.add_argument("--dry-run", action="store_true")
 
+    seedwd = sub.add_parser(
+        "seed-wikidata",
+        help="Load a one-time CC0 batch of dated releases from Wikidata",
+    )
+    seedwd.add_argument(
+        "--path", type=Path,
+        default=Path("data/curation/wikidata-releases.jsonl"),
+    )
+
     sub.add_parser("status", help="Where every candidate stands")
     sub.add_parser("evidenced", help="Promote releases that now have claims")
 
@@ -594,6 +752,14 @@ def main(argv: list[str] | None = None) -> int:
             print(discover(conn, source, since=args.since))
         elif args.command == "verify":
             print(verify(conn, dry_run=args.dry_run))
+        elif args.command == "seed-wikidata":
+            print(seed_wikidata(conn, args.path))
+            print(
+                "Seeded rows sit at DISCOVERED — run "
+                "`python -m fragrance_graph.releases verify` to resolve them "
+                "against the catalogue. Kept as a separate step rather than "
+                "called automatically, so what each stage did stays visible."
+            )
         elif args.command == "evidenced":
             print(f"{mark_evidenced(conn)} release(s) now EVIDENCED.")
         else:

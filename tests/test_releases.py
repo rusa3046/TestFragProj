@@ -12,6 +12,7 @@ that took a different code path would prove nothing about the real one.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -24,10 +25,13 @@ from fragrance_graph.releases import (
     discover,
     mark_evidenced,
     probe,
+    seed_wikidata,
     verify,
 )
 from fragrance_graph.resolve.entities import add_fragrance
 from tests.conftest import make_comment
+
+WIKIDATA_RELEASES = Path("data/curation/wikidata-releases.jsonl")
 
 
 @pytest.fixture
@@ -186,6 +190,37 @@ class TestResolvingAnnouncements:
         assert conn.execute(
             "SELECT count(*) FROM fragrances"
         ).fetchone()[0] == 1, "no second node for a bottle we already have"
+
+    def test_the_bare_name_fallback_does_not_cross_houses(self, conn, fixture_file):
+        """Reviewer finding 2, reproduced exactly. `best_match(full_name)`
+        fails ("Guerlain Vetiver" matches nothing), and the old bare-name
+        fallback then matched on "Vetiver" alone with no brand check at
+        all — merging Guerlain's announcement onto Molinard's catalogued
+        bottle, aliased "Vetiver". "Vetiver", "Dune", "Obsession",
+        "Aventus" and "Mitsouko" are all names more than one real house
+        uses; a bare-name match with no brand check will hit one of them
+        as the catalogue grows."""
+        molinard = add_fragrance(
+            conn, "Molinard Vetiver", brand="Molinard", aliases=["Vetiver"]
+        )
+        source = fixture_file({
+            "source_id": "rss-1", "name": "Vetiver", "brand": "Guerlain",
+            "announced_at": "2026-08-01",
+        })
+        discover(conn, source)
+        verify(conn)
+
+        row = conn.execute("SELECT * FROM release_candidates").fetchone()
+        assert row["fragrance_id"] != molinard, "must not link across houses"
+        assert row["status"] == Status.CATALOGED
+        new_name = conn.execute(
+            "SELECT canonical_name FROM fragrances WHERE id = %s",
+            (row["fragrance_id"],),
+        ).fetchone()[0]
+        assert new_name == "Guerlain Vetiver"
+        assert conn.execute(
+            "SELECT count(*) FROM fragrances"
+        ).fetchone()[0] == 2, "Guerlain's Vetiver is its own node, not a merge"
 
     def test_an_ambiguous_name_stays_unresolved(self, conn, fixture_file):
         """Invariant 9. "Amber Oud" names a dozen bottles across a dozen
@@ -463,3 +498,173 @@ class TestCodexPhase6ReleaseFindings:
         for i in range(READY_CREATORS):
             claim_about(conn, i, frag, channel=f"chan_{i}")
         assert mark_evidenced(conn) == 1
+
+
+# --- seeding from Wikidata ---------------------------------------------------
+
+
+class TestSeedWikidata:
+    """A one-time CC0 batch, not a feed — but it seeds into DISCOVERED, the
+    same state `discover()` leaves a feed item in, and leaves resolution
+    entirely to `verify()`. An earlier version matched against the
+    catalogue itself and wrote CATALOGED/VERIFIED directly; see
+    `seed_wikidata`'s docstring for why that duplicated — worse — what
+    `verify()` already does, and why VERIFIED was a dead end nothing ever
+    read back out of.
+    """
+
+    def test_it_inserts_every_well_formed_row_as_discovered(self, conn):
+        stats = seed_wikidata(conn, WIKIDATA_RELEASES)
+        assert stats.seen == 70
+        assert stats.inserted == 69  # one row's name is a bare Wikidata QID
+        assert stats.skipped == 1
+        statuses = {
+            row["status"]
+            for row in conn.execute(
+                "SELECT DISTINCT status FROM release_candidates"
+                " WHERE source_type = 'wikidata'"
+            )
+        }
+        assert statuses == {"DISCOVERED"}
+
+    def test_a_bare_wikidata_qid_name_is_skipped_not_seeded(self, conn):
+        """The committed file has one row whose product name is a raw
+        Wikidata entity id (house Chanel) — the batch's own matching
+        failed to find a real name, and the id leaked into the field
+        meant for one. Seeding it unchecked would let `verify()`'s
+        auto-catalogue path create a fragrance literally named
+        "Chanel Q3697345"."""
+        seed_wikidata(conn, WIKIDATA_RELEASES)
+        assert conn.execute(
+            "SELECT count(*) FROM release_candidates WHERE name = 'Q3697345'"
+        ).fetchone()[0] == 0
+
+    def test_reseeding_is_a_no_op(self, conn):
+        seed_wikidata(conn, WIKIDATA_RELEASES)
+        again = seed_wikidata(conn, WIKIDATA_RELEASES)
+
+        assert again.inserted == 0
+        assert again.duplicate == 69
+        assert conn.execute(
+            "SELECT count(*) FROM release_candidates"
+        ).fetchone()[0] == 69
+
+    def test_a_status_change_survives_reseeding(self, conn):
+        """After the first insert the lifecycle owns the row. A re-seed
+        must not silently rewind a curator's — or `verify`'s — decision
+        back to the Wikidata snapshot."""
+        seed_wikidata(conn, WIKIDATA_RELEASES)
+        conn.execute(
+            "UPDATE release_candidates SET status = 'REJECTED'"
+            " WHERE source_type = 'wikidata'"
+        )
+        conn.commit()
+
+        seed_wikidata(conn, WIKIDATA_RELEASES)
+
+        statuses = {
+            row["status"]
+            for row in conn.execute(
+                "SELECT DISTINCT status FROM release_candidates"
+                " WHERE source_type = 'wikidata'"
+            )
+        }
+        assert statuses == {"REJECTED"}
+
+    def test_status_reason_names_the_licence(self, conn):
+        seed_wikidata(conn, WIKIDATA_RELEASES)
+        reason = conn.execute(
+            "SELECT status_reason FROM release_candidates LIMIT 1"
+        ).fetchone()[0]
+        assert "Wikidata" in reason
+        assert "CC0" in reason
+
+    def test_it_round_trips_through_the_corpus(self, conn, tmp_path, second_db):
+        """`release_candidates` already exports/imports via `corpus.py` — a
+        seeded row must survive that the same way any other candidate
+        does, `source_type` included."""
+        from fragrance_graph.corpus import export_corpus, import_corpus
+        from fragrance_graph.db import get_connection, migrate
+
+        seed_wikidata(conn, WIKIDATA_RELEASES)
+        export_corpus(conn, tmp_path)
+
+        fresh = get_connection(second_db)
+        migrate(fresh)
+        import_corpus(fresh, tmp_path)
+
+        before = conn.execute(
+            "SELECT source_type, source_id, status FROM release_candidates"
+            " WHERE source_id = 'Q140499690'"
+        ).fetchone()
+        after = fresh.execute(
+            "SELECT source_type, source_id, status FROM release_candidates"
+            " WHERE source_id = 'Q140499690'"
+        ).fetchone()
+        assert dict(after) == dict(before)
+        assert after["source_type"] == "wikidata"
+        assert after["status"] == "DISCOVERED"
+        fresh.close()
+
+
+# --- seeding, then resolving through the real lifecycle ---------------------
+
+
+class TestSeedThenVerify:
+    """Resolution is `verify()`'s job, not the seeder's. This is the exact
+    two-step sequence the CLI recommends (`seed-wikidata`, then `verify`),
+    driven through both real functions rather than asserted against a
+    stub — see `seed_wikidata`'s docstring for why the seeder no longer
+    does any matching of its own.
+    """
+
+    def test_an_already_catalogued_bottle_gets_merged(self, conn):
+        """R0038 in the real file: Lattafa Khamrah, wikidata_qid
+        Q140499690. A bottle already in the catalogue must not sit next to
+        it unresolved, and merging must not create a second node for it."""
+        add_fragrance(conn, "Lattafa Khamrah", brand="Lattafa", aliases=["Khamrah"])
+
+        seed_wikidata(conn, WIKIDATA_RELEASES)
+        verify(conn)
+
+        row = conn.execute(
+            "SELECT r.status, f.canonical_name FROM release_candidates r"
+            " JOIN fragrances f ON f.id = r.fragrance_id"
+            " WHERE r.source_id = 'Q140499690'"
+        ).fetchone()
+        assert row["status"] == "CATALOGED"
+        assert row["canonical_name"] == "Lattafa Khamrah"
+        assert conn.execute(
+            "SELECT count(*) FROM fragrances WHERE canonical_name = 'Lattafa Khamrah'"
+        ).fetchone()[0] == 1
+
+    def test_well_formed_new_releases_get_cataloged_through_the_real_lifecycle(
+        self, conn
+    ):
+        """Into an empty catalogue every seeded, well-formed release is
+        new — `verify` auto-catalogues each one with its brand and alias
+        recorded. This is the real behaviour change fix 3 buys: these 69
+        rows now actually enter the machine described in the module
+        docstring, rather than sitting inert at VERIFIED forever.
+
+        60 distinct fragrances rather than 69, measured against the real
+        file: three (house, name) pairs are seeded twice
+        (Calvin Klein/Eternity for Men, Mugler/Angel Nova, Mugler/Angel
+        Muse) and the rest of the gap is `verify`'s own dedup machinery
+        (identity matching, fuzzy full-name matching) correctly merging
+        near-duplicates within the batch itself — not a defect in either
+        seeding or verification."""
+        seed_wikidata(conn, WIKIDATA_RELEASES)
+        stats = verify(conn)
+
+        assert stats.verified == 69
+        assert stats.unresolved == 0
+        statuses = {
+            row["status"]
+            for row in conn.execute(
+                "SELECT DISTINCT status FROM release_candidates"
+                " WHERE source_type = 'wikidata'"
+            )
+        }
+        assert statuses == {"CATALOGED"}
+        assert conn.execute("SELECT count(*) FROM fragrances").fetchone()[0] == 60

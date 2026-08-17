@@ -285,6 +285,32 @@ Note that these files contain other people's comment text, retained under the
 source platform's API terms — committing the export is republication, so treat
 it as such.
 
+### A rebuild needs a few more commands
+
+`corpus import` restores everything the corpus holds — and nothing else.
+Two tables are *computed from* the corpus rather than stored in it, and a
+rebuild leaves them empty or silently stale:
+
+```bash
+uv run python -m fragrance_graph.attributes infer      # claim_attributions
+uv run python -m fragrance_graph.semantic backfill     # evidence_embeddings
+```
+
+A third table isn't computed from the corpus at all — it is *curated
+input*, committed separately under `data/curation/`, the same category as
+the corpus JSONL but not part of it. `corpus import` never reads it, so a
+rebuild leaves it empty too, for a different reason than the two above:
+
+```bash
+uv run python -m fragrance_graph.houses import         # houses
+```
+
+All three are free and take seconds. `corpus import` prints a notice
+naming whichever of them still need running, right after the import
+summary — see `fragrance_graph.houses`'s module docstring for why houses
+gets a separate, simpler check than `claim_attributions` and
+`evidence_embeddings` do.
+
 Ingest YouTube comments:
 
 ```bash

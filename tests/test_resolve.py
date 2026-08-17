@@ -24,9 +24,12 @@ from fragrance_graph.resolve.entities import (
 from fragrance_graph.resolve.names import (
     Candidate,
     best_match,
+    best_match_conservative_trailing_brand,
+    brand_tokens,
     looks_like_junk,
     normalize_name,
     similarity,
+    split_trailing_brand,
 )
 from tests.conftest import make_comment
 
@@ -137,6 +140,431 @@ def test_match_is_stable_regardless_of_candidate_order():
     forward = best_match("BR540", [BR540, KOSMALA])
     reverse = best_match("BR540", [KOSMALA, BR540])
     assert forward.fragrance_id == reverse.fragrance_id
+
+
+# --- trailing "by <brand>" ---------------------------------------------------
+#
+# data/experiments/delina-resolution-loss.md, "resolvable alias": the
+# catalogue held every one of these bottles, and the resolver missed two of
+# them because it strips a leading brand but not a trailing "by <brand>".
+#
+# `known_brands` below is built by hand from `brand_tokens`, not from a
+# fixture string like {"initio", "maison alhambra"}. That distinction
+# mattered: an earlier version of this file used fixtures matching the
+# brief's prose rather than the real catalogue, and every test passed
+# while the diagnostic's own headline case — "atomic rose by initio"
+# against the real `data/corpus/fragrances.jsonl` row, whose brand is
+# "Initio Parfums Prives" — still silently failed. See
+# `TestTheRealCatalogueShape` below for the case that would have caught
+# it.
+
+
+ATOMIC_ROSE = Candidate(1, "Atomic Rose", brand="Initio")
+DELILAH = Candidate(2, "Delilah", brand="Maison Alhambra")
+KHAMRAH = Candidate(4, "Khamrah", brand="Lattafa")
+LAYTON = Candidate(5, "Layton", brand="Parfums de Marly")
+
+KNOWN_HOUSES = {
+    brand_tokens(name)
+    for name in ("Initio", "Maison Alhambra", "Lattafa", "Parfums de Marly",
+                 "Dior", "Zara")
+}
+
+
+def test_the_exact_diagnostic_case_resolves():
+    """"atomic rose by initio" — the exact mention the diagnostic names,
+    against the exact catalogue shape it describes."""
+    match = best_match_conservative_trailing_brand(
+        "atomic rose by initio", [ATOMIC_ROSE, DELILAH], KNOWN_HOUSES
+    )
+    assert match is not None
+    assert match.fragrance_id == ATOMIC_ROSE.fragrance_id
+
+
+def test_the_diagnostics_second_case_resolves():
+    match = best_match_conservative_trailing_brand(
+        "delilah by maison alhambra", [ATOMIC_ROSE, DELILAH], KNOWN_HOUSES
+    )
+    assert match is not None
+    assert match.fragrance_id == DELILAH.fragrance_id
+
+
+def test_an_unrecognised_trailing_brand_does_nothing():
+    """"Time by Pink Floyd" is a song. Nothing may strip "Pink Floyd" off
+    the end of it, because nothing here has ever heard of Pink Floyd as a
+    fragrance house."""
+    assert split_trailing_brand("time by pink floyd", KNOWN_HOUSES) is None
+    assert (
+        best_match_conservative_trailing_brand(
+            "time by pink floyd", [ATOMIC_ROSE, DELILAH], KNOWN_HOUSES
+        )
+        is None
+    )
+
+
+def test_death_by_chocolate_does_not_resolve():
+    """"Chocolate" is not a fragrance house at all — a plainer version of
+    the Pink Floyd case, with a trailing word that is not even close to
+    one."""
+    assert best_match_conservative_trailing_brand(
+        "death by chocolate", [ATOMIC_ROSE, DELILAH, KHAMRAH, LAYTON], KNOWN_HOUSES
+    ) is None
+
+
+def test_brand_mismatch_is_rejected():
+    """"delilah by initio" — right name, wrong house. The catalogue's
+    Delilah belongs to Maison Alhambra, so a match here would silently
+    attribute her to the wrong brand."""
+    match = best_match_conservative_trailing_brand(
+        "delilah by initio", [ATOMIC_ROSE, DELILAH], KNOWN_HOUSES
+    )
+    assert match is None
+
+
+def test_khamrah_by_dior_is_rejected():
+    """Dior is a real, known fragrance house — just not Khamrah's. A
+    trailing brand being legitimate on its own is not enough; it still has
+    to be *this bottle's* house."""
+    match = best_match_conservative_trailing_brand(
+        "khamrah by dior", [KHAMRAH, LAYTON], KNOWN_HOUSES
+    )
+    assert match is None
+
+
+def test_layton_by_zara_is_rejected():
+    """Same shape, a second real house: Layton belongs to Parfums de
+    Marly, not Zara."""
+    match = best_match_conservative_trailing_brand(
+        "layton by zara", [KHAMRAH, LAYTON], KNOWN_HOUSES
+    )
+    assert match is None
+
+
+class TestABrandlessCandidateIsExcludedNotWavedThrough:
+    """Reviewer finding 1. An earlier version of this fix treated "the
+    catalogue row has no brand recorded" as "nothing to disagree with" and
+    let the check pass by default — but the mention is never silent about
+    the house, it names one, and a positive contradiction is not an
+    absence of evidence. "Kismet Angel by Dior" answers "did the commenter
+    name a bottle we can identify" with no, exactly as "kismet angel by
+    maison alhambra" does when the catalogue's own Kismet Angel row has no
+    brand to agree with. `retry_candidates` in
+    `best_match_conservative_trailing_brand` now excludes a brandless row
+    outright rather than matching it and finding nothing to veto with.
+    """
+
+    def test_kismet_angel_by_dior_does_not_resolve(self):
+        kismet = Candidate(30, "Kismet Angel")  # the real catalogue shape
+        known = {brand_tokens("Dior")}
+        assert best_match_conservative_trailing_brand(
+            "kismet angel by dior", [kismet], known
+        ) is None
+
+    def test_kismet_angel_by_maison_alhambra_does_not_resolve(self):
+        """The documented cost of closing finding 1: this exact mention
+        appears once in the real corpus (1 claim-end) and used to resolve
+        under the matched-then-vetoed version, because Kismet Angel's own
+        brand was never recorded. It stops resolving here — deliberately.
+        A curator recording the bottle's real brand (Lattafa) buys the
+        match back; a false merge onto the wrong house cannot be bought
+        back at all, which is why the miss is the cheaper failure."""
+        kismet = Candidate(30, "Kismet Angel")
+        known = {brand_tokens("Maison Alhambra")}
+        assert best_match_conservative_trailing_brand(
+            "Kismet Angel by Maison Alhambra", [kismet], known
+        ) is None
+
+
+class TestTheBrandFilterReachesEveryNamesakeNotOnlyTheFirst:
+    """Reviewer finding 4. `best_match` alone always returns the
+    lowest-`fragrance_id` candidate among several sharing a name or alias.
+    Matching first and vetoing after means only *that* candidate's brand
+    is ever checked — so a same-named bottle at a higher id, with the
+    brand the mention actually specifies, was never reached even though it
+    was sitting right there in the catalogue. Filtering by brand before
+    matching fixes both directions.
+    """
+
+    def test_the_correctly_branded_namesake_resolves_over_a_lower_id(self):
+        """id 1 is a same-named 'Delilah' from a different house; id 2 is
+        the Maison Alhambra one the mention actually names. The match-
+        then-veto version returned None here, because it only ever tried
+        id 1 and refused it — id 2 was never reached."""
+        wrong_house = Candidate(1, "Delilah", brand="Paris Corner")
+        right_house = Candidate(
+            2, "Maison Alhambra Delilah", brand="Maison Alhambra",
+            aliases=("Delilah",),
+        )
+        known = {brand_tokens("Paris Corner"), brand_tokens("Maison Alhambra")}
+        match = best_match_conservative_trailing_brand(
+            "delilah by maison alhambra", [wrong_house, right_house], known
+        )
+        assert match is not None and match.fragrance_id == right_house.fragrance_id
+
+    def test_a_brandless_lower_id_namesake_does_not_shadow_the_right_one(self):
+        """Sharper version of the same case: id 1 is brandless rather than
+        wrong-housed. The match-then-veto version returned id 1 outright —
+        the *wrong bottle*, not even a refusal — because a brandless row
+        skipped the veto entirely. Filtering excludes it before matching
+        ever runs, so id 2 is what's found."""
+        brandless = Candidate(1, "Delilah")
+        right_house = Candidate(
+            2, "Maison Alhambra Delilah", brand="Maison Alhambra",
+            aliases=("Delilah",),
+        )
+        known = {brand_tokens("Maison Alhambra")}
+        match = best_match_conservative_trailing_brand(
+            "delilah by maison alhambra", [brandless, right_house], known
+        )
+        assert match is not None and match.fragrance_id == right_house.fragrance_id
+
+
+def test_fuzzy_is_never_applied_to_the_stripped_form():
+    """Construct a near-miss the ordinary fuzzy path WOULD catch, and
+    confirm the trailing-brand retry still refuses it. Loosening this is
+    exactly how the diagnostic warns "Devil's Share" merges into "Angels'
+    Share"."""
+    near_miss = "atomic ros by initio"  # one letter short of "Atomic Rose"
+    fuzzy_would_match = best_match("atomic ros", [ATOMIC_ROSE])
+    assert fuzzy_would_match is not None and fuzzy_would_match.method == "fuzzy"
+
+    assert best_match_conservative_trailing_brand(
+        near_miss, [ATOMIC_ROSE, DELILAH], KNOWN_HOUSES
+    ) is None
+
+
+def test_a_mention_that_already_resolves_is_untouched():
+    """The retry is additional, never a replacement: a mention the plain
+    resolver already handles must resolve exactly as before."""
+    direct = best_match_conservative_trailing_brand(
+        "Atomic Rose", [ATOMIC_ROSE, DELILAH], KNOWN_HOUSES
+    )
+    assert direct is not None
+    assert direct.method == "exact"
+
+
+class TestAmbiguousPrefixesAreRefused:
+    """A prefix being unique is a different question from two brands
+    merely being related by prefix — and the first version of this fix
+    measured the wrong one ("217 brands, 2 pairwise collisions, both the
+    same house twice") and shipped it as the safety argument.
+
+    Measured on the real known-brand set (204 curated houses + every
+    distinct `fragrances.brand`, 217 distinct normalised brands): five
+    short prefixes are ambiguous across more than one real house —
+    'maison' (6: Alhambra, Crivelli, Francis Kurkdjian, Margiela, Matine,
+    Tahite), 'al' (3: Haramain, Majed Oud, Wataniah), 'parfums' (2: de
+    Marly, MDCI), 'marc' (2: Antoine Barrois, Jacobs), 'atelier' (2:
+    Cologne, des Ors). Built here by hand from the real house names
+    rather than by reading `data/curation/houses.jsonl`, so this suite
+    does not silently stop meaning anything if that file's contents
+    change later.
+
+    Confirmed live before this fix, against the real corpus: two raw
+    mentions of "Woody Oud by Maison" resolved to Maison Alhambra Woody
+    Oud — correct only because no other catalogued bottle happened to
+    share that name. `best_match` breaks exact ties by lowest
+    fragrance_id, i.e. by insertion order; an ambiguous prefix guards
+    nothing.
+    """
+
+    KNOWN_BRANDS = {
+        brand_tokens(name)
+        for name in (
+            "Initio",
+            "Maison Alhambra", "Maison Crivelli", "Maison Francis Kurkdjian",
+            "Maison Margiela", "Maison Matine", "Maison Tahite",
+            "Al Haramain", "Al Majed Oud", "Al Wataniah",
+            "Parfums de Marly", "Parfums MDCI",
+        )
+    }
+
+    def test_maison_alone_does_not_resolve(self):
+        """Six houses start with "Maison" — the real case that slipped
+        through the pairwise-collision measurement."""
+        woody_oud = Candidate(20, "Woody Oud", brand="Maison Alhambra")
+        assert split_trailing_brand("woody oud by maison", self.KNOWN_BRANDS) is None
+        assert best_match_conservative_trailing_brand(
+            "Woody Oud by Maison", [woody_oud], self.KNOWN_BRANDS
+        ) is None
+
+    def test_al_alone_does_not_resolve(self):
+        """Three houses start with "Al". ("Sahara", not "Some Bottle": a
+        short enough candidate name that "X by Al" cannot accidentally
+        clear `FUZZY_THRESHOLD` on the *direct* match before the
+        trailing-brand retry is ever reached — verified at 0.80, well
+        under the 0.88 floor.)"""
+        bottle = Candidate(21, "Sahara", brand="Al Haramain")
+        assert best_match_conservative_trailing_brand(
+            "Sahara by Al", [bottle], self.KNOWN_BRANDS
+        ) is None
+
+    def test_parfums_is_refused_for_ambiguity_not_merely_non_leading(self):
+        """A smaller known-brand set (just "Initio Parfums Prives") would
+        refuse "parfums" simply for not leading that one brand's tokens.
+        Here it leads two distinct known brands — "Parfums de Marly" and
+        "Parfums MDCI" — so confirm the refusal happens for the real
+        reason: it is not that no known brand starts with "parfums", it
+        is that more than one does."""
+        leading_parfums = [b for b in self.KNOWN_BRANDS if b[:1] == ("parfums",)]
+        assert len(leading_parfums) == 2
+
+        assert split_trailing_brand("x by parfums", self.KNOWN_BRANDS) is None
+
+    def test_an_unambiguous_prefix_still_resolves_in_the_same_set(self):
+        """"initio" is unambiguous even sitting in a known-brand set full
+        of collisions elsewhere — ambiguity is a property of the prefix,
+        not of the set as a whole."""
+        atomic_rose = Candidate(22, "Atomic Rose", brand="Initio")
+        match = best_match_conservative_trailing_brand(
+            "atomic rose by initio", [atomic_rose], self.KNOWN_BRANDS
+        )
+        assert match is not None and match.fragrance_id == 22
+
+    def test_an_exact_full_brand_still_resolves_despite_the_shared_prefix(self):
+        """"Maison Alhambra" is the exact, full brand — it must keep
+        working even though "maison" alone, a strict prefix of it, is
+        ambiguous. Candidate must carry that brand: a brandless row is
+        excluded by the filter before ambiguity is even relevant — see
+        `TestABrandlessCandidateIsExcludedNotWavedThrough`."""
+        woody_oud = Candidate(23, "Woody Oud", brand="Maison Alhambra")
+        match = best_match_conservative_trailing_brand(
+            "Woody Oud by Maison Alhambra", [woody_oud], self.KNOWN_BRANDS
+        )
+        assert match is not None and match.fragrance_id == 23
+
+
+class TestTheRealCatalogueShape:
+    """`data/corpus/fragrances.jsonl` actually has:
+
+        {"canonical_name": "Atomic Rose",
+         "brand": "Initio Parfums Prives", ...}
+
+    and `data/curation/houses.jsonl` spells the same house
+    "Initio Parfums Privés" — accented. A fixture using `brand="Initio"`
+    and a known-house set of `{"initio"}` never exercises either gap:
+    neither the accent (raw-string comparison never folds "privés" to
+    "prives") nor the short form (a commenter writing "by initio" against
+    a three-word catalogue brand). These tests fail against exact-string
+    brand matching and pass only with `brand_tokens` + prefix matching.
+    """
+
+    REAL_ATOMIC_ROSE = Candidate(10, "Atomic Rose", brand="Initio Parfums Prives")
+    REAL_KNOWN_HOUSES = {brand_tokens("Initio Parfums Privés")}  # as curated, accented
+
+    def test_the_short_form_resolves_against_the_real_brand(self):
+        match = best_match_conservative_trailing_brand(
+            "atomic rose by initio", [self.REAL_ATOMIC_ROSE], self.REAL_KNOWN_HOUSES
+        )
+        assert match is not None
+        assert match.fragrance_id == self.REAL_ATOMIC_ROSE.fragrance_id
+
+    def test_the_full_accented_spelling_also_resolves(self):
+        match = best_match_conservative_trailing_brand(
+            "atomic rose by initio parfums privés",
+            [self.REAL_ATOMIC_ROSE], self.REAL_KNOWN_HOUSES,
+        )
+        assert match is not None
+        assert match.fragrance_id == self.REAL_ATOMIC_ROSE.fragrance_id
+
+    def test_a_non_leading_token_does_not_match(self):
+        """"parfums" is the *second* word of "Initio Parfums Privés" — a
+        real substring, but never a prefix. Matching it would accept any
+        mention ending in a word that merely appears somewhere inside a
+        known house's name, which is exactly the "parfums"/"prives" alone
+        case the prefix rule exists to refuse."""
+        assert split_trailing_brand(
+            "atomic rose by parfums", self.REAL_KNOWN_HOUSES
+        ) is None
+        assert split_trailing_brand(
+            "atomic rose by privés", self.REAL_KNOWN_HOUSES
+        ) is None
+        assert best_match_conservative_trailing_brand(
+            "atomic rose by parfums", [self.REAL_ATOMIC_ROSE], self.REAL_KNOWN_HOUSES
+        ) is None
+
+
+# --- wired into backfill, end to end ----------------------------------------
+
+
+def test_backfill_resolves_the_trailing_brand_shape(conn):
+    """The same path pair-resolution uses end to end, not just the pure
+    matcher: `add_fragrance` sets the brand, a claim carries the mention
+    literally as a commenter would type it, and `backfill` — the function
+    `apply_batch`, the CLI, the daily run and the frontier evals all call —
+    has to resolve it without any special-casing at the call site."""
+    frag = add_fragrance(conn, "Atomic Rose", brand="Initio")
+    conn.execute(
+        "INSERT INTO houses (house_id, name) VALUES ('H1', 'Initio')"
+    )
+    conn.commit()
+    seed_claim(conn, subject="Atomic Rose", obj="atomic rose by initio")
+
+    stats = backfill(conn)
+    row = conn.execute(
+        "SELECT subject_frag_id, object_frag_id FROM claims"
+    ).fetchone()
+
+    assert row["object_frag_id"] == frag
+    assert stats.total == 2
+
+
+def test_backfill_resolves_the_real_catalogue_shape_end_to_end(conn):
+    """The shape `data/corpus/fragrances.jsonl` actually has: an
+    unaccented `brand`, a curated house name that is accented, and a
+    commenter who wrote neither — the short form. Exercises `known_brands`
+    (in `resolve.entities`) and the DB-backed `houses` table together, not
+    just the pure matcher."""
+    frag = add_fragrance(conn, "Atomic Rose", brand="Initio Parfums Prives")
+    conn.execute(
+        "INSERT INTO houses (house_id, name) VALUES ('H1', 'Initio Parfums Privés')"
+    )
+    conn.commit()
+    seed_claim(conn, subject="Atomic Rose", obj="atomic rose by initio")
+
+    backfill(conn)
+    row = conn.execute("SELECT object_frag_id FROM claims").fetchone()
+    assert row["object_frag_id"] == frag
+
+
+def test_backfill_rejects_a_brand_mismatch_end_to_end(conn):
+    add_fragrance(conn, "Delilah", brand="Maison Alhambra")
+    conn.execute(
+        "INSERT INTO houses (house_id, name) VALUES ('H1', 'Initio')"
+    )
+    conn.commit()
+    seed_claim(conn, subject="Unrelated Bottle", obj="delilah by initio")
+
+    backfill(conn)
+    row = conn.execute("SELECT object_frag_id FROM claims").fetchone()
+    assert row["object_frag_id"] is None
+
+
+def test_backfill_refuses_an_ambiguous_prefix_end_to_end(conn):
+    """Six houses share the leading word "Maison" in the real curated
+    data (see `TestAmbiguousPrefixesAreRefused`); built here by hand in
+    the `houses` table so the test does not depend on the exact contents
+    of data/curation/houses.jsonl. Exercises `known_brands`'s ambiguity
+    check through the DB-backed path, not just the pure matcher."""
+    frag = add_fragrance(conn, "Woody Oud", brand="Maison Alhambra")
+    for i, name in enumerate((
+        "Maison Alhambra", "Maison Crivelli", "Maison Francis Kurkdjian",
+        "Maison Margiela", "Maison Matine", "Maison Tahite",
+    )):
+        conn.execute(
+            "INSERT INTO houses (house_id, name) VALUES (%s, %s)", (f"H{i}", name)
+        )
+    conn.commit()
+    seed_claim(conn, subject="Unrelated Bottle", obj="woody oud by maison")
+
+    backfill(conn)
+    row = conn.execute("SELECT object_frag_id FROM claims").fetchone()
+    assert row["object_frag_id"] is None
+    # Sanity: the bottle really is there under that exact brand, so the
+    # refusal is about ambiguity, not a typo in the fixture.
+    assert conn.execute(
+        "SELECT canonical_name FROM fragrances WHERE id = %s", (frag,)
+    ).fetchone()[0] == "Woody Oud"
 
 
 # --- database round trip ----------------------------------------------------
