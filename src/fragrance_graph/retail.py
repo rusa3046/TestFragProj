@@ -83,6 +83,7 @@ from pathlib import Path
 import psycopg
 
 from fragrance_graph.db import DEFAULT_DB_URL, Row, get_connection, migrate
+from fragrance_graph.notes import extract_note_lists
 
 log = logging.getLogger("fragrance_graph.retail")
 
@@ -286,6 +287,15 @@ def _curated_row(record: dict) -> dict:
         "rights_basis": RIGHTS_BASIS,
         "image_ref_only": True,
         "variants": variants,
+        # The one thing read out of `description` before it is dropped:
+        # the explicit "Notes:" LIST, extracted by notes.extract_note_lists,
+        # which takes the factual list and nothing around it. The prose
+        # itself still never lands anywhere — this field holds note names,
+        # a declaration the retailer publishes as data on every listing.
+        "declared_notes": [
+            {"raw_note": n.raw_note, "stage": n.stage}
+            for n in extract_note_lists(record.get("description") or "")
+        ],
     }
 
 
@@ -423,7 +433,9 @@ def import_listings(
 # --- resolution: listings -> catalogue fragrances -----------------------
 
 
-def resolve_listings(conn: psycopg.Connection) -> ResolutionStats:
+def resolve_listings(
+    conn: psycopg.Connection, curated_path: Path = DEFAULT_CURATED_PATH
+) -> ResolutionStats:
     """Link every listing to a catalogue fragrance, conservatively.
 
     Recomputed from scratch for every listing on every call, not merely
@@ -487,7 +499,48 @@ def resolve_listings(conn: psycopg.Connection) -> ResolutionStats:
         if fragrance_id is not None:
             resolved += 1
     conn.commit()
+    _sync_declared_notes(conn, curated_path)
     return ResolutionStats(total=len(rows), resolved=resolved, unresolved=len(rows) - resolved)
+
+
+def _sync_declared_notes(
+    conn: psycopg.Connection, curated_path: Path = DEFAULT_CURATED_PATH
+) -> int:
+    """retailer_declared note claims for every RESOLVED listing.
+
+    Runs after resolution because a note claim needs a fragrance to
+    attach to; an unresolved listing's notes wait in the curated JSONL
+    until a curator resolves the listing, rather than attaching to a
+    guess. Like resolution, it re-derives from scratch: this declarer's
+    rows are deleted and rewritten, so a listing that stopped resolving
+    also stops declaring, and a re-run is idempotent.
+    """
+    from fragrance_graph.notes import DeclaredNote, store_claims
+
+    notes_by_key = {
+        (row["retailer"], row["retailer_item_id"]): row.get("declared_notes") or []
+        for row in _read_curated(curated_path)
+    }
+    conn.execute(
+        "DELETE FROM fragrance_note_claim WHERE claim_type = 'retailer_declared'"
+    )
+    written = 0
+    for row in conn.execute(
+        """SELECT retailer, retailer_item_id, url, retrieved_at, fragrance_id
+           FROM retailer_listings WHERE fragrance_id IS NOT NULL"""
+    ).fetchall():
+        for n in notes_by_key.get((row["retailer"], row["retailer_item_id"]), []):
+            written += store_claims(
+                conn, row["fragrance_id"],
+                [DeclaredNote(n["raw_note"], n.get("stage", "unspecified"))],
+                claim_type="retailer_declared",
+                source_name=row["retailer"],
+                source_url=row["url"],
+                retrieved_at=str(row["retrieved_at"] or "") or None,
+            )
+    conn.commit()
+    log.info("%d retailer-declared note claim(s) synced", written)
+    return written
 
 
 def unresolved_listings(conn: psycopg.Connection) -> list[Row]:
@@ -626,6 +679,88 @@ def render_coverage(stats: CoverageStats) -> str:
     ])
 
 
+#: The components a "complete" catalogue entry holds. Operational only:
+#: this drives the ingestion worklist and is NEVER a match score, never
+#: shown to a shopper, never an input to ranking. Each is (label, SQL
+#: returning the set of fragrance_ids that HAVE the component).
+COMPLETENESS_COMPONENTS: tuple[tuple[str, str], ...] = (
+    ("listing", "SELECT DISTINCT fragrance_id FROM retailer_listings"
+                " WHERE fragrance_id IS NOT NULL"),
+    ("price", "SELECT DISTINCT l.fragrance_id FROM retailer_listings l"
+              " JOIN retailer_variants v ON v.listing_id = l.id"
+              " WHERE l.fragrance_id IS NOT NULL AND v.price_usd IS NOT NULL"),
+    ("image ref", "SELECT DISTINCT fragrance_id FROM retailer_listings"
+                  " WHERE fragrance_id IS NOT NULL"
+                  " AND image_url IS NOT NULL AND image_url <> ''"),
+    ("declared notes", "SELECT DISTINCT fragrance_id FROM fragrance_note_claim"),
+    ("perceived notes", "SELECT DISTINCT subject_frag_id FROM claims"
+                        " WHERE claim_type = 'NOTE_DESCRIPTOR'"
+                        " AND subject_frag_id IS NOT NULL"
+                        " AND evidence_verified = 1 AND polarity = 'ASSERTED'"),
+    ("longevity evidence", "SELECT DISTINCT subject_frag_id FROM claims"
+                           " WHERE claim_type = 'LONGEVITY'"
+                           " AND subject_frag_id IS NOT NULL"
+                           " AND evidence_verified = 1 AND polarity = 'ASSERTED'"),
+    ("projection evidence", "SELECT DISTINCT subject_frag_id FROM claims"
+                            " WHERE claim_type = 'PROJECTION'"
+                            " AND subject_frag_id IS NOT NULL"
+                            " AND evidence_verified = 1 AND polarity = 'ASSERTED'"),
+    ("occasion evidence", "SELECT DISTINCT subject_frag_id FROM claims"
+                          " WHERE claim_type = 'OCCASION'"
+                          " AND subject_frag_id IS NOT NULL"
+                          " AND evidence_verified = 1 AND polarity = 'ASSERTED'"),
+    ("comparison evidence", "SELECT DISTINCT subject_frag_id FROM claims"
+                            " WHERE claim_type IN ('SIMILAR_TO','DUPE_OF','BETTER_THAN')"
+                            " AND subject_frag_id IS NOT NULL"
+                            " AND evidence_verified = 1 AND polarity = 'ASSERTED'"),
+)
+
+
+def completeness(conn: psycopg.Connection) -> list[dict]:
+    """Per-fragrance data completeness: which components exist, and the
+    fraction. Sorted most-complete first, so the BOTTOM of the list is
+    the ingestion worklist. Returns dicts so the CLI and tests share one
+    computation."""
+    names = {
+        row["id"]: row["canonical_name"]
+        for row in conn.execute("SELECT id, canonical_name FROM fragrances")
+    }
+    have: dict[str, set[int]] = {}
+    for label, sql in COMPLETENESS_COMPONENTS:
+        have[label] = {r[0] for r in conn.execute(sql)}
+    out = []
+    for fid, name in names.items():
+        components = {label: fid in ids for label, ids in have.items()}
+        out.append({
+            "fragrance_id": fid,
+            "name": name,
+            "components": components,
+            "score": sum(components.values()) / len(components),
+        })
+    out.sort(key=lambda r: (-r["score"], r["name"].lower()))
+    return out
+
+
+def render_completeness(rows: list[dict], *, worklist: int = 10) -> str:
+    lines = [f"{len(rows)} fragrance(s); components: "
+             + ", ".join(label for label, _ in COMPLETENESS_COMPONENTS), ""]
+    for r in rows[:15]:
+        pct = round(100 * r["score"])
+        missing = [k for k, v in r["components"].items() if not v]
+        lines.append(f"  {pct:3d}%  {r['name']}"
+                     + (f"  (missing: {', '.join(missing)})" if missing else ""))
+    if len(rows) > 15:
+        lines.append(f"  ... {len(rows) - 15} more")
+    incomplete = [r for r in reversed(rows) if r["score"] < 1.0][:worklist]
+    if incomplete:
+        lines += ["", f"Worklist (least complete {len(incomplete)}):"]
+        for r in incomplete:
+            missing = [k for k, v in r["components"].items() if not v]
+            lines.append(f"  {round(100 * r['score']):3d}%  {r['name']}"
+                         f"  needs: {', '.join(missing)}")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m fragrance_graph.retail",
@@ -645,6 +780,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("unresolved", help="Listings not yet linked to a catalogue fragrance.")
     sub.add_parser("coverage", help="Per-fragrance and aggregate retailer coverage.")
+    sub.add_parser(
+        "completeness",
+        help="Per-fragrance data completeness + the ingestion worklist. "
+             "Operational only — never a match score.",
+    )
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -674,6 +814,8 @@ def main(argv: list[str] | None = None) -> int:
             print(render_unresolved(unresolved_listings(conn)))
         elif args.command == "coverage":
             print(render_coverage(coverage(conn)))
+        elif args.command == "completeness":
+            print(render_completeness(completeness(conn)))
     finally:
         conn.close()
     return 0
