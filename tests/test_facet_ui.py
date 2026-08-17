@@ -102,6 +102,32 @@ class TestThePageAndTheApiCannotDrift:
         the page would mean someone started faking calibration."""
         assert not re.search(r"%\s*match", HTML, re.I)
 
+    def test_the_start_box_advances_to_the_results_it_computed(self):
+        """The first shipped kiosk had a working endpoint behind a silent
+        button: 'Tell FACET' updated the session (HTTP 200, five results
+        ready) and changed nothing on screen, because only the results
+        screen's refine box carried an after-action. Silent success reads
+        as broken — the user reported it as exactly that. The start box
+        must advance to the results it just computed."""
+        assert "sayThenShow" in HTML.split('$("#say-go")', 1)[1].split(";", 1)[0], (
+            "the start box's click handler no longer routes through "
+            "sayThenShow"
+        )
+        definition = HTML.split("const sayThenShow", 1)[1].split(
+            '$("#say-go")', 1
+        )[0]
+        assert 'show("results")' in definition
+        assert "refreshQueue" in definition
+
+    def test_a_failed_say_is_visible_not_console_only(self):
+        """fetch failures inside handleSay must surface on the page; a
+        console-only error is indistinguishable from a dead button."""
+        handler = HTML.split("async function handleSay", 1)[1].split(
+            "document.addEventListener", 1
+        )[0]
+        assert "catch" in handler
+        assert "renderNote(" in handler.split("catch", 1)[1]
+
 
 class TestTheKioskFlowsEndToEnd:
     def test_a_chip_a_sentence_and_a_queue(self, client, conn):
