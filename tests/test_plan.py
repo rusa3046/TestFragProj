@@ -93,6 +93,35 @@ class TestAComplaintIsNotARequest:
         assert got.soft[0].value == "vanilla"
         assert got.soft[0].direction is Direction.LESS_THAN_ANCHOR
 
+    def test_the_mirror_shape_its_too_warm_is_also_a_complaint(self):
+        """"i like side effect but its too warm" — pronoun subject, the
+        attribute AFTER "too". The first shipped kiosk read `warm` as a
+        positive vibe preference and recommended the warmest bottle it
+        could cite: a user filed it as a bug, correctly. The two "too"
+        shapes must land in the same place."""
+        got = plan("i like delina but its too warm")
+        (pref,) = got.soft
+        assert pref.value == "warm"
+        assert pref.direction is Direction.LESS_THAN_ANCHOR
+
+    def test_too_x_without_an_anchor_is_a_plain_avoid(self):
+        got = plan("something not heavy, and definitely not too sweet")
+        assert all(p.direction is not Direction.HIGH for p in got.soft)
+
+    def test_not_too_x_stays_with_the_negation_reader(self):
+        """"not too sweet" was already read by the negation patterns;
+        the new TOO_X rule must not double-fire on it."""
+        got = plan("khamrah but not too sweet")
+        sweet = [p for p in got.soft if p.value == "sweet"]
+        assert len(sweet) == 1
+        assert sweet[0].direction is Direction.LOW
+
+    def test_too_much_alone_names_no_attribute(self):
+        """"it's too much" carries no attribute; nothing may be read
+        from it."""
+        got = plan("i love delina but its too much")
+        assert "much" not in {p.value for p in got.soft}
+
 
 # --- negation --------------------------------------------------------------
 
