@@ -277,3 +277,78 @@ class TestTheRunSummary:
         assert "if: always()" in summary
         assert "loop-log" in summary
         assert "Loop needs a decision" not in summary
+
+
+def _workflow() -> str:
+    from pathlib import Path
+
+    return Path(".github/workflows/daily.yml").read_text(encoding="utf-8")
+
+
+def _step(name: str) -> str:
+    return _workflow().split(name, 1)[1].split("- name:", 1)[0]
+
+
+class TestThePublishedSiteIsBuiltFromACompleteDatabase:
+    """`corpus import` restores everything the corpus *stores*. Two tables
+    are computed from it instead, and the scheduled rebuild skipped both.
+
+    Nothing errored. The site built, deployed, and served answers — just
+    fewer of them, because `claim_attributions` was empty and every row in
+    `evidence_embeddings` pointed at a claim id the import had deleted.
+    Measured on this corpus: two of the eight curated questions rendered
+    "no candidates met the evidence bar" for no reason but this.
+
+    That is the failure worth a test. A deploy that breaks gets fixed; a
+    deploy that quietly publishes less looks like a corpus with less to
+    say.
+    """
+
+    def test_the_rebuild_recomputes_what_an_import_cannot_restore(self):
+        from fragrance_graph.corpus import DERIVED_TABLES
+
+        rebuild = _step("Rebuild the database from the committed corpus")
+        commands = "\n".join(
+            line for line in rebuild.splitlines()
+            if not line.strip().startswith("#")
+        )
+        for _table, (command, _live_sql) in DERIVED_TABLES.items():
+            assert command in commands, (
+                f"the scheduled rebuild never runs `{command}`, so the "
+                "published site is missing answers it has the evidence for"
+            )
+
+    def test_a_stale_rebuild_stops_the_run_rather_than_publishing(self):
+        """The same notice the import CLI prints, made fatal. A scheduled
+        run has nobody to read a warning."""
+        check = _step("Check the rebuild actually landed")
+        assert "rebuild_notice" in check and "derived_state" in check
+        assert "sys.exit(notice)" in check
+
+
+class TestPublishingDoesNotRequireSpending:
+    """Publishing and collecting used to be one button, so shipping a code
+    change to the live site meant running the paid loop. Pages are a pure
+    derivation from the committed corpus; the two are now separable.
+    """
+
+    def test_every_paid_or_writing_step_is_gated(self):
+        for name in ("Run the loop", "Export the corpus", "Commit anything new"):
+            assert "env.COLLECT == 'true'" in _step(name), (
+                f"{name!r} would run on a publish-only dispatch"
+            )
+
+    def test_building_and_publishing_are_not_gated(self):
+        """The whole point of the flag is that these still happen."""
+        for name in ("Build the pages", "Package the pages"):
+            assert "env.COLLECT" not in _step(name)
+
+    def test_a_scheduled_run_still_collects(self):
+        """A schedule carries no inputs. If the expression got that wrong
+        the unattended loop would quietly stop doing the only thing it
+        exists to do, and the site would keep deploying and look fine."""
+        workflow = _workflow()
+        assert (
+            "COLLECT: ${{ github.event_name != 'workflow_dispatch' "
+            "|| inputs.collect }}"
+        ) in workflow

@@ -25,6 +25,19 @@ on:
     # Mondays and Thursdays, 06:00 UTC. Cron here is always UTC.
     - cron: "0 6 * * 1,4"
   workflow_dispatch:        # and a button, for running it by hand
+    inputs:
+      collect:
+        # Publishing and collecting were welded together: the only way to
+        # get a code change onto the live site was to run the paid loop,
+        # so "the site is a day stale" and "spend up to the cap" were the
+        # same button. They are separable — pages are a pure derivation
+        # from the committed corpus — and now they are separate.
+        description: >-
+          Collect and extract (spends up to the daily cap).
+          Off rebuilds and republishes the site from the committed corpus,
+          which costs nothing.
+        type: boolean
+        default: true
 
 permissions:
   contents: write           # commits the corpus back
@@ -53,6 +66,10 @@ jobs:
     # corpus.
     env:
       FRAGRANCE_DB_URL: postgresql://postgres:postgres@localhost:5432/fragrance_graph
+      # Written once and read by the four steps that cost money or write
+      # back. A schedule carries no inputs, so "not a dispatch" means
+      # collect — the unattended loop keeps behaving exactly as before.
+      COLLECT: ${{ github.event_name != 'workflow_dispatch' || inputs.collect }}
     # A throwaway server for the length of the run. The database is
     # derived: `corpus import` rebuilds it from the committed JSONL in
     # seconds, and nothing in it outlives the job. Which is why no volume
@@ -85,9 +102,20 @@ jobs:
       - run: uv sync --extra dev
 
       - name: Rebuild the database from the committed corpus
+        # The last two lines are not optional and their absence was silent.
+        # `claim_attributions` and `evidence_embeddings` are computed from
+        # the corpus rather than stored in it, so an import never restores
+        # them: attributions cascade to empty, and every embedding survives
+        # pointing at a claim id the import already deleted. Both failures
+        # publish a *working* site that is quietly missing answers —
+        # measured on this corpus, two of the eight curated questions on
+        # /ask rendered "no candidates met the evidence bar" for no reason
+        # other than this step stopping one line too early.
         run: |
           uv run python -m fragrance_graph.db init
           uv run python -m fragrance_graph.corpus import
+          uv run python -m fragrance_graph.attributes infer
+          uv run python -m fragrance_graph.semantic backfill
 
       - name: Check the rebuild actually landed
         # An import into the wrong database reports success just as
@@ -99,6 +127,7 @@ jobs:
 
           import psycopg
 
+          from fragrance_graph.corpus import derived_state, rebuild_notice
           from fragrance_graph.db import get_connection
           try:
               c = get_connection()
@@ -112,10 +141,19 @@ jobs:
           if not n:
               sys.exit('Rebuild did not land: no fragrances. Refusing to run '
                        'the loop against an empty database.')
+          # The derived tables are the half of the rebuild that fails
+          # quietly: nothing errors, the site still builds, and the missing
+          # answers look like a corpus that simply has less to say. The
+          # same check the import CLI prints, made fatal here, because a
+          # scheduled run has nobody to read a warning.
+          notice = rebuild_notice(derived_state(c))
+          if notice:
+              sys.exit(notice)
           "
 
       - name: Run the loop
         id: loop
+        if: env.COLLECT == 'true'
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           FRAGRANCE_ANTHROPIC_API_KEY: ${{ secrets.FRAGRANCE_ANTHROPIC_API_KEY }}
@@ -135,9 +173,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Export the corpus
+        if: env.COLLECT == 'true'
         run: uv run python -m fragrance_graph.corpus export
 
       - name: Commit anything new
+        if: env.COLLECT == 'true'
         run: |
           git config user.name  "fragrance-graph bot"
           git config user.email "noreply@github.com"
@@ -187,7 +227,10 @@ jobs:
         # One issue, commented on. A new issue per run would be a mailbox
         # nobody reads, which is the failure mode of every status email
         # ever built.
-        if: always()
+        #
+        # A publish-only run has no log and collected nothing, so it has
+        # nothing to report here. The step below still speaks if it *failed*.
+        if: always() && env.COLLECT == 'true'
         uses: actions/github-script@v7
         with:
           script: |
