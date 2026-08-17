@@ -401,7 +401,16 @@ async function handleSay(inputSel, after) {
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
-  const body = await say(text);
+  let body;
+  try {
+    body = await say(text);
+  } catch (err) {
+    // Chrome, not evidence: a connectivity failure must be visible, not
+    // a console-only death that reads as a dead button.
+    input.value = text;
+    renderNote("FACET could not reach its engine just now — try again.");
+    return;
+  }
   renderNote(body.note);
   renderUnexpressed(body.unexpressed);
   if (after) await after();
@@ -426,9 +435,14 @@ document.addEventListener("click", async (event) => {
   }
 });
 
-$("#say-go").addEventListener("click", () => handleSay("#say-input"));
+// The start box advances to the matches it just computed. Without this
+// it was a working endpoint behind a silent button: the session updated,
+// nothing visible changed, and "works silently" reads as "broken".
+const sayThenShow = () =>
+  handleSay("#say-input", async () => { show("results"); await refreshQueue(); });
+$("#say-go").addEventListener("click", sayThenShow);
 $("#say-input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") handleSay("#say-input");
+  if (e.key === "Enter") sayThenShow();
 });
 $("#to-results").addEventListener("click", async () => {
   show("results");
