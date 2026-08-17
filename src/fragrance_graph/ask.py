@@ -28,15 +28,16 @@ from __future__ import annotations
 
 import html
 import logging
-import re
 
 import psycopg
 
+from fragrance_graph.pages import slugify
 from fragrance_graph.recommend import (
     Answer,
     Recommendation,
     _people,
     _sources,
+    digest,
     recommend,
 )
 
@@ -61,34 +62,65 @@ def ask_slug(slug: str) -> str:
 
 
 def profile_slug(name: str) -> str:
-    clean = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return f"about-{clean}.html"
+    """Delegates to `pages.slugify` rather than running its own copy of
+    the same regex — the two used to disagree on accents until
+    `pages.slugify` grew `fold_accents`; see its docstring for what that
+    fixed and what it cost."""
+    return f"about-{slugify(name)}.html"
 
 
 def _card(candidate: Recommendation) -> list[str]:
-    """One recommendation, phrased only by `Reason.phrase()`."""
+    """One recommendation: `digest()` up front, everything else behind a
+    `<details>` a reader opens on purpose.
+
+    User feedback, verbatim: "when someone selects a query they should
+    get a summary max 2 sent that summarizes the comments and then they
+    can select if they want the comments. its messy and annoying to read
+    rn." `digest()` is the only new wording on this page — it is produced
+    by the audited layer, exactly like every phrase this function already
+    rendered, and this function still never composes a sentence of its
+    own around any of it. The full reason/caveat list is unchanged; it is
+    only relocated, and its own counts are what `digest`'s second
+    sentence already states, carried rather than restated a second way.
+    """
     e = html.escape
     out = [f"<article><h3>{e(candidate.name)}</h3>"]
-    if candidate.reasons:
-        out.append("<p>Why it matches:</p><ul>")
-        out += [f"<li>{e(r.phrase())}</li>" for r in candidate.reasons]
-        out.append("</ul>")
-    if candidate.caveats:
-        out.append("<p>Worth knowing:</p><ul>")
-        out += [f"<li>{e(r.phrase())}</li>" for r in candidate.caveats]
-        out.append("</ul>")
-    if candidate.unmatched:
+    summary = digest(candidate)
+    if summary:
+        out.append(f"<p class=digest>{e(summary)}</p>")
+    else:
+        # `digest` returns "" whenever every reason on the card is a
+        # `semantic` quote — real today, not a hypothetical: "an
+        # expensive hotel lobby" retrieves candidates through the vector
+        # layer alone, and a card standing entirely on one quoted remark
+        # has nothing else to summarise. See `digest`'s own docstring for
+        # why quotes are excluded rather than folded in. The counts still
+        # have to stay visible on the collapsed card either way.
         out.append(
+            f"<p class=digest>{e(_people(candidate.people))} across "
+            f"{e(_sources(candidate.creators))} behind everything cited.</p>"
+        )
+    details: list[str] = []
+    if candidate.reasons:
+        details.append("<p>Why it matches:</p><ul>")
+        details += [f"<li>{e(r.phrase())}</li>" for r in candidate.reasons]
+        details.append("</ul>")
+    if candidate.caveats:
+        details.append("<p>Worth knowing:</p><ul>")
+        details += [f"<li>{e(r.phrase())}</li>" for r in candidate.caveats]
+        details.append("</ul>")
+    if candidate.unmatched:
+        details.append(
             "<p><em>No evidence either way for: "
             f"{e(', '.join(candidate.unmatched))}</em></p>"
         )
-    # The same pluralising helpers every audited renderer uses, because
-    # "1 people across 1 channel(s)" is exactly the kind of chrome that
-    # makes a provenance-obsessed site look like it never read itself.
-    out.append(
-        f"<p class=ev>{e(_people(candidate.people))} across "
-        f"{e(_sources(candidate.creators))} behind everything cited</p>"
-    )
+    if details:
+        out.append(
+            f"<details><summary>show the comments "
+            f"({e(str(candidate.people))})</summary>"
+        )
+        out += details
+        out.append("</details>")
     out.append("</article>")
     return out
 

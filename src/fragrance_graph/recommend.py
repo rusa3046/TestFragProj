@@ -47,6 +47,7 @@ failed hard constraint removes a candidate silently rather than producing
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 import psycopg
@@ -195,6 +196,197 @@ class Recommendation:
             f"  evidence: {_people(self.people)} across {_sources(self.creators)}"
         )
         return "\n".join(lines)
+
+
+def _join_and(items: list[str]) -> str:
+    """"a", "a and b", "a, b and c" — the join every list-of-words surface
+    on the site uses, so a generated sentence reads like a sentence and
+    not a comma-dumped array."""
+    items = list(items)
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+#: The leading count-and-channels clause every `kind="graph"` `Reason.text`
+#: starts with — see `_score` and `_compare`. Trimmed off when a graph
+#: reason contributes a digest clause, because the count reappears in the
+#: digest's own second sentence and repeating it turns "9 people ...
+#: compared this with Delina. 9 people across 6 channels behind everything
+#: cited." into the norm rather than the count meaning something once.
+_GRAPH_LEAD = re.compile(r"^(?:\d+ (?:person|people) across \d+ channels? )")
+
+#: Sentence-ending punctuation that could add a sentence `digest()` never
+#: promised. See `_strip_sentence_ends`.
+_SENTENCE_END = re.compile(r"[.!?…]")
+
+
+def _strip_sentence_ends(text: str) -> str:
+    """A fragment about to be embedded inside a still-longer sentence,
+    with any of its own sentence-ending punctuation removed.
+
+    `digest()` embeds real text it did not write — a catalogue name, a
+    note value, the topic of a disagreement — and unlike `Reason.phrase()`
+    it promises a hard cap on sentence count. Four real catalogue names
+    carry a period today ("Chanel No. 5", "Thomas Kosmala No. 4", "Afnan
+    N.O.I", "Juliette Has a Gun Pear Inc."), and any of them reaching a
+    comparison anchor would otherwise defeat the cap on contact — the cap
+    has to hold structurally, not because nothing embedded happens to be
+    clean today.
+    """
+    return _SENTENCE_END.sub("", text)
+
+
+def _graph_clause(text: str) -> str:
+    """A graph reason's own text, trimmed and moved to the tense a
+    one-line summary reads in — "compared this with Delina" becomes
+    "compare this to Delina". Nothing here can invent a bottle name: the
+    text this reads is `Reason.text`, already built and audited by
+    `_score`/`_compare`, and every word beyond the tense change is carried
+    verbatim (less any sentence-ending punctuation the caller strips).
+    """
+    stripped = _GRAPH_LEAD.sub("", text, count=1)
+    if stripped.startswith("compared this with "):
+        return "compare this to " + stripped[len("compared this with "):]
+    if stripped.startswith("connected these two"):
+        return "connect these two"
+    return stripped
+
+
+def _weak_fallback(everything: list[Reason]) -> str:
+    """The lead, when nothing on the card is declarable enough to state.
+
+    `phrase()` is already worded for exactly this case — "one commenter
+    said", "3 people said ... rather than naming it" — so this reuses it
+    rather than re-deriving the rule a second time in a second place.
+    Stripped of sentence-ending punctuation for the same reason every
+    other embedded fragment is: `phrase()` can itself embed a
+    period-bearing catalogue name (a `kind="graph"` or `"comparative"`
+    reason names the anchor), and the fallback is not exempt from the
+    two-sentence cap just because it is the safe path.
+
+    Not capitalised: this is `Reason.phrase()`'s own output, and "worded
+    exactly as weakly as the card states it standing alone" only holds if
+    nothing here even changes its case. `phrase()` already reads fine
+    sentence-initial in lowercase, the same way it does starting a bullet
+    in `explain()`.
+    """
+    best = max(everything, key=lambda r: r.people)
+    return _strip_sentence_ends(best.phrase()).strip()
+
+
+def digest(recommendation: Recommendation) -> str:
+    """A deterministic, at-most-two-sentence summary of a card.
+
+    Composed only from what the card already carries — `reasons`,
+    `caveats`, `people`, `creators` — so nothing here can say more than
+    the full card underneath it already says; this is a shorter
+    arrangement of the same audited words, not a new inference, and every
+    word traces back to a `Reason` the card already has. It exists
+    because the full reason list read as noise: "when someone selects a
+    query they should get a summary max 2 sent ... its messy and annoying
+    to read rn" (user feedback). `ask._card` puts this where the full list
+    used to lead and moves the list itself behind `<details>`.
+
+    Two exclusions keep it safe rather than merely short:
+
+    - **`semantic` reasons never contribute a clause.** They quote a
+      commenter's own words verbatim (`someone described it as
+      {text!r}`), which can carry any punctuation a YouTube comment can —
+      exactly the free text this file's whole discipline treats
+      differently from a graded attribute. It stays visible in the
+      collapsed detail list, next to the quotes it actually is, and never
+      reaches the always-visible two sentences.
+    - **Only `declarable` reasons are named as settled fact.** The card's
+      weaker reasons are still readable — the full list is one click away
+      — but the lead sentence never upgrades a one-person remark into
+      "people say". When nothing on the card clears that bar, the lead
+      falls back to `_weak_fallback`.
+
+    Three more rules, added after reading the built pages rather than only
+    testing them — a card whose only declarable fact was three people
+    saying "dates" still read as "People **mostly** call it dates", which
+    claims a distribution the declarable subset cannot support when the
+    card's larger, non-declarable facts (fifteen people, inferred) are the
+    ones sitting right below it:
+
+    - **No distribution word.** Never "mostly", "mainly", "generally" —
+      this function does not compute a share of the card's reasons, only
+      names the declarable ones, so a word claiming a majority would be
+      asserting something nobody counted.
+    - **The disagreement clause names the attribute, not "attribute
+      value".** `Reason.text` for a sentiment axis is `"{attribute}
+      {value}"` (`"projection strong"`), which reads as English only for
+      the value half; naming just the first word ("projection") is
+      grammatical without needing a per-attribute phrase table this file
+      has no other reason to maintain.
+    - **The tail attributes the count to the card, never to the one named
+      fact.** Sentence one may name a 3-person fact; sentence two states
+      what the *whole card* has behind it, which is a different, larger
+      number. "N people across M channels behind everything cited" — the
+      wording the collapsed `<p class=ev>` line used before this function
+      existed — says that; "N people are behind *that*" does not.
+
+    Every fragment this function embeds — a catalogue name, a note value,
+    a disagreement topic — is run through `_strip_sentence_ends` before
+    joining, and the fully assembled result is counted afterward as a
+    structural backstop: sanitising each piece is what should make the cap
+    hold, the count is what makes sure it did.
+    """
+    facts = [r for r in recommendation.reasons if r.kind != "semantic"]
+    caveats = [r for r in recommendation.caveats if r.kind != "semantic"]
+    everything = facts + caveats
+    if not everything:
+        return ""
+
+    graph = next(
+        (r for r in facts if r.kind == "graph" and r.declarable), None
+    )
+    declarable = sorted(
+        (r for r in facts if r.declarable and r is not graph),
+        key=lambda r: -r.people,
+    )[:3]
+
+    clauses = []
+    if graph is not None:
+        clauses.append(_strip_sentence_ends(_graph_clause(graph.text)))
+    if declarable:
+        named = _join_and([_strip_sentence_ends(r.text) for r in declarable])
+        clauses.append(f"call it {named}")
+
+    lead = f"People {_join_and(clauses)}" if clauses else _weak_fallback(everything)
+
+    contested = [r for r in everything if r.against]
+    if contested:
+        worst = max(contested, key=lambda r: r.against)
+        # The attribute alone, not "attribute value" — see the docstring.
+        # For a note/vibe fact `text` is already just the value ("sweet"),
+        # a single word, so splitting on the first space is a no-op there
+        # and the correct extraction for a sentiment axis either way.
+        topic = _strip_sentence_ends(worst.text).split(" ", 1)[0]
+        lead += (
+            f" — though {worst.against} of {worst.against + worst.people} "
+            f"disagree on {topic}"
+        )
+
+    lead = f"{lead}." if lead else lead
+    tail = (
+        f"{_people(recommendation.people)} across "
+        f"{_sources(recommendation.creators)} behind everything cited."
+    )
+    text = f"{lead} {tail}" if lead else tail
+
+    # Structural backstop, not the primary guard: if sanitising every
+    # embedded fragment individually still somehow left more than two
+    # sentences — a case nobody has found, which is exactly why this
+    # exists rather than trusting that absence — fall back to the single
+    # safest lead rather than ship whatever was assembled.
+    if len(_SENTENCE_END.findall(text)) > 2:
+        safe_lead = _weak_fallback(everything)
+        text = f"{safe_lead}. {tail}" if safe_lead else tail
+    return text
 
 
 @dataclass

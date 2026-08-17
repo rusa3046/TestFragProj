@@ -74,6 +74,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import logging
 import re
 from collections import Counter
@@ -91,7 +92,7 @@ from fragrance_graph.gate import (
     MIN_SOURCES,
 )
 from fragrance_graph.query import Related, pair_stats, similar_to
-from fragrance_graph.resolve.names import debranded, normalize_name
+from fragrance_graph.resolve.names import debranded, fold_accents, normalize_name
 
 #: Re-exported so `from fragrance_graph.pages import MIN_COMMENTERS` keeps
 #: working; `gate.py` is where they are defined and explained.
@@ -670,9 +671,32 @@ def slugify(name: str) -> str:
     """A filename that survives a fragrance name.
 
     Names carry apostrophes, ampersands and accents — `Kilian Angels'
-    Share`, `Abercrombie & Fitch Fierce` — none of which belong in a path.
+    Share`, `Abercrombie & Fitch Fierce`, `Hermès Eau d'Orange Verte` —
+    none of which belong in a path.
+
+    Accents are folded via `fold_accents` (NFKD, drop combining marks)
+    *before* the `[^a-z0-9]` pass, so an accented letter survives as its
+    base letter rather than being treated like punctuation and replaced
+    with a hyphen. Before this fix `slugify("Hermès...")` produced
+    "herm-s-...", one hyphen per accent, which is what
+    `ask.profile_slug` inherited too — it now calls this function rather
+    than running its own copy of the same broken regex.
+
+    Fixing this changes the slug of any name that was already accented,
+    which is a cost worth weighing once here rather than guessing at
+    every call site. On the corpus as committed it touches exactly two
+    pages: "Hermès Eau d'Orange Verte" was added in the same commit as
+    this fix (5100c97) and has never been deployed, so no published URL
+    breaks. "Parfums de Marly Delina La Rosée" was curated much earlier
+    (645c662); its profile page is almost certainly already live on the
+    deployed site, and this fix changes that URL too
+    (about-parfums-de-marly-delina-la-ros-e.html ->
+    about-parfums-de-marly-delina-la-rosee.html). That is a real cost
+    outside what this fix was scoped to absorb — flagged rather than
+    silently eaten, for whoever owns the deploy to decide (a redirect
+    stub, or accepting the one-time break) rather than discover it later.
     """
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    slug = re.sub(r"[^a-z0-9]+", "-", fold_accents(name).lower()).strip("-")
     return slug or "unnamed"
 
 
@@ -1173,6 +1197,440 @@ def render_index(
     return "\n".join(out) + "\n"
 
 
+# --- the client-side query box ----------------------------------------------
+#
+# Everything below is navigation, not evidence. The rule the rest of this
+# file enforces structurally — every sentence about evidence comes from
+# `Reason.phrase()` or `recommend.digest()`, nothing else composes one — is
+# the same rule this section exists to keep on the *other* side of a much
+# brighter line: the browser. JavaScript here may look up a bottle, a pair
+# or a question in data this same build already wrote to disk, and it may
+# route to the page that answers it. It may never build a sentence that
+# claims what the corpus says, because nothing downstream would audit that
+# sentence — `audit.py` reads rendered HTML and Python strings; it does not
+# run a browser. So the contract is structural instead: the query box can
+# say a bottle's *name*, and it can turn a page on or off. It cannot say
+# what anyone said about that bottle.
+
+
+def build_search_index(
+    conn: psycopg.Connection,
+    pairs: list[Pair],
+    profiles: list[tuple],
+    asked: list[tuple[str, str]],
+) -> dict:
+    """The client-side query box's whole world, as plain data.
+
+    Derived from exactly the queries the pages themselves already used to
+    build — `pairs` is `qualifying_pairs`' own return value, `profiles` is
+    `ask.profile_pages`' own return value, `asked` is `ask.QUESTIONS` — so
+    every slug this index hands the browser is a slug `build` already
+    wrote a file for. Nothing here re-derives what counts as a page; it
+    only re-shapes what already got built into something a browser can
+    look up without asking a server.
+
+    `attributes` reuses the identical gate `_profile` uses for what
+    appears as a reason on a profile page (`fact.strength.may_retrieve`,
+    restricted to `note`/`vibe` facts — the words a chip or a "less X"
+    query would ever name) rather than a fresh query with its own rules
+    that could quietly drift from what the profile page itself shows.
+    """
+    from fragrance_graph.evidence import Attribution, attribute_facts
+
+    rows = {
+        row["canonical_name"]: row
+        for row in conn.execute(
+            "SELECT id, canonical_name, brand, aliases FROM fragrances"
+        )
+    }
+
+    bottles = []
+    attributes = []
+    for name, slug, _answer in profiles:
+        row = rows.get(name)
+        aliases: list[str] = []
+        brand = None
+        if row is not None:
+            brand = row["brand"]
+            try:
+                aliases = sorted(json.loads(row["aliases"] or "[]"))
+            except json.JSONDecodeError:
+                aliases = []
+        bottles.append(
+            {"name": name, "aliases": aliases, "brand": brand, "slug": slug}
+        )
+        if row is None:
+            continue
+        for fact in attribute_facts(
+            conn, fragrance_id=row["id"], attribution=Attribution.PROPOSED
+        ):
+            if fact.attribute in ("note", "vibe") and fact.strength.may_retrieve:
+                attributes.append({"bottle_slug": slug, "attribute": fact.value})
+
+    # Deduplicated and sorted: `attribute_facts` can return more than one
+    # fact for the same (bottle, value) — a NOTE_DESCRIPTOR and an AESTHETIC
+    # both landing on "sweet", say — and the chip UI wants one chip per
+    # distinct word, not one per underlying claim row.
+    deduped = sorted({(a["bottle_slug"], a["attribute"]) for a in attributes})
+
+    return {
+        "bottles": sorted(bottles, key=lambda b: b["name"]),
+        "pairs": [
+            {"a": p.left, "b": p.right, "slug": f"{p.slug}.html"} for p in pairs
+        ],
+        "asks": [
+            {"question": q, "slug": _ask_slug(slug)} for slug, q in asked
+        ],
+        "attributes": [
+            {"bottle_slug": slug, "attribute": value} for slug, value in deduped
+        ],
+    }
+
+
+def _ask_slug(slug: str) -> str:
+    """Avoids a module-level import of `ask.py` — see `build`'s own
+    comment on why the reference stays lazy and one-directional."""
+    from fragrance_graph.ask import ask_slug
+
+    return ask_slug(slug)
+
+
+#: The static half of the query box: the form, the pre-rendered bottle
+#: list, and the refusal block a visitor sees when nothing matches. Server-
+#: rendered so `audit.py` — which reads HTML, not JavaScript — sees the
+#: same honest wording a stranger would, per `render_full_index`.
+def render_query_box(
+    profiles: list[tuple], index_data: dict
+) -> str:
+    """The search box, the "I like ___" chips, and the logic behind both.
+
+    `profiles` supplies the `<select>`'s options directly, server-rendered
+    at build time — the base bottle list exists with JavaScript disabled,
+    the same way the rest of this site does. `index_data` is embedded
+    whole as a `<script type="application/json">` block rather than
+    fetched: `fetch()` of a same-origin file fails under `file://`, which
+    is exactly how a page like this gets opened to check it, and an
+    inline blob keeps "no server, nothing to fall over during a demo" —
+    this file's own stated design goal — true for the search box too.
+    """
+    e = html.escape
+    options = "".join(
+        f'<option value="{e(slug)}">{e(name)}</option>'
+        for name, slug, _ in profiles
+    )
+    # `json.dumps` escapes quotes and backslashes but not `</script>` — and
+    # per the HTML spec a <script> element (any `type`, including
+    # `application/json`) ends at the first literal `</script`, regardless
+    # of JSON syntax. A bottle name or alias containing
+    # `</script><script>alert(1)</script>` would otherwise terminate this
+    # data island early and the remainder would parse as live markup —
+    # exactly the class of defect `TestNothingReachesTheBrowserUnescaped`
+    # exists to catch, reached through the one sink here that bypasses
+    # `html.escape`. `<` is a valid JSON string escape for `<` and is
+    # inert to both the HTML tokenizer and `JSON.parse`, so this is the
+    # single place the fix belongs — after serialisation, before embedding,
+    # not trusted away at every name that reaches this function.
+    payload = json.dumps(
+        index_data, separators=(",", ":"), ensure_ascii=False
+    ).replace("<", "\\u003c")
+    return f"""
+<section id="search">
+<h2>Ask about a bottle</h2>
+<p>Try &ldquo;what do people say about Khamrah&rdquo;, &ldquo;Delina vs
+Khamrah&rdquo;, or &ldquo;like Delina but less rose&rdquo;. This only
+answers what the corpus has evidence for — see below for the full list.</p>
+<form id="search-form" role="search">
+<input type="text" id="search-input" placeholder="Ask about a fragrance&hellip;"
+ autocomplete="off">
+<button type="submit">Go</button>
+</form>
+<div id="search-result" aria-live="polite"></div>
+<div id="search-refusal" hidden>
+<p>Nothing here answers that yet. This is not a general fragrance search —
+it only knows a fixed set of comparisons, questions and bottles, each
+backed by real comments:</p>
+<ul>
+<li>every comparison it can back with real comments is listed above</li>
+<li>the specific questions it has already answered are listed below</li>
+<li>every bottle it has anything to say about is in the list below</li>
+</ul>
+</div>
+<h3>I like&hellip;</h3>
+<label for="bottle-select">Pick a bottle</label>
+<select id="bottle-select">
+<option value="">&mdash; choose a bottle &mdash;</option>
+{options}
+</select>
+<div id="bottle-detail"></div>
+</section>
+<script type="application/json" id="search-index-data">{payload}</script>
+<script>{SEARCH_SCRIPT}</script>
+""".strip()
+
+
+#: The query-box logic. Deliberately small: three intents, exact-match
+#: routing, and one crude edit-distance function for "did you mean" —
+#: nothing here tries to be `plan.py`. No template string in this file
+#: assembles a sentence about evidence; the only strings it ever shows a
+#: reader are a bottle's own name and the refusal block above, which it
+#: only ever shows or hides, never writes.
+SEARCH_SCRIPT = r"""
+(function () {
+  "use strict";
+
+  var COMBINING_MARKS = new RegExp("[\\u0300-\\u036f]", "g");
+
+  function normalize(s) {
+    return (s || "")
+      .normalize("NFKD").replace(COMBINING_MARKS, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  var dataEl = document.getElementById("search-index-data");
+  var EMPTY_INDEX = {bottles: [], pairs: [], asks: [], attributes: []};
+  var INDEX = dataEl ? JSON.parse(dataEl.textContent) : EMPTY_INDEX;
+
+  var byName = {};
+  INDEX.bottles.forEach(function (b) {
+    byName[normalize(b.name)] = b;
+    (b.aliases || []).forEach(function (a) { byName[normalize(a)] = b; });
+  });
+
+  var byPairKey = {};
+  INDEX.pairs.forEach(function (p) {
+    var key = [normalize(p.a), normalize(p.b)].sort().join("|");
+    byPairKey[key] = p;
+  });
+
+  function resolveBottle(text) {
+    return byName[normalize(text)] || null;
+  }
+
+  function askFor(bottle, attribute) {
+    var names = [normalize(bottle.name)].concat(
+      (bottle.aliases || []).map(normalize)
+    );
+    var attr = normalize(attribute);
+    var hits = INDEX.asks.filter(function (a) {
+      var q = normalize(a.question);
+      var namesIt = names.some(function (n) { return n && q.indexOf(n) !== -1; });
+      return namesIt && attr && q.indexOf(attr) !== -1;
+    });
+    return hits.length === 1 ? hits[0] : null;
+  }
+
+  // Three intents only — a small mirror of plan.py's grammar, not a copy
+  // of it. Exact-match resolution throughout: a hit routes, a miss falls
+  // through to the next pattern, and nothing here is ever fuzzy.
+  var COMPARE = /^(.+?)\s+(?:vs\.?|versus|compared to|or)\s+(.+)$/;
+  var PROFILE_PATTERNS = [
+    /^what do people (?:say|think) about (.+?)\??$/,
+    /^what (?:do people |does anyone )?disagree about (?:for |on |about )?(.+?)\??$/,
+    /^tell me about (.+?)\??$/,
+    /^profile (?:of |for )?(.+?)\??$/
+  ];
+  var ANCHOR_PATTERNS = [
+    /(?:something |anything )?(?:like|similar to|reminiscent of) (.+?)(?:\s+but\b|$)/,
+    /\bi (?:really )?(?:love|like|enjoy|adore) (.+?)(?:\s+but\b|$)/
+  ];
+  var LESS_PATTERN = /\bbut (?:not|less|without) (?:too |so )?([a-z ]+)$/;
+
+  function route(raw) {
+    var q = normalize(raw);
+    if (!q) { return null; }
+
+    var cmp = q.match(COMPARE);
+    if (cmp) {
+      var left = resolveBottle(cmp[1]);
+      var right = resolveBottle(cmp[2]);
+      if (left && right) {
+        var key = [normalize(left.name), normalize(right.name)].sort().join("|");
+        var pair = byPairKey[key];
+        if (pair) { return pair.slug; }
+      }
+    }
+
+    for (var i = 0; i < PROFILE_PATTERNS.length; i++) {
+      var pm = q.match(PROFILE_PATTERNS[i]);
+      if (pm) {
+        var pb = resolveBottle(pm[1]);
+        if (pb) { return pb.slug; }
+      }
+    }
+
+    for (i = 0; i < ANCHOR_PATTERNS.length; i++) {
+      var am = q.match(ANCHOR_PATTERNS[i]);
+      if (am) {
+        var anchor = resolveBottle(am[1]);
+        if (anchor) {
+          var lm = q.match(LESS_PATTERN);
+          if (lm) {
+            var ask = askFor(anchor, lm[1].trim());
+            if (ask) { return ask.slug; }
+          }
+          return anchor.slug;
+        }
+      }
+    }
+
+    var bare = resolveBottle(q);
+    if (bare) { return bare.slug; }
+
+    return null;
+  }
+
+  // Crude, deterministic, and only ever offered as a clickable suggestion
+  // — never auto-navigated to. A fuzzy hit is a guess about what someone
+  // meant to type; an exact hit above is a fact about what the corpus has.
+  function editDistance(a, b) {
+    var m = a.length, n = b.length;
+    var d = [], i, j;
+    for (i = 0; i <= m; i++) { d[i] = [i]; }
+    for (j = 0; j <= n; j++) { d[0][j] = j; }
+    for (i = 1; i <= m; i++) {
+      for (j = 1; j <= n; j++) {
+        d[i][j] = Math.min(
+          d[i - 1][j] + 1,
+          d[i][j - 1] + 1,
+          d[i - 1][j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1)
+        );
+      }
+    }
+    return d[m][n];
+  }
+
+  function suggestBottle(text) {
+    var q = normalize(text);
+    if (!q) { return null; }
+    var best = null, bestDist = Infinity;
+    INDEX.bottles.forEach(function (b) {
+      // Every form the bottle answers to, not only its full name —
+      // "khamra" is a typo of the alias "Khamrah", not of the longer
+      // "Lattafa Khamrah", and comparing only against the full name
+      // made every short typo of a short alias undistinguishable from
+      // noise.
+      [b.name].concat(b.aliases || []).forEach(function (form) {
+        var n = normalize(form);
+        if (!n) { return; }
+        var d = editDistance(q, n);
+        var floor = Math.max(2, Math.floor(n.length * 0.34));
+        if (d <= floor && d < bestDist) { bestDist = d; best = b; }
+      });
+    });
+    return best;
+  }
+
+  var form = document.getElementById("search-form");
+  var input = document.getElementById("search-input");
+  var resultBox = document.getElementById("search-result");
+  var refusal = document.getElementById("search-refusal");
+  if (form) {
+    form.addEventListener("submit", function (evt) {
+      evt.preventDefault();
+      refusal.hidden = true;
+      resultBox.innerHTML = "";
+      var raw = input.value;
+      var slug = route(raw);
+      if (slug) { window.location.href = slug; return; }
+      var suggestion = suggestBottle(raw);
+      if (suggestion) {
+        var p = document.createElement("p");
+        p.appendChild(document.createTextNode("Did you mean "));
+        var a = document.createElement("a");
+        a.href = suggestion.slug;
+        a.textContent = suggestion.name;
+        p.appendChild(a);
+        p.appendChild(document.createTextNode("?"));
+        resultBox.appendChild(p);
+      } else {
+        refusal.hidden = false;
+      }
+    });
+  }
+
+  var select = document.getElementById("bottle-select");
+  var detail = document.getElementById("bottle-detail");
+  if (select) {
+    select.addEventListener("change", function () {
+      detail.innerHTML = "";
+      var slug = select.value;
+      if (!slug) { return; }
+      var bottle = null;
+      for (var i = 0; i < INDEX.bottles.length; i++) {
+        if (INDEX.bottles[i].slug === slug) { bottle = INDEX.bottles[i]; break; }
+      }
+      if (!bottle) { return; }
+
+      var p = document.createElement("p");
+      p.appendChild(document.createTextNode("Profile: "));
+      var link = document.createElement("a");
+      link.href = bottle.slug;
+      link.textContent = bottle.name;
+      p.appendChild(link);
+      detail.appendChild(p);
+
+      var chips = document.createElement("div");
+      chips.className = "chips";
+      INDEX.attributes
+        .filter(function (r) { return r.bottle_slug === slug; })
+        .forEach(function (r) {
+          var ask = askFor(bottle, r.attribute);
+          var chip = document.createElement(ask ? "a" : "span");
+          if (ask) { chip.href = ask.slug; }
+          chip.className = "chip";
+          chip.textContent = r.attribute;
+          chips.appendChild(chip);
+        });
+      detail.appendChild(chips);
+    });
+  }
+})();
+"""
+
+
+def render_full_index(
+    pairs: list[Pair],
+    indexes: list[ReverseIndex],
+    profiles: list[tuple],
+    asked: list[tuple[str, str]],
+    index_data: dict,
+    base: str = "",
+    analytics: str = "",
+) -> str:
+    """`render_index`, assembled exactly the way `build` assembles it —
+    the ask-index section, the bottle-by-bottle list and the query box all
+    included, in the order `build` writes them.
+
+    Exists so `audit.py` can check the real page a visitor gets rather
+    than a stand-in that only covers part of it, and so `build` has one
+    assembly to maintain instead of two that can drift apart. Every
+    argument is already computed elsewhere (`qualifying_pairs`,
+    `ask.profile_pages`, `ask.QUESTIONS`, `build_search_index`) — this
+    function only arranges them, the same division `render_index` itself
+    keeps between computing evidence and laying text on a page.
+    """
+    from fragrance_graph import ask as _ask
+
+    extra = [_ask.render_ask_index_section(asked)]
+    if profiles:
+        e = html.escape
+        rows = "".join(
+            f'<li><a href="{e(slug)}">{e(name)}</a></li>'
+            for name, slug, _ in profiles
+        )
+        extra.append(
+            "<section><h2>What people say, bottle by bottle</h2>"
+            f"<ul>{rows}</ul></section>"
+        )
+    extra.append(render_query_box(profiles, index_data))
+    return render_index(
+        pairs, indexes, base, analytics, extra_sections="\n".join(extra)
+    )
+
+
 def build(
     conn: psycopg.Connection,
     out_dir: Path,
@@ -1245,21 +1703,21 @@ def build(
         )
         slugs.append(slug)
 
-    extra = [_ask.render_ask_index_section(asked)]
-    if profiles:
-        import html as _html
-
-        rows = "".join(
-            f'<li><a href="{_html.escape(slug)}">{_html.escape(name)}</a></li>'
-            for name, slug, _ in profiles
-        )
-        extra.append(
-            f"<section><h2>What people say, bottle by bottle</h2><ul>{rows}</ul></section>"
-        )
+    # The client-side query box's whole world, written both as a standalone
+    # file (so it is independently verifiable — see test_pages.py) and
+    # embedded inline into index.html itself by `render_full_index` (so the
+    # query box works with no server and no same-origin fetch — see
+    # `render_query_box`'s docstring for why that matters for `file://`).
+    index_data = build_search_index(conn, pairs, profiles, asked)
+    (out_dir / "search-index.json").write_text(
+        json.dumps(index_data, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
 
     (out_dir / "index.html").write_text(
-        render_index(pairs, indexes, base, analytics,
-                     extra_sections="\n".join(extra)),
+        render_full_index(
+            pairs, indexes, profiles, asked, index_data, base, analytics
+        ),
         encoding="utf-8",
     )
 

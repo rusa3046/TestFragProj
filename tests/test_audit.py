@@ -18,6 +18,7 @@ from fragrance_graph.audit import (
 from fragrance_graph.db import DEFAULT_DB_URL, get_connection
 from fragrance_graph.evidence import Strength
 from fragrance_graph.recommend import Reason
+from fragrance_graph.resolve.entities import add_fragrance
 
 
 @pytest.fixture(scope="module")
@@ -30,6 +31,27 @@ def corpus():
         pytest.skip("developer database is empty")
     yield conn
     conn.close()
+
+
+def _rendered_index_page(conn) -> str:
+    """The real `index.html` `pages.build` would write for `conn`, built
+    the identical way `audit._audit_rendered_text` builds it — one
+    assembly, used by both, so a test driving this function is driving
+    exactly what a visitor and the audit both see."""
+    from fragrance_graph import ask as _ask
+    from fragrance_graph.pages import (
+        build_search_index,
+        qualifying_pairs,
+        render_full_index,
+        reverse_indexes,
+    )
+
+    pairs = qualifying_pairs(conn)
+    indexes = reverse_indexes(pairs)
+    profiles = _ask.profile_pages(conn)
+    asked = list(_ask.QUESTIONS)
+    index_data = build_search_index(conn, pairs, profiles, asked)
+    return render_full_index(pairs, indexes, profiles, asked, index_data)
 
 
 class TestTheContractHolds:
@@ -169,3 +191,102 @@ class TestCodexFinalFindings:
                 if reason.kind == "comparative":
                     assert "mentioned by" in reason.text
                     assert not reason.text.startswith("less ")
+
+
+class TestTheSiteIndexIsAuditedToo:
+    """The client-side query box's refusal block, and the inline JSON data
+    island, are server-rendered precisely so the audit can see them — this
+    proves it actually does, against the real renderer rather than a stub.
+    """
+
+    def test_the_site_index_page_is_a_registered_renderer(self):
+        from fragrance_graph.audit import RENDERERS
+
+        assert "site index page" in RENDERERS
+
+    def test_the_site_index_page_is_checked(self, corpus):
+        report = audit(corpus)
+        assert report.checked.get("site index page"), "site index page unchecked"
+
+    def test_a_forbidden_phrase_in_a_bottle_name_is_caught_through_the_real_renderer(
+        self, conn
+    ):
+        """Reviewer finding 3: the previous version of this test hardcoded
+        `blocks = [("site index page", "the community agrees on rose")]`
+        and reimplemented the FORBIDDEN scan inline — it proved only that
+        `"the community agrees" in "...the community agrees..."`, never
+        that the real pipeline reaches a poisoned name at all.
+
+        This drives the actual path a real name would take: a bottle
+        named with forbidden wording, real note evidence so it clears
+        `profile_pages`' gate and reaches `build_search_index`'s `bottles`
+        list, then the real `audit(conn)` — the same sequence the
+        reviewer used by hand against a scratch database — and asserts
+        the violation the real audit raises, not one this test computes
+        itself.
+        """
+        from tests.test_recommend import note
+
+        frag = add_fragrance(conn, "the community agrees Parfum")
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            note(conn, i, frag=frag, value="rose", author=author,
+                 channel=f"c{i}")
+
+        report = audit(conn)
+        matches = [
+            v for v in report.violations
+            if v.surface == "site index page" and "forbidden" in v.rule
+        ]
+        assert matches, (
+            f"no forbidden-phrasing violation on site index page; "
+            f"violations were: {report.violations}"
+        )
+        assert "the community agrees" in matches[0].detail.lower()
+
+    def test_a_hostile_name_cannot_break_out_of_the_inline_json_script(
+        self, conn
+    ):
+        """The blocker: `json.dumps` escapes quotes and backslashes but
+        not `</script>`, and a `<script>` element — any `type`, including
+        `application/json` — ends at the first literal `</script`
+        regardless of JSON syntax. A bottle name or alias containing
+        `</script><script>alert(1)</script>` would terminate the data
+        island early and the rest would parse as live markup, the same
+        class of defect `TestNothingReachesTheBrowserUnescaped` exists to
+        catch for every other surface.
+
+        The *canonical name* stays clean here on purpose: `plan.py`'s
+        anchor patterns capture from a restricted character class
+        (`[a-z0-9'’\\.\\- ]`) that a `</script>`-shaped name cannot survive
+        round-tripping through — `profile_pages` would simply never build
+        a page for it, which would make this test pass for the wrong
+        reason (the hostile string never reaching the payload at all, not
+        the escaping holding). The *alias* is where the hostile string
+        lives instead — aliases are read straight out of
+        `fragrances.aliases` with no re-parse — which is both a realistic
+        route (a curator recording an exact quoted spelling, as
+        `resolve.entities.add_alias` already does throughout this corpus)
+        and the one that actually exercises `build_search_index` /
+        `render_query_box`'s escaping. Built through the real
+        `render_full_index` against a fixture DB, matching the reviewer's
+        own verification method rather than asserting against a hand-built
+        string.
+        """
+        from tests.test_recommend import note
+
+        frag = add_fragrance(
+            conn, "Evil Parfum",
+            aliases=["</script><script>alert(1)</script>"],
+        )
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            note(conn, i, frag=frag, value="rose", author=author,
+                 channel=f"c{i}")
+
+        page = _rendered_index_page(conn)
+        assert "</script><script>" not in page
+        assert "<script>alert" not in page
+        # The data must still be present and intact, just inert to the
+        # HTML tokenizer — proving this escaped the payload rather than
+        # silently dropping the hostile alias from it.
+        assert "Evil Parfum" in page
+        assert "alert(1)" in page

@@ -268,6 +268,7 @@ RENDERERS = (
     "semantic search",
     "site ask pages",
     "site profile pages",
+    "site index page",
 )
 
 
@@ -297,6 +298,33 @@ def _audit_rendered_text(conn: psycopg.Connection, report: AuditReport) -> None:
     from fragrance_graph.ask import page_texts
 
     blocks += page_texts(conn)
+
+    # The site index — the query box, its refusal block, and its inline
+    # script. `render_full_index` assembles it exactly the way `build`
+    # does, so this is the literal page a visitor gets, not a stand-in for
+    # it. The JavaScript itself is untouched by this scan's own logic —
+    # `audit.py` does not run a browser — but its *source text* is part of
+    # this string like any other, so a FORBIDDEN phrase written into a
+    # script comment or a template would be caught exactly as it would be
+    # anywhere else on the page. See `pages.py`'s "client-side query box"
+    # section for the structural argument the JS is held to instead.
+    from fragrance_graph import ask as _ask
+    from fragrance_graph.pages import (
+        build_search_index,
+        qualifying_pairs,
+        render_full_index,
+        reverse_indexes,
+    )
+
+    pairs = qualifying_pairs(conn)
+    indexes = reverse_indexes(pairs)
+    profiles = _ask.profile_pages(conn)
+    asked = list(_ask.QUESTIONS)
+    index_data = build_search_index(conn, pairs, profiles, asked)
+    blocks.append((
+        "site index page",
+        render_full_index(pairs, indexes, profiles, asked, index_data),
+    ))
 
     for surface, text in blocks:
         report.checked[surface] = report.checked.get(surface, 0) + 1

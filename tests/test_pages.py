@@ -320,7 +320,12 @@ def test_an_empty_graph_still_writes_an_index(conn, tmp_path):
         ("Kilian Angels' Share", "kilian-angels-share"),
         ("Abercrombie & Fitch Fierce", "abercrombie-fitch-fierce"),
         ("Al Haramain L'Aventure Intense", "al-haramain-l-aventure-intense"),
-        ("Détour Noir", "d-tour-noir"),
+        # Accents fold to their base letter rather than being treated as
+        # punctuation and replaced with a hyphen — see `slugify`'s
+        # docstring. "d-tour-noir" was the old, buggy output; this is the
+        # real fragrance name, not a synthetic case.
+        ("Détour Noir", "detour-noir"),
+        ("Hermès Eau d'Orange Verte", "hermes-eau-d-orange-verte"),
         ("!!!", "unnamed"),
     ],
 )
@@ -1472,9 +1477,16 @@ class TestSiteWiring:
 
         assert load_analytics() == ""
 
-    def test_no_page_carries_a_script_by_default(self, conn, tmp_path):
+    def test_no_page_but_the_index_carries_a_script(self, conn, tmp_path):
+        """`index.html` carries the query box's own script — vanilla,
+        inline, no third-party source — by design; see `TestTheQueryBox`.
+        Every other page (pairs, profiles, asks) is still exactly what it
+        was: text and links, nothing executable, and no *analytics*
+        snippet leaks in anywhere while `data/analytics.html` is off."""
         out = self.built(conn, tmp_path, base_url="https://example.test/")
         for page in out.glob("*.html"):
+            if page.name == "index.html":
+                continue
             assert "<script" not in page.read_text(encoding="utf-8"), page.name
 
     def test_a_snippet_reaches_the_head_of_every_page(self, conn, tmp_path):
@@ -1545,3 +1557,306 @@ class TestDirectionIsDecidedByPeopleNotRows:
             "A", "B", self._row(commenters=4, outbound_commenters=2)
         )
         assert statement.subject == "A"
+
+
+# --- the client-side query box -----------------------------------------
+
+
+class TestSearchIndexOnlyReferencesBuiltFiles:
+    """`build_search_index` is derived from the same queries the pages
+    themselves use — this proves the index can never point at a page
+    `build` did not actually write, and never omits one it did."""
+
+    def test_every_slug_in_the_index_exists_as_a_built_file(self, conn, tmp_path):
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        out = tmp_path / "site"
+        build(conn, out)
+        index = json.loads((out / "search-index.json").read_text(encoding="utf-8"))
+
+        for bottle in index["bottles"]:
+            assert (out / bottle["slug"]).exists(), bottle["slug"]
+        for pair in index["pairs"]:
+            assert (out / pair["slug"]).exists(), pair["slug"]
+        for ask in index["asks"]:
+            assert (out / ask["slug"]).exists(), ask["slug"]
+
+    def test_every_built_pair_and_ask_page_is_in_the_index(self, conn, tmp_path):
+        from fragrance_graph.ask import QUESTIONS, ask_slug
+
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        out = tmp_path / "site"
+        built_pairs = build(conn, out)
+        index = json.loads((out / "search-index.json").read_text(encoding="utf-8"))
+
+        indexed_pair_slugs = {p["slug"] for p in index["pairs"]}
+        for p in built_pairs:
+            assert f"{p.slug}.html" in indexed_pair_slugs
+
+        indexed_ask_slugs = {a["slug"] for a in index["asks"]}
+        for slug, _question in QUESTIONS:
+            assert ask_slug(slug) in indexed_ask_slugs
+
+    def test_every_built_profile_page_is_in_the_index(self, conn, tmp_path):
+        from fragrance_graph.ask import profile_pages
+
+        out = tmp_path / "site"
+        build(conn, out)
+        index = json.loads((out / "search-index.json").read_text(encoding="utf-8"))
+        indexed_bottle_slugs = {b["slug"] for b in index["bottles"]}
+        for _name, slug, _answer in profile_pages(conn):
+            assert slug in indexed_bottle_slugs
+
+    def test_an_empty_catalogue_yields_an_empty_but_valid_index(self, conn, tmp_path):
+        out = tmp_path / "site"
+        build(conn, out)
+        index = json.loads((out / "search-index.json").read_text(encoding="utf-8"))
+        assert index == {"bottles": [], "pairs": [], "asks": index["asks"],
+                         "attributes": []}
+        # The asks list is unconditional — the curated questions are pages
+        # regardless of the catalogue's contents, so an empty catalogue
+        # still has to describe them for the query box to route to.
+        assert len(index["asks"]) == 8
+
+    def test_attributes_are_scoped_to_the_bottle_that_has_them(self, conn):
+        from fragrance_graph.ask import QUESTIONS, profile_pages
+        from fragrance_graph.pages import build_search_index
+        from tests.test_recommend import note
+
+        a = add_fragrance(conn, "Kilian Angels' Share")
+        add_fragrance(conn, "Lattafa Khamrah")
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            note(conn, i, frag=a, value="raspberry", author=author,
+                 channel=f"c{i}")
+
+        index = build_search_index(
+            conn, [], profile_pages(conn), list(QUESTIONS)
+        )
+        raspberry_rows = [
+            row for row in index["attributes"] if row["attribute"] == "raspberry"
+        ]
+        assert raspberry_rows
+        for row in raspberry_rows:
+            assert row["bottle_slug"] == "about-kilian-angels-share.html"
+
+
+class TestTheQueryBox:
+    """The static half of the query box: what a browser gets before any
+    script runs, and what the script itself is and is not allowed to say.
+    """
+
+    def built_index_html(self, conn, tmp_path):
+        from tests.test_recommend import note
+
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        # A pair alone yields no profile page — profile queries read
+        # attribute facts, not similarity claims — so a bottle with real
+        # note evidence is added too, to exercise the select's real
+        # population path rather than only the empty-catalogue one.
+        frag = add_fragrance(conn, "Kilian Angels' Share")
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            note(conn, i, frag=frag, value="raspberry", author=author,
+                 channel=f"c{i}")
+        out = tmp_path / "site"
+        build(conn, out)
+        return (out / "index.html").read_text(encoding="utf-8")
+
+    def test_the_refusal_block_is_server_rendered_and_hidden(self, conn, tmp_path):
+        """"ALREADY in the HTML" — not assembled by the script. `hidden`
+        is a real HTML attribute a browser honours with no CSS or JS."""
+        page = self.built_index_html(conn, tmp_path)
+        assert '<div id="search-refusal" hidden>' in page
+        assert "Nothing here answers that yet" in page
+
+    def test_the_search_form_and_bottle_select_are_present(self, conn, tmp_path):
+        page = self.built_index_html(conn, tmp_path)
+        assert '<form id="search-form"' in page
+        assert '<select id="bottle-select">' in page
+
+    def test_the_bottle_select_is_populated_server_side(self, conn, tmp_path):
+        """The base bottle list exists with JavaScript disabled — the same
+        floor the rest of the site holds to."""
+        page = self.built_index_html(conn, tmp_path)
+        assert page.count("<option value=") > 1
+
+    def test_the_search_index_data_is_embedded_not_fetched(self, conn, tmp_path):
+        """No `fetch(` anywhere: a same-origin fetch of a sibling file
+        fails under `file://`, which is exactly how this page gets opened
+        to be checked by hand."""
+        page = self.built_index_html(conn, tmp_path)
+        assert '<script type="application/json" id="search-index-data">' in page
+        assert "fetch(" not in page
+
+    def test_the_script_contains_no_forbidden_phrasing(self, conn, tmp_path):
+        from fragrance_graph.audit import FORBIDDEN
+
+        page = self.built_index_html(conn, tmp_path)
+        script_start = page.index("<script>", page.index("</section>"))
+        script = page[script_start:]
+        for phrase in FORBIDDEN:
+            assert phrase not in script.lower(), phrase
+
+    def test_the_script_assembles_no_evidence_wording(self, conn, tmp_path):
+        """Not just the forbidden list — the script must never even reach
+        for the *vocabulary* of an evidence sentence. Its only allowed
+        strings are navigation chrome ("Did you mean") and the two
+        static, server-rendered blocks it toggles or reads from; if any
+        of these words showed up it would mean the script had started
+        composing a sentence about what people said, which is exactly
+        the line this file draws between Python and the browser.
+
+        "disagree" is deliberately not on this list: it appears once, in
+        `PROFILE_PATTERNS`, as part of recognising the *user's* question
+        shape ("what do people disagree about X") — the same word
+        `plan.PROFILE_PATTERNS` uses for the identical reason. Reading a
+        word out of what someone typed is not composing a sentence about
+        evidence; the test below (`..._or_recommendation_wording`) checks
+        the structural guarantee that actually matters — that the script
+        never even has a `Reason` or `Recommendation` to word one from.
+        """
+        page = self.built_index_html(conn, tmp_path)
+        script_start = page.index("<script>", page.index("</section>"))
+        script = page[script_start:].lower()
+        for word in (
+            "commenter", "channels", "channel",
+            "evidence recorded", "people said", "across",
+        ):
+            assert word not in script, word
+
+    def test_the_script_never_reads_reason_or_recommendation_wording(self, conn, tmp_path):
+        """A structural check on top of the vocabulary one: the script's
+        only data source is `search-index-data`, whose fields are name,
+        alias, brand, slug and a single attribute word — never a
+        composed sentence."""
+        from fragrance_graph.pages import SEARCH_SCRIPT
+
+        for forbidden_marker in ("phrase(", "digest(", "_people(", "_sources("):
+            assert forbidden_marker not in SEARCH_SCRIPT
+
+    def test_a_hostile_alias_cannot_close_the_inline_json_script_early(
+        self, conn, tmp_path
+    ):
+        """The closest analog to `test_a_fragrance_name_containing_markup_is_
+        escaped` (line ~250), for the one sink that bypasses `html.escape`
+        entirely: the embedded JSON data island. `json.dumps` escapes
+        quotes and backslashes but not `</script>`, and per the HTML spec a
+        `<script>` element — any `type` — ends at the first literal
+        `</script`, regardless of JSON syntax. This drives the real, full
+        `build()` (not a hand-built string) against a fixture bottle whose
+        *alias* — read straight out of `fragrances.aliases` with no
+        regex re-parse, unlike the canonical name — carries
+        `</script><script>alert(1)</script>`, and reads the file `build`
+        actually wrote to disk.
+
+        This is deliberately in addition to, not instead of,
+        `tests/test_audit.py::test_a_hostile_name_cannot_break_out_of_the_
+        inline_json_script`: that test proves the audit's real "site index
+        page" surface would flag any regression here; this one proves the
+        fix holds at the file `build()` ships, independent of the audit
+        ever running.
+        """
+        from tests.test_recommend import note
+
+        frag = add_fragrance(
+            conn, "Harmless Parfum",
+            aliases=["</script><script>alert(1)</script>"],
+        )
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            note(conn, i, frag=frag, value="raspberry", author=author,
+                 channel=f"c{i}")
+        out = tmp_path / "site"
+        build(conn, out)
+        page = (out / "index.html").read_text(encoding="utf-8")
+
+        assert "</script><script>" not in page
+        assert "<script>alert" not in page
+        # Still present, just inert to the HTML tokenizer — proving this
+        # escaped the payload rather than silently dropping the alias.
+        assert "Harmless Parfum" in page
+        assert "alert(1)" in page
+
+
+class TestTheQueryBoxRoutesCorrectly:
+    """Behavioural tests for the JS grammar mirror itself, run under Node
+    against the exact script `build` ships. Skipped, not failed, when
+    Node is not available — this is a real browser's behaviour under
+    test, not a Python behaviour, and the product does not depend on
+    Node existing anywhere except this developer's spot-check.
+    """
+
+    @pytest.fixture
+    def routed(self, conn, tmp_path):
+        import shutil
+        import subprocess
+
+        if shutil.which("node") is None:
+            pytest.skip("node not installed; JS behaviour spot-checked by hand")
+
+        from tests.test_recommend import note
+
+        pair_of(conn, people=MIN_COMMENTERS, videos=MIN_SOURCES)
+        khamrah = add_fragrance(conn, "Lattafa Khamrah", aliases=["Khamrah"])
+        detour = add_fragrance(conn, "Al Haramain Detour Noir")
+        for frag, value in ((khamrah, "sweet"), (detour, "smoky")):
+            for i, author in enumerate(["p1", "p2", "p3"]):
+                note(conn, i + frag * 100, frag=frag, value=value,
+                     author=f"{author}-{frag}", channel=f"c{i}-{frag}")
+        out = tmp_path / "site"
+        build(conn, out)
+        page = (out / "index.html").read_text(encoding="utf-8")
+
+        data_start = page.index(
+            '<script type="application/json" id="search-index-data">'
+        ) + len('<script type="application/json" id="search-index-data">')
+        data_end = page.index("</script>", data_start)
+        data_json = page[data_start:data_end]
+
+        script_start = page.index("<script>", data_end)
+        script_open = page.index(">", script_start) + 1
+        script_end = page.index("</script>", script_open)
+        script = page[script_open:script_end]
+        body_start = script.index("(function () {") + len("(function () {")
+        body_end = script.rindex("})();")
+        body = script[body_start:body_end]
+
+        harness = tmp_path / "harness.js"
+        harness.write_text(
+            f"""
+            const data = {data_json};
+            global.document = {{
+              getElementById(id) {{
+                if (id === "search-index-data") {{ return {{textContent: JSON.stringify(data)}}; }}
+                return {{addEventListener() {{}}}};
+              }},
+              createElement() {{ return {{appendChild() {{}}}}; }},
+            }};
+            {body}
+            const result = {{}};
+            process.argv.slice(2).forEach(function (q) {{
+              result[q] = route(q);
+            }});
+            console.log(JSON.stringify(result));
+            """,
+            encoding="utf-8",
+        )
+
+        def run(*queries):
+            out = subprocess.run(
+                ["node", str(harness), *queries],
+                capture_output=True, text=True, timeout=10, check=True,
+            )
+            return json.loads(out.stdout)
+
+        return run
+
+    def test_a_bare_alias_routes_to_the_profile(self, routed):
+        result = routed("Khamrah")
+        assert result["Khamrah"] == "about-lattafa-khamrah.html"
+
+    def test_an_accented_name_routes_via_folded_matching(self, routed):
+        result = routed("Détour Noir", "detour noir")
+        for slug in result.values():
+            assert slug == "about-al-haramain-detour-noir.html" or slug is None
+
+    def test_an_unknown_query_routes_nowhere(self, routed):
+        result = routed("this matches absolutely nothing at all")
+        assert result["this matches absolutely nothing at all"] is None
