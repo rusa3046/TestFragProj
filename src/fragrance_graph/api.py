@@ -698,15 +698,19 @@ def _load_state(conn: psycopg.Connection, session_id: str) -> PreferenceState:
 
 def _recommendations_for(
     conn: psycopg.Connection, state: PreferenceState
-) -> tuple[Answer, list[dict], dict[int, list[dict]]]:
-    """`(answer, unexpressed, statuses)` for the accumulated state —
+) -> tuple[Answer, list[dict], dict[int, list[dict]], object]:
+    """`(answer, unexpressed, statuses, plan)` for the accumulated state —
     `answer.note` is engine wording only, never anything glued onto it;
     `unexpressed` is returned separately for the caller to place in its
     own top-level field; `statuses` is `fragrance_id -> preference_status
     list` from `_preference_statuses`, computed once here so every caller
     (`_session_response`, `spray_queue`) renders the identical data
     rather than recomputing it (and potentially disagreeing, since a
-    recompute would re-read `attribute_facts` a second time). See the
+    recompute would re-read `attribute_facts` a second time). `plan` is
+    returned too — `_session_response` needs it for
+    `_interpreted_preferences`, and computing it a second time there
+    would risk it silently disagreeing with the one `unexpressed` (the
+    budget-corrected list, below) was actually derived from. See the
     module docstring's "`note`, `unexpressed`, and where each sentence is
     allowed to come from" section.
     """
@@ -737,11 +741,23 @@ def _recommendations_for(
     answer = _rerank(answer, state)
     statuses = _preference_statuses(conn, state, answer.results)
     answer.results = _tiebreak_by_composer_matches(answer.results, statuses, state)
-    return answer, unexpressed, statuses
+    return answer, unexpressed, statuses, plan
 
 
 def _session_response(conn: psycopg.Connection, state: PreferenceState) -> dict:
-    answer, unexpressed, statuses = _recommendations_for(conn, state)
+    """The one response shape every session endpoint returns (`say`,
+    `prefs`, `feedback`, `compose`, `remove_compose_item`, `get_session`).
+    `interpreted_preferences` lives here — not only on `compose`/
+    `remove_compose_item` as Phase A shipped it — so a client that
+    re-reads state via plain `GET /api/session/{id}` (a page refresh, or
+    the composer's "Edit preferences" round trip) gets the identical
+    read-back a chip add would have, rather than a UI having to cache the
+    last `compose` response as its one authority on a fact `GET` itself
+    cannot answer. One computation (`_recommendations_for`'s `plan`), one
+    field, every caller — the same "second, independently-derived copy
+    risks disagreeing" reasoning this module already applies everywhere
+    else (see `_preference_statuses`, `_recommendations_for`)."""
+    answer, unexpressed, statuses, plan = _recommendations_for(conn, state)
     return {
         "state": state.summary(),
         "note": answer.note,
@@ -750,6 +766,7 @@ def _session_response(conn: psycopg.Connection, state: PreferenceState) -> dict:
             _candidate_json(c, i, statuses.get(c.fragrance_id, []))
             for i, c in enumerate(answer.results)
         ],
+        "interpreted_preferences": _interpreted_preferences(state, plan, unexpressed),
     }
 
 
@@ -950,20 +967,10 @@ def compose(session_id: str, body: ComposeRequest, conn: Conn) -> dict:
         _record_event(conn, session_id, "preference_item_added", payload)
 
     state = _load_state(conn, session_id)
-    response = _session_response(conn, state)
-    # `plan` only, not `unexpressed`, from a fresh `to_plan()` call:
-    # `response["unexpressed"]` is already the corrected list
-    # `_recommendations_for` produced (budget's entry removed when real
-    # price data existed for this candidate set) — recomputing from
-    # `to_plan()` again here would silently regress to the *uncorrected*
-    # list, so this response's two `unexpressed`-shaped fields
-    # (top-level, and inside `interpreted_preferences`) could disagree
-    # about the same fact.
-    plan, _raw_unexpressed = state.to_plan()
-    response["interpreted_preferences"] = _interpreted_preferences(
-        state, plan, response["unexpressed"]
-    )
-    return response
+    # `_session_response` already carries `interpreted_preferences`,
+    # derived from the same corrected `unexpressed` this response's
+    # top-level field holds — see that function's docstring.
+    return _session_response(conn, state)
 
 
 @app.delete("/api/session/{session_id}/compose/{index}")
@@ -982,14 +989,7 @@ def remove_compose_item(session_id: str, index: int, conn: Conn) -> dict:
     _require_session(conn, session_id)
     _record_event(conn, session_id, "preference_item_removed", {"index": index})
     state = _load_state(conn, session_id)
-    response = _session_response(conn, state)
-    # See `compose`'s identical comment: `response["unexpressed"]`, not a
-    # fresh `to_plan()` call, is the corrected list.
-    plan, _raw_unexpressed = state.to_plan()
-    response["interpreted_preferences"] = _interpreted_preferences(
-        state, plan, response["unexpressed"]
-    )
-    return response
+    return _session_response(conn, state)
 
 
 @app.post("/api/session/{session_id}/feedback")
@@ -1048,10 +1048,14 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
     """
     _require_session(conn, session_id)
     state = _load_state(conn, session_id)
-    answer, unexpressed, statuses = _recommendations_for(conn, state)
+    answer, unexpressed, statuses, plan = _recommendations_for(conn, state)
+    interpreted = _interpreted_preferences(state, plan, unexpressed)
     results = answer.results
     if not results:
-        return {"note": answer.note, "queue": [], "unexpressed": unexpressed}
+        return {
+            "note": answer.note, "queue": [], "unexpressed": unexpressed,
+            "interpreted_preferences": interpreted,
+        }
 
     def signature(candidate: Recommendation) -> tuple[str, str] | None:
         if not candidate.reasons:
@@ -1085,6 +1089,11 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
         # be visible — flagged found-but-unfixed in the M1 round, required
         # by the kiosk, pinned by tests/test_facet_ui.py.
         "unexpressed": unexpressed,
+        # Composer Phase B: the results screen's "Your FACET" summary is a
+        # compact echo of the same read-back the composer shows live, not
+        # a second, hand-rolled label built from `state.items` a second
+        # time — see `_session_response`'s identical reasoning.
+        "interpreted_preferences": interpreted,
     }
 
 
