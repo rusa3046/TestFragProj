@@ -47,15 +47,19 @@ something to get started" belongs in the UI, not this layer.
 
 `results`/`queue` are already ordered by `recommend_plan`'s own
 stage-based score — the single ranking this codebase computes. `label`
-(see `_label`) answers a different question: how well-evidenced is *this*
-one candidate, considered on its own. The two do not have to agree, and
-forcing them to would mean quietly re-deriving a second ranking out of
-`label` and trusting it over the engine's — exactly the kind of second
-scoring path this whole layer exists to avoid. A `STRONG_MATCH` ranking
-below several `WORTH_TRYING`/`ALTERNATIVE_DIRECTION` entries is expected,
-not a bug: the engine may have ranked those higher on graph or semantic
-proximity, which `label` does not weigh at all. A UI renders `label` as a
-badge and list order as order.
+(see `_label`, which now delegates to `commerce_card.result_tier` — spec
+§16, `commerce-audit.md` §7) answers a different question: how
+well-evidenced is *this* one candidate's fit, considered on its own,
+never its rank. The two do not have to agree, and forcing them to would
+mean quietly re-deriving a second ranking out of `label` and trusting it
+over the engine's — exactly the kind of second scoring path this whole
+layer exists to avoid. A `STRONG_FIT` ranking below several `GOOD_FIT`/
+`EXPLORATORY_PICK` entries is expected, not a bug — the engine may have
+ranked those higher on graph or semantic proximity, which `label` does
+not weigh at all — and the reverse (a `#1` result that is only a
+`GOOD_FIT`) is equally expected: `result_tier` takes no rank parameter at
+all, which is what makes this structural rather than a convention. A UI
+renders `label` as a badge and list order as order.
 
 ## Why sessions are event-sourced
 
@@ -85,6 +89,7 @@ import re
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -93,9 +98,9 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from fragrance_graph.commerce_card import build_card, headline, result_tier
 from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
-from fragrance_graph.evidence import Attribution, attribute_facts
-from fragrance_graph.gate import MIN_COMMENTERS, MIN_SOURCES
+from fragrance_graph.evidence import Attribution, Support, attribute_facts, tier_of
 from fragrance_graph.notes import declared_note_map
 from fragrance_graph.plan import parse_with_corpus
 from fragrance_graph.recommend import (
@@ -163,8 +168,8 @@ SUGGESTION_THRESHOLD = 0.6
 #: the plan asked for (a hard constraint, a soft preference, a concept, an
 #: anchor-relative comparison) — as opposed to `"graph"`/`"semantic"`/
 #: `"absence"`, which surface a candidate through proximity or retrieval
-#: rather than a stated match. See `_label`.
-_POSITIVE_MATCH_KINDS = frozenset({"constraint", "prefer", "concept", "comparative"})
+#: rather than a stated match. Imported from `commerce_card`, which is now
+#: the one place this list is defined — see that module's docstring.
 
 
 # --- wiring ------------------------------------------------------------
@@ -251,66 +256,63 @@ class ComposeRequest(BaseModel):
 # --- rendering: the one place a Reason/Recommendation becomes JSON -------
 
 
-def _reason_json(reason: Reason) -> dict:
+def _reason_json(reason: Reason) -> dict | None:
     """`Reason.phrase()`, verbatim, plus the fields the API layer is asked
-    to expose alongside it. This function writes no words of its own."""
+    to expose alongside it. This function writes no words of its own.
+
+    Returns `None` for a reason that is not `renderable` (empty `text`,
+    or a `phrase()` that comes back blank or dash-led — see
+    `Reason.renderable`'s docstring, which is the real §36 fix). A
+    `Reason(text="")` is not something `recommend.py` forbids
+    constructing (see `commerce-audit.md` §8's reproduction), so the
+    caller (`_candidate_json`) filters `None` out *before* building the
+    list a client's bullet count comes from, rather than emitting a blank
+    entry and hoping every renderer downstream happens to skip it too.
+    """
+    if not reason.renderable:
+        return None
+    text = reason.phrase()
     return {
-        "text": reason.phrase(),
+        "text": text,
         "strength": reason.strength.name,
         "declarable": reason.declarable,
         "people": reason.people,
         "creators": reason.creators,
+        # Recommendation-grade confidence (`evidence.ConfidenceTier`),
+        # alongside `strength` (the claim-grade gate) — see
+        # `evidence.ConfidenceTier`'s docstring for why the two are kept
+        # separate rather than collapsed into one field.
+        "tier": tier_of(
+            Support(people=reason.people, creators=reason.creators, videos=reason.videos)
+        ).name,
     }
 
 
-def _label(candidate: Recommendation, index: int) -> str:
-    """BEST_MATCH / STRONG_MATCH / WORTH_TRYING / ALTERNATIVE_DIRECTION,
-    derived only from fields `recommend()` already computed — never a new
-    score, never a percentage. Checked in this order, first match wins:
+def _reason_jsons(reasons: list[Reason]) -> list[dict]:
+    """Every reason in `reasons`, serialized and filtered — the one call
+    site `_candidate_json` uses for both `reasons` and `caveats`, so the
+    list a client receives and the list its own `len()` describes are
+    always the same list, never two things a future edit could desync."""
+    out = []
+    for r in reasons:
+        rendered = _reason_json(r)
+        if rendered is not None:
+            out.append(rendered)
+    return out
 
-    1. **BEST_MATCH** — `index == 0` (the top-ranked result) *and* it
-       carries a reason that is both `declarable` and independently
-       clears the same bar a published pair page clears
-       (`people >= MIN_COMMENTERS and creators >= MIN_SOURCES` on that one
-       reason, not merely on the card as a whole — the same floor
-       `gate.py` sets everywhere else in this codebase a page asserts
-       something as settled).
-    2. **STRONG_MATCH** — has at least one `declarable` reason anywhere on
-       the card, at any rank. Real support exists; it just is not the
-       single strongest thing in the whole result set.
-    3. **ALTERNATIVE_DIRECTION** — none of the candidate's `reasons` came
-       from directly satisfying something the plan asked for (kind in
-       `{"constraint", "prefer", "concept", "comparative"}`). Its
-       presence in the results is driven entirely by comparison-graph
-       proximity (`kind="graph"`), vector retrieval (`kind="semantic"`),
-       or an absence note (`kind="absence"`) — a genuinely different
-       direction to consider, not a match on what was typed or clicked.
-    4. **WORTH_TRYING** — everything else: some real, if not independently
-       declarable, evidence, reached by actually matching part of the
-       request.
 
-    `caveats` never factor into this — a caveat is something to weigh
-    against a candidate, not evidence that earned it a place in the
-    results, and the label is about how well the candidate answers the
-    request, not how clean its record is.
-
-    Confidence, not rank: `index` decides only the BEST_MATCH branch's
-    eligibility (only rank 0 may ever earn it), it is never compared
-    against label to "fix" an ordering — see the module docstring's
-    "`label` is a confidence category, not a rank" section for why a
-    STRONG_MATCH legitimately sorting below a WORTH_TRYING is expected
-    behaviour, not a defect this function should paper over.
+def _label(candidate: Recommendation) -> str:
+    """STRONG_FIT / GOOD_FIT / PARTIAL_FIT / EXPLORATORY_PICK — delegates
+    to `commerce_card.result_tier`, which is now the one place this rule
+    lives (see that function's docstring for the exact thresholds and
+    rationale). Kept as a thin wrapper, rather than inlined at each call
+    site, only so existing imports of `fragrance_graph.api._label` keep
+    working; every call site has already dropped the old `index`
+    parameter — the whole point of the rewrite (spec §16) is that no rank
+    can enter this decision at all, so there is no parameter here for one
+    to sneak back in through.
     """
-    if index == 0 and any(
-        r.declarable and r.people >= MIN_COMMENTERS and r.creators >= MIN_SOURCES
-        for r in candidate.reasons
-    ):
-        return "BEST_MATCH"
-    if candidate.declarable_reasons:
-        return "STRONG_MATCH"
-    if not any(r.kind in _POSITIVE_MATCH_KINDS for r in candidate.reasons):
-        return "ALTERNATIVE_DIRECTION"
-    return "WORTH_TRYING"
+    return result_tier(candidate)
 
 
 def _candidate_json(
@@ -323,28 +325,51 @@ def _candidate_json(
     caller (`_session_response`, `spray_queue`) always passes the real
     list from `_preference_statuses`, computed once per response — see
     that function's docstring for what `matched`/`contradicted`/
-    `unknown` mean and how each is decided."""
+    `unknown` mean and how each is decided.
+
+    `index` is accepted (and still used to number `results`/`queue`
+    positionally by every caller) but no longer feeds `label` — see
+    `_label`'s docstring. It is kept as a parameter rather than dropped
+    outright because `_preference_statuses`/callers already thread it
+    through for ordering elsewhere in this module.
+    """
     return {
         "fragrance_id": candidate.fragrance_id,
         "name": candidate.name,
-        "label": _label(candidate, index),
+        "label": _label(candidate),
         "digest": digest(candidate),
-        "reasons": [_reason_json(r) for r in candidate.reasons],
-        "caveats": [_reason_json(r) for r in candidate.caveats],
+        "reasons": _reason_jsons(candidate.reasons),
+        "caveats": _reason_jsons(candidate.caveats),
         "people": candidate.people,
         "creators": candidate.creators,
         "preference_status": list(preference_status),
     }
 
 
-def _answer_json(answer: Answer) -> dict:
-    """An `Answer`, rendered whole. If results are empty the engine's own
-    refusal note is returned as `note` — never smoothed over, the same
-    honesty `ask.py`'s pages hold to."""
-    return {
-        "note": answer.note,
+def _answer_json(answer: Answer, *, debug: bool = False) -> dict:
+    """An `Answer`, rendered whole, for the customer surface. `note` is
+    the commerce headline (`commerce_card.headline`) — see that function's
+    docstring and `commerce-audit.md` §1/§8 for why the engine's own
+    `answer.note` only reaches a customer when it is itself already safe
+    (`headline`'s own docstring decides — most of `_note`'s branches are
+    fine verbatim; the discouraging "clears the independence bar"/
+    "consensus" ones are replaced). `debug=True` adds `engine_note`, the
+    raw `answer.note` unconditionally — the one piece of guaranteed
+    internal-diagnostic text (audit §11's L3 debug view), opt-in and
+    clearly separately named rather than silently swapped in for `note`.
+    """
+    note = headline(answer.plan, answer.results, answer.note)
+    body = {
+        "note": note,
         "results": [_candidate_json(c, i) for i, c in enumerate(answer.results)],
+        "commerce": {
+            "headline": note,
+            "cards": [asdict(build_card(c)) for c in answer.results],
+        },
     }
+    if debug:
+        body["engine_note"] = answer.note
+    return body
 
 
 def _rerank(answer: Answer, state: PreferenceState) -> Answer:
@@ -373,87 +398,146 @@ def _rerank(answer: Answer, state: PreferenceState) -> Answer:
 # --- composer: per-`PreferenceItem` match status, and its tie-break ------
 
 
+#: `match_kind` values — the spec's preference-matrix vocabulary (§10, §32:
+#: MATCH / PARTIAL_MATCH-incl.-CONTESTED / CONTRADICTION / UNKNOWN),
+#: exposed alongside the pre-existing `status` field (below) rather than
+#: replacing it: `status` is a wire contract several existing tests and the
+#: kiosk's CSS classes (`status-matched`/`status-contradicted`/
+#: `status-unknown`) already key on, and nothing in the spec requires
+#: breaking that — only *adding* the CONTESTED distinction it was missing.
+_MATCH_KIND_TO_LEGACY_STATUS = {
+    "match": "matched",
+    "contested": "contradicted",  # closest of the three legacy buckets;
+    # `match_kind`/`contested` carry the real distinction for any reader
+    # that wants it — see `_item_status`'s docstring.
+    "contradiction": "contradicted",
+    "unknown": "unknown",
+}
+
+
 def _item_status(
     item: PreferenceItem,
     candidate: Recommendation,
     facts: list,
     price_floor_by_id: dict[int, float],
-) -> str:
-    """`"matched"` | `"contradicted"` | `"unknown"` for one active
-    `PreferenceItem` against one candidate — evidence-gated, per the
-    spec's MISSING DATA RULE: absence of evidence is `"unknown"`, never
-    counted as either satisfying or failing the item. `facts` is that
-    candidate's own `attribute_facts(...)` rows.
+) -> dict:
+    """The full preference-matrix cell for one active `PreferenceItem`
+    against one candidate: `{"status", "match_kind", "contested", "tier",
+    "people", "creators"}`. `facts` is that candidate's own
+    `attribute_facts(...)` rows.
 
-    - **`fragrance`** — `like`: `"matched"` only if the candidate carries
-      a reason directly evidencing a connection to the anchor (`graph`,
-      `declared_overlap`, `comparative` — the kinds `_score`/
-      `_anchor_profile_fallback` only ever attach *because* of the
-      anchor), else `"unknown"` (this candidate surfaced through some
-      other signal — a note match, a semantic hit — with no stated
-      connection to the liked bottle). `avoid`: always `"matched"` for
-      any candidate that reaches this function at all, because
+    `match_kind` is the spec's four-value vocabulary (§10, §32):
+
+    - **`"match"`** — the request is satisfied on real evidence.
+    - **`"partial_match"`** *(surfaced as `contested: True`, see below)* —
+      the evidence is genuinely split (`Strength.CONTESTED`: material
+      support on both sides, `evidence.strength_of`) — "2 people say
+      strong projection, 4 say weak" is neither a clean win nor a clean
+      loss, and reporting it as either loses the fact that it is disputed.
+      Never `"match"`, never plain `"contradiction"` — spec §32's own
+      example.
+    - **`"contradiction"`** — net-opposed evidence, cleanly (not
+      contested).
+    - **`"unknown"`** — no usable evidence either way — MISSING DATA rule:
+      no credit, no penalty.
+
+    `status` is kept as the pre-existing three-value field
+    (`_MATCH_KIND_TO_LEGACY_STATUS`) so the kiosk's CSS/JS and existing
+    tests, which already key on `"matched"`/`"contradicted"`/`"unknown"`,
+    are unaffected by this addition — `match_kind`/`contested` are where
+    the new distinction actually lives.
+
+    `tier` is `evidence.ConfidenceTier.name` for the fact that decided this
+    cell (`"UNKNOWN"` when nothing decided it — a `fragrance`/`budget`/
+    `occasion`+`avoid` item, or no matching fact at all).
+
+    Per-entity-type rules (unchanged from the pre-tier version, restated
+    for the fuller return shape):
+
+    - **`fragrance`** — `like`: `"match"` only if the candidate carries a
+      reason directly evidencing a connection to the anchor (`graph`,
+      `declared_overlap`, `comparative`), graded from that reason's own
+      people/creators/videos; else `"unknown"`. `avoid`: always `"match"`
+      for any candidate reaching this function, because
       `_rerank`/`composer_excluded_ids` already guarantee the avoided
-      bottle itself never does.
-    - **`budget`** — `"matched"` if `price_floor_by_id` has a real price
-      for this candidate (which, by the time this runs, is a price at or
-      under the budget — `_apply_budget` already removed anything over),
-      else `"unknown"`. Never `"contradicted"`: an over-budget candidate
-      was excluded before this function ever sees it.
+      bottle itself never does — `tier` stays `UNKNOWN` here, since
+      "successfully never being the excluded bottle" is not itself graded
+      evidence.
+    - **`budget`** — `"match"` if `price_floor_by_id` has a real price for
+      this candidate, else `"unknown"`. Never contradicted or contested —
+      an over-budget candidate was excluded before this function runs.
     - **`occasion` + `avoid`** — `"unknown"`: not an expressible
-      combination this phase (see `to_plan`'s composer-items section),
-      so there is nothing to evaluate.
-    - everything else (`note`/`vibe`/`scent_characteristic`/
-      `performance`/`occasion`, `like`/`want`/`avoid`) — looked up via
-      `item_plan_attribute(item)`, the identical `(attribute, value)` key
-      `to_plan` compiled this item's `Preference`/`Constraint` under, and
-      graded from the matching fact's own `supporting`/`opposing` counts:
-      net support (`supporting > opposing`, and not `from_name`) means
-      the candidate's evidence *has* the trait; net opposition means the
-      evidence says it does *not*. `like`/`want` map "has it" ->
-      `"matched"`; `avoid` maps "has it" -> `"contradicted"` (the shopper
-      asked to avoid this and the evidence says the candidate has it
-      anyway — a caveat, not a win) and "does not have it" ->
-      `"matched"` (successfully avoided, on real evidence, not silence).
+      combination this phase.
+    - everything else — looked up via `item_plan_attribute(item)`, graded
+      from the matching fact's `strength`/`supporting`/`opposing`: a
+      `CONTESTED` fact is `"partial_match"` regardless of which side has
+      more raw people (the fix this generalisation exists for); otherwise
+      net support/opposition decides `match`/`contradiction` exactly as
+      before, with `avoid` and `like`/`want` reading the same net result
+      in opposite directions.
     """
+    def cell(match_kind: str, *, tier: str = "UNKNOWN", people: int = 0,
+             creators: int = 0) -> dict:
+        contested = match_kind == "contested"
+        legacy_key = "contested" if contested else match_kind
+        return {
+            "status": _MATCH_KIND_TO_LEGACY_STATUS[legacy_key],
+            "match_kind": "partial_match" if contested else match_kind,
+            "contested": contested,
+            "tier": tier,
+            "people": people,
+            "creators": creators,
+        }
+
     if item.entity_type == "fragrance":
         if item.bucket == "like":
-            return "matched" if any(
-                r.kind in ("graph", "declared_overlap", "comparative")
-                for r in candidate.reasons
-            ) else "unknown"
-        return "matched"  # avoid: this candidate was never the avoided bottle
+            linked = [
+                r for r in candidate.reasons
+                if r.kind in ("graph", "declared_overlap", "comparative")
+            ]
+            if not linked:
+                return cell("unknown")
+            best = max(linked, key=lambda r: r.people)
+            tier = tier_of(
+                Support(people=best.people, creators=best.creators, videos=best.videos)
+            )
+            return cell("match", tier=tier.name, people=best.people, creators=best.creators)
+        return cell("match")  # avoid: this candidate was never the avoided bottle
 
     if item.entity_type == "budget":
-        return "matched" if candidate.fragrance_id in price_floor_by_id else "unknown"
+        return cell("match" if candidate.fragrance_id in price_floor_by_id else "unknown")
 
     if item.entity_type == "occasion" and item.bucket == "avoid":
-        return "unknown"
+        return cell("unknown")
 
     attribute_value = item_plan_attribute(item)
     if attribute_value is None:
-        return "unknown"
+        return cell("unknown")
     attribute, value = attribute_value
     fact = next(
         (f for f in facts if not f.from_name and fact_matches(f, attribute, value)),
         None,
     )
     if fact is None:
-        return "unknown"
+        return cell("unknown")
+    tier_name = fact.tier.name
+    people, creators = fact.supporting.people, fact.supporting.creators
+    if fact.strength.name == "CONTESTED":
+        return cell("contested", tier=tier_name, people=people, creators=creators)
     net_supported = fact.strength.may_retrieve and fact.supporting.people > fact.opposing.people
     net_opposed = fact.opposing.people > fact.supporting.people
     if item.bucket == "avoid":
         if net_supported:
-            return "contradicted"
+            return cell("contradiction", tier=tier_name, people=people, creators=creators)
         if net_opposed:
-            return "matched"
-        return "unknown"
+            return cell("match", tier=tier_name, people=people, creators=creators)
+        return cell("unknown")
     # like / want
     if net_supported:
-        return "matched"
+        return cell("match", tier=tier_name, people=people, creators=creators)
     if net_opposed:
-        return "contradicted"
-    return "unknown"
+        return cell("contradiction", tier=tier_name, people=people, creators=creators)
+    return cell("unknown")
 
 
 def _preference_statuses(
@@ -489,7 +573,7 @@ def _preference_statuses(
         )
         rows = []
         for item in active:
-            status = _item_status(item, candidate, facts, prices)
+            cell = _item_status(item, candidate, facts, prices)
             rows.append(
                 {
                     "bucket": item.bucket,
@@ -504,7 +588,11 @@ def _preference_statuses(
                         if item.entity_type == "budget" and item.amount
                         else ""
                     ),
-                    "status": status,
+                    # `status`/`match_kind`/`contested`/`tier`/`people`/
+                    # `creators` — see `_item_status`'s docstring for what
+                    # each means. `status` is the pre-existing three-value
+                    # field; the rest are the preference-matrix upgrade.
+                    **cell,
                 }
             )
             # A contradicted avoid must be VISIBLE, not only machine-
@@ -515,8 +603,13 @@ def _preference_statuses(
             # nothing. The caveat is the same audited `_fact_reason`
             # wording the engine uses everywhere — no new sentences —
             # and is only added when no existing caveat already carries
-            # that fact.
-            if status == "contradicted" and item.bucket == "avoid":
+            # that fact. `match_kind == "contradiction"` on purpose, not
+            # the legacy `status`: a `"contested"` cell (also legacy-mapped
+            # to `status="contradicted"`) is a genuine dispute, not a clean
+            # contradiction, and gets its own caveat via `_score`'s
+            # CONTESTED handling already — duplicating it here would be a
+            # second, differently-worded caveat for the same fact.
+            if cell["match_kind"] == "contradiction" and item.bucket == "avoid":
                 attribute_value = item_plan_attribute(item)
                 if attribute_value is None:
                     continue
@@ -744,7 +837,9 @@ def _recommendations_for(
     return answer, unexpressed, statuses, plan
 
 
-def _session_response(conn: psycopg.Connection, state: PreferenceState) -> dict:
+def _session_response(
+    conn: psycopg.Connection, state: PreferenceState, *, debug: bool = False
+) -> dict:
     """The one response shape every session endpoint returns (`say`,
     `prefs`, `feedback`, `compose`, `remove_compose_item`, `get_session`).
     `interpreted_preferences` lives here — not only on `compose`/
@@ -756,18 +851,52 @@ def _session_response(conn: psycopg.Connection, state: PreferenceState) -> dict:
     cannot answer. One computation (`_recommendations_for`'s `plan`), one
     field, every caller — the same "second, independently-derived copy
     risks disagreeing" reasoning this module already applies everywhere
-    else (see `_preference_statuses`, `_recommendations_for`)."""
+    else (see `_preference_statuses`, `_recommendations_for`).
+
+    `note` is `commerce_card.headline` — see that function's and
+    `_answer_json`'s docstrings and `commerce-audit.md` §1: `answer.note`
+    is passed through when it is already customer-safe, and replaced only
+    for the specific discouraging branches ("clears the independence
+    bar", "consensus") that used to reach the customer verbatim.
+    `debug=True` adds `engine_note`, the raw `answer.note` unconditionally,
+    exactly as `_answer_json` does for the stateless surface.
+    """
     answer, unexpressed, statuses, plan = _recommendations_for(conn, state)
-    return {
+    # A truly empty session (nothing said, nothing set, nothing sprayed)
+    # gets an empty headline, not an invented "nothing in the catalogue"
+    # sentence — the same invariant `_recommendations_for` already holds
+    # for `answer.note`, extended to the commerce headline: `plan.usable`
+    # is False and there is no refusal precisely in the "nothing said yet"
+    # case (see `_recommendations_for`'s own docstring).
+    empty_session = not plan.usable and not plan.refusal and not answer.results
+    note = "" if empty_session else headline(plan, answer.results, answer.note)
+    body = {
         "state": state.summary(),
-        "note": answer.note,
+        "note": note,
         "unexpressed": unexpressed,
         "results": [
             _candidate_json(c, i, statuses.get(c.fragrance_id, []))
             for i, c in enumerate(answer.results)
         ],
+        "commerce": {
+            "headline": note,
+            # `statuses.get(...)` — the same per-item matrix cells
+            # `_candidate_json`'s `preference_status` above already
+            # carries — so `matched`/`uncertain`/`contradicted` on the
+            # card can never disagree with the status strip a UI renders
+            # next to it. See `commerce_card.build_card`'s docstring for
+            # why this was previously always empty on an all-soft
+            # composer request (F4).
+            "cards": [
+                asdict(build_card(c, statuses.get(c.fragrance_id, [])))
+                for c in answer.results
+            ],
+        },
         "interpreted_preferences": _interpreted_preferences(state, plan, unexpressed),
     }
+    if debug:
+        body["engine_note"] = answer.note
+    return body
 
 
 # --- endpoints -------------------------------------------------------
@@ -800,7 +929,7 @@ def _sanitize_text(text: str) -> str:
 
 
 @app.post("/api/session/{session_id}/say")
-def say(session_id: str, body: SayRequest, conn: Conn) -> dict:
+def say(session_id: str, body: SayRequest, conn: Conn, debug: bool = False) -> dict:
     """Free text, merged into the session. If *this* utterance did not
     parse — `plan.parse` refuses it, e.g. a comparative form it has no
     rule for — that refusal is surfaced as this response's `note` (real
@@ -808,7 +937,9 @@ def say(session_id: str, body: SayRequest, conn: Conn) -> dict:
     absorbed into a session-level answer that carries no sign anything
     unusual happened. The utterance itself is still recorded either way:
     a refused sentence is something the shopper said, not something that
-    did not happen.
+    did not happen. Plain, per-utterance wording (`plan.REFUSALS`), not
+    the internal-audit vocabulary `commerce-audit.md` §1 flags — left
+    as-is on purpose.
     """
     _require_session(conn, session_id)
     text = _sanitize_text(body.text)
@@ -818,15 +949,16 @@ def say(session_id: str, body: SayRequest, conn: Conn) -> dict:
         )
     _record_event(conn, session_id, "say", {"text": text})
     state = _load_state(conn, session_id)
-    response = _session_response(conn, state)
+    response = _session_response(conn, state, debug=debug)
     parsed = parse_with_corpus(conn, text)
     if parsed.refusal:
         response["note"] = parsed.refusal
+        response["commerce"]["headline"] = parsed.refusal
     return response
 
 
 @app.post("/api/session/{session_id}/prefs")
-def prefs(session_id: str, body: PrefsRequest, conn: Conn) -> dict:
+def prefs(session_id: str, body: PrefsRequest, conn: Conn, debug: bool = False) -> dict:
     """Chip (`attribute` + `direction`), occasion, and budget may all be
     given in one call, and all provided fields are applied — an earlier
     version checked for `attribute`/`direction` first, then `occasion`,
@@ -888,7 +1020,7 @@ def prefs(session_id: str, body: PrefsRequest, conn: Conn) -> dict:
         )
     _record_event(conn, session_id, "prefs", payload)
     state = _load_state(conn, session_id)
-    return _session_response(conn, state)
+    return _session_response(conn, state, debug=debug)
 
 
 def _resolve_compose_value(
@@ -914,7 +1046,7 @@ def _resolve_compose_value(
 
 
 @app.post("/api/session/{session_id}/compose")
-def compose(session_id: str, body: ComposeRequest, conn: Conn) -> dict:
+def compose(session_id: str, body: ComposeRequest, conn: Conn, debug: bool = False) -> dict:
     """Add one or more structured preferences (chips) to the session in
     one call. Every item is validated *before* anything is written — a
     single bad item 400s the whole request with per-item errors and
@@ -970,11 +1102,11 @@ def compose(session_id: str, body: ComposeRequest, conn: Conn) -> dict:
     # `_session_response` already carries `interpreted_preferences`,
     # derived from the same corrected `unexpressed` this response's
     # top-level field holds — see that function's docstring.
-    return _session_response(conn, state)
+    return _session_response(conn, state, debug=debug)
 
 
 @app.delete("/api/session/{session_id}/compose/{index}")
-def remove_compose_item(session_id: str, index: int, conn: Conn) -> dict:
+def remove_compose_item(session_id: str, index: int, conn: Conn, debug: bool = False) -> dict:
     """Remove one chip by the stable index `state.summary()["items"][i]
     ["index"]`/`compose`'s own response already carries. Removing an
     already-removed or out-of-range index is a no-op, not a 404 —
@@ -989,11 +1121,11 @@ def remove_compose_item(session_id: str, index: int, conn: Conn) -> dict:
     _require_session(conn, session_id)
     _record_event(conn, session_id, "preference_item_removed", {"index": index})
     state = _load_state(conn, session_id)
-    return _session_response(conn, state)
+    return _session_response(conn, state, debug=debug)
 
 
 @app.post("/api/session/{session_id}/feedback")
-def feedback(session_id: str, body: FeedbackRequest, conn: Conn) -> dict:
+def feedback(session_id: str, body: FeedbackRequest, conn: Conn, debug: bool = False) -> dict:
     _require_session(conn, session_id)
     row = conn.execute(
         "SELECT canonical_name FROM fragrances WHERE id = %s", (body.fragrance_id,)
@@ -1014,18 +1146,18 @@ def feedback(session_id: str, body: FeedbackRequest, conn: Conn) -> dict:
         {"fragrance_id": body.fragrance_id, "name": row["canonical_name"], "verdict": verdict},
     )
     state = _load_state(conn, session_id)
-    return _session_response(conn, state)
+    return _session_response(conn, state, debug=debug)
 
 
 @app.get("/api/session/{session_id}")
-def get_session(session_id: str, conn: Conn) -> dict:
+def get_session(session_id: str, conn: Conn, debug: bool = False) -> dict:
     _require_session(conn, session_id)
     state = _load_state(conn, session_id)
-    return _session_response(conn, state)
+    return _session_response(conn, state, debug=debug)
 
 
 @app.get("/api/session/{session_id}/spray-queue")
-def spray_queue(session_id: str, conn: Conn) -> dict:
+def spray_queue(session_id: str, conn: Conn, debug: bool = False) -> dict:
     """Up to 3 candidates, never padded: the best match, plus up to two
     "direction-testing" alternates.
 
@@ -1051,11 +1183,26 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
     answer, unexpressed, statuses, plan = _recommendations_for(conn, state)
     interpreted = _interpreted_preferences(state, plan, unexpressed)
     results = answer.results
+    # `note`/`commerce.headline` here are built the same way
+    # `_session_response` builds them (`commerce_card.headline`) — see
+    # that function's docstring and `commerce-audit.md` §1. Graded on
+    # `answer.results` (the full ranked set), not `queue` (the
+    # display-capped 1-3 shown here): the headline describes what FACET
+    # *found*, and the queue is a display concern layered on top of it.
+    # A truly empty session gets an empty note, not an invented "nothing
+    # matches" sentence — the same `_session_response` invariant (F4),
+    # applied here too.
+    empty_session = not plan.usable and not plan.refusal and not results
+    note = "" if empty_session else headline(plan, results, answer.note)
     if not results:
-        return {
-            "note": answer.note, "queue": [], "unexpressed": unexpressed,
+        body = {
+            "note": note, "queue": [], "unexpressed": unexpressed,
+            "commerce": {"headline": note, "cards": []},
             "interpreted_preferences": interpreted,
         }
+        if debug:
+            body["engine_note"] = answer.note
+        return body
 
     def signature(candidate: Recommendation) -> tuple[str, str] | None:
         if not candidate.reasons:
@@ -1078,12 +1225,21 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
         seen_signatures.add(candidate_signature)
         queue.append(candidate)
 
-    return {
-        "note": answer.note,
+    body = {
+        "note": note,
         "queue": [
             _candidate_json(c, i, statuses.get(c.fragrance_id, []))
             for i, c in enumerate(queue)
         ],
+        "commerce": {
+            "headline": note,
+            # Same matrix cells as `preference_status` above — see
+            # `_session_response`'s identical comment.
+            "cards": [
+                asdict(build_card(c, statuses.get(c.fragrance_id, [])))
+                for c in queue
+            ],
+        },
         # The queue screen is where a shopper acts, so it is exactly where
         # held-but-unusable preferences (budget, a stale comparative) must
         # be visible — flagged found-but-unfixed in the M1 round, required
@@ -1095,17 +1251,22 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
         # time — see `_session_response`'s identical reasoning.
         "interpreted_preferences": interpreted,
     }
+    if debug:
+        body["engine_note"] = answer.note
+    return body
 
 
 @app.post("/api/recommend")
-def stateless_recommend(body: RecommendRequest, conn: Conn) -> dict:
-    """One-shot, no session — a direct wrap of `recommend()`."""
+def stateless_recommend(body: RecommendRequest, conn: Conn, debug: bool = False) -> dict:
+    """One-shot, no session — a direct wrap of `recommend()`. `debug=true`
+    adds the raw engine note (`_answer_json`'s `engine_note`) — see that
+    function's docstring and `commerce-audit.md` §11."""
     answer = recommend(conn, body.text)
-    return _answer_json(answer)
+    return _answer_json(answer, debug=debug)
 
 
 @app.get("/api/fragrance/{fragrance_id}")
-def fragrance_profile(fragrance_id: int, conn: Conn) -> dict:
+def fragrance_profile(fragrance_id: int, conn: Conn, debug: bool = False) -> dict:
     """A bottle's profile, through the identical path `ask.py`'s static
     profile pages use — `recommend("what do people say about X?")` — so
     this endpoint cannot say anything a typed query, or the built site,
@@ -1116,7 +1277,7 @@ def fragrance_profile(fragrance_id: int, conn: Conn) -> dict:
     if row is None:
         raise HTTPException(status_code=404, detail=f"No fragrance {fragrance_id!r}")
     answer = recommend(conn, f"what do people say about {row['canonical_name']}?")
-    body = _answer_json(answer)
+    body = _answer_json(answer, debug=debug)
     body["official"] = _official_block(conn, fragrance_id)
     return body
 
@@ -1183,12 +1344,33 @@ def audited_probe_text(conn: psycopg.Connection) -> str:
 
     lines: list[str] = []
     for _surface, query in PROBES:
-        rendered = _answer_json(recommend(conn, query))
+        # `debug=True` on purpose, not the customer default: the audit has
+        # to see `engine_note` too — the one field only a `debug=true`
+        # request exposes — or a hostile string that only ever reaches a
+        # sentence *inside* the engine's internal note (never the
+        # commerce headline) would be invisible to this scan even though
+        # a real `?debug=true` caller can still read it. See
+        # `commerce-audit.md` §11 and the regression this closes:
+        # `TestAuditSurfaceRegistration::
+        # test_a_forbidden_phrase_reaching_the_api_through_a_real_fragrance_is_caught`.
+        rendered = _answer_json(recommend(conn, query), debug=True)
         lines.append(rendered["note"])
+        lines.append(rendered.get("engine_note", ""))
         for candidate in rendered["results"]:
+            lines.append(candidate["name"])
             lines.append(candidate["digest"])
             lines += [r["text"] for r in candidate["reasons"]]
             lines += [r["text"] for r in candidate["caveats"]]
+        # The commerce layer's own audited templates (`commerce_card.
+        # TierWording`) — a distinct wording surface from `Reason.phrase()`
+        # above, checked here rather than only via `_check_reason` because
+        # `TierWording` output never becomes a `Reason` itself. See
+        # `audit._audit_commerce`.
+        commerce = rendered["commerce"]
+        lines.append(commerce["headline"])
+        for card in commerce["cards"]:
+            lines += card["fit_signals"]
+            lines += card["relevant_tradeoffs"]
     return "\n".join(lines)
 
 
@@ -1240,15 +1422,23 @@ def audited_session_probe_text(conn: psycopg.Connection) -> str:
     probe.set_occasion("a rooftop birthday")
     probe.set_budget(150.0)
 
-    response = _session_response(conn, probe)
-    lines: list[str] = [response["note"]]
+    # `debug=True` — see `audited_probe_text`'s identical note on why the
+    # audit has to see `engine_note`, not only the customer-default `note`.
+    response = _session_response(conn, probe, debug=True)
+    lines: list[str] = [response["note"], response.get("engine_note", "")]
     for item in response["unexpressed"]:
         lines.append(item["preference"])
         lines.append(item["reason"])
     for candidate in response["results"]:
+        lines.append(candidate["name"])
         lines.append(candidate["digest"])
         lines += [r["text"] for r in candidate["reasons"]]
         lines += [r["text"] for r in candidate["caveats"]]
+    commerce = response["commerce"]
+    lines.append(commerce["headline"])
+    for card in commerce["cards"]:
+        lines += card["fit_signals"]
+        lines += card["relevant_tradeoffs"]
     return "\n".join(lines)
 
 

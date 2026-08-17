@@ -190,6 +190,83 @@ class Support:
         return self.people >= MIN_COMMENTERS and self.creators >= MIN_SOURCES
 
 
+class ConfidenceTier(IntEnum):
+    """How much *a recommendation* may lean on one fact — graded, where
+    `Strength.may_declare` is binary.
+
+    This is a second, coarser question than `Strength`. `Strength` answers
+    "may a page state this as settled fact" (`evidence.py`'s module
+    docstring: "weak evidence may bring a candidate into consideration;
+    only strong evidence may make a statement about it"). A commerce
+    recommendation needs a third answer in between those two: "not quite
+    strong enough to declare, but still worth citing as a reason to try
+    this bottle" — which is exactly what `Strength.OBSERVED`/`REPEATED`
+    collapse together today with no further distinction a shopper-facing
+    sentence can use.
+
+    Ordered so `>=` comparisons work. Independence (creator count) still
+    gates the CLAIM-language tiers (`STRONG`, `MODERATE`) exactly as it
+    always has for `Strength.may_declare` — this enum does not loosen that
+    bar, it only gives the levels *below* it graded, sayable language
+    instead of one flat "not declarable" bucket. See
+    `commerce_card.TIER_WORDING` for the customer sentence each tier earns.
+
+    Thresholds (documented, not tuned blind):
+
+    - **STRONG** — `people >= MIN_COMMENTERS (3)` AND `creators >=
+      MIN_SOURCES (2)` AND `videos >= MIN_SOURCES (2)`. The same bar a
+      published pair page clears, *plus* a multi-video requirement: three
+      commenters in the reply thread of one video are not "wearers
+      consistently describe" — they read one video and one comment
+      section. Multi-video is what makes "consistently" honest.
+    - **MODERATE** — `creators >= MIN_SOURCES (2)` (people >= 2, since a
+      single person is `SINGLE_SOURCE` regardless of creator count). Two
+      or three independent people, seen from at least two channels: real,
+      separate corroboration, short of "consistently."
+    - **LIMITED** — `people >= 2` but `creators < MIN_SOURCES` — more than
+      one person said it, but they are not shown to be independent of each
+      other (one room, `gate.py`'s own phrase for this). Still more than a
+      single remark.
+    - **SINGLE_SOURCE** — exactly one person. The existing "one commenter
+      said" wording (`Reason.phrase`) already covers this tier; it is kept
+      as its own tier here rather than folded into `LIMITED` so a caller
+      can tell "nobody else has spoken" apart from "somebody else agrees,
+      unverified independence."
+    - **UNKNOWN** — no supporting people at all. No match credit, no
+      contradiction, at most a trivial coverage effect (spec §8/§34) —
+      never treated as either satisfying or failing a request.
+    """
+
+    UNKNOWN = 0
+    SINGLE_SOURCE = 1
+    LIMITED = 2
+    MODERATE = 3
+    STRONG = 4
+
+
+def tier_of(support: Support) -> ConfidenceTier:
+    """`support` graded into a `ConfidenceTier`. Takes the `Support` half
+    of a fact, not the whole `AttributeFact` — `AttributeFact.tier` below
+    is the convenience most callers want; this is exposed separately so a
+    caller with only counts in hand (a `Reason`, a composer preference
+    cell) can grade them the identical way without constructing a fact.
+    """
+    people, creators, videos = support.people, support.creators, support.videos
+    if people == 0:
+        return ConfidenceTier.UNKNOWN
+    if people == 1:
+        return ConfidenceTier.SINGLE_SOURCE
+    if (
+        people >= MIN_COMMENTERS
+        and creators >= MIN_SOURCES
+        and videos >= MIN_SOURCES
+    ):
+        return ConfidenceTier.STRONG
+    if creators >= MIN_SOURCES:
+        return ConfidenceTier.MODERATE
+    return ConfidenceTier.LIMITED
+
+
 @dataclass(frozen=True)
 class AttributeFact:
     """One thing the corpus supports about one bottle.
@@ -224,6 +301,20 @@ class AttributeFact:
         if self.from_name:
             return Strength.INSUFFICIENT
         return strength_of(self.supporting, self.opposing)
+
+    @property
+    def tier(self) -> ConfidenceTier:
+        """This fact's recommendation-grade confidence — see
+        `ConfidenceTier`. Graded from `supporting` alone: whether the fact
+        is *contested* is a separate question (`self.strength is
+        Strength.CONTESTED`), asked and answered independently wherever a
+        caller needs both, the same way `strength`/`may_declare` already
+        stay two separate reads rather than one collapsed verdict. A
+        name-derived note (`from_name`) is never more than `UNKNOWN`: it
+        carries zero people by construction (`name_facts`'s own
+        docstring), so `tier_of` already returns `UNKNOWN` for it without
+        needing a special case here."""
+        return tier_of(self.supporting)
 
     @property
     def may_declare(self) -> bool:

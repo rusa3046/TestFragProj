@@ -652,61 +652,102 @@ class TestSprayQueue:
 
 
 class TestLabelDerivation:
-    """Direct unit tests on `_label`, no database needed — every input is
-    a hand-built `Reason`/`Recommendation`."""
+    """Direct unit tests on `_label` (`commerce_card.result_tier`), no
+    database needed — every input is a hand-built `Reason`/`Recommendation`.
 
-    def _declarable(self, people=8, creators=4, kind="prefer"):
+    Rewritten for the commerce result tiers (`STRONG_FIT`/`GOOD_FIT`/
+    `PARTIAL_FIT`/`EXPLORATORY_PICK`, spec §16, `commerce-audit.md` §7):
+    the old four-value, rank-coupled `BEST_MATCH`/`STRONG_MATCH`/
+    `WORTH_TRYING`/`ALTERNATIVE_DIRECTION` label is gone, and with it the
+    `index` parameter — `_label`/`result_tier` no longer take one at all,
+    which is what makes "never position-based" (spec) a fact about the
+    function's signature, not merely its current behaviour.
+    """
+
+    def _strong(self, people=8, creators=4, videos=3, kind="prefer"):
         return Reason(
             kind=kind, text="rose", strength=Strength.SUPPORTED,
-            people=people, creators=creators,
+            people=people, creators=creators, videos=videos,
         )
 
-    def _weak(self, kind="prefer"):
+    def _moderate(self, kind="prefer"):
+        # 2 people, 2 creators, 0 videos — clears MODERATE (`creators >=
+        # MIN_SOURCES`) but not STRONG (`evidence.tier_of` also needs
+        # `videos >= MIN_SOURCES`).
+        return Reason(
+            kind=kind, text="feminine", strength=Strength.REPEATED,
+            people=2, creators=2, videos=0,
+        )
+
+    def _single_source(self, kind="prefer"):
         return Reason(
             kind=kind, text="rose", strength=Strength.OBSERVED, people=1, creators=1,
         )
 
-    def test_rank_zero_with_a_strong_reason_is_best_match(self):
-        from fragrance_graph.api import _label
-
-        candidate = Recommendation(1, "X", reasons=[self._declarable()])
-        assert _label(candidate, 0) == "BEST_MATCH"
-
-    def test_a_strong_reason_at_a_later_rank_is_strong_match_not_best(self):
-        from fragrance_graph.api import _label
-
-        candidate = Recommendation(1, "X", reasons=[self._declarable()])
-        assert _label(candidate, 1) == "STRONG_MATCH"
-
-    def test_rank_zero_with_only_a_weak_reason_is_not_best_match(self):
-        from fragrance_graph.api import _label
-
-        candidate = Recommendation(1, "X", reasons=[self._weak()])
-        assert _label(candidate, 0) == "WORTH_TRYING"
-
-    def test_only_graph_or_semantic_reasons_is_alternative_direction(self):
+    def test_two_moderate_matched_dimensions_is_strong_fit(self):
         from fragrance_graph.api import _label
 
         candidate = Recommendation(
-            1, "X", reasons=[self._weak(kind="graph")]
+            1, "X", reasons=[self._moderate(), self._strong()]
         )
-        assert _label(candidate, 1) == "ALTERNATIVE_DIRECTION"
+        assert _label(candidate) == "STRONG_FIT"
 
-    def test_a_weak_but_directly_matched_reason_is_worth_trying(self):
+    def test_one_strong_matched_dimension_is_good_fit_not_strong(self):
+        """A single matched dimension never earns `STRONG_FIT`, however
+        well-evidenced — the spec's own "#1 can be a Good Fit" (§16):
+        `STRONG_FIT` requires *two or more* answered request dimensions,
+        not one very confident one."""
         from fragrance_graph.api import _label
 
-        candidate = Recommendation(1, "X", reasons=[self._weak(kind="prefer")])
-        assert _label(candidate, 1) == "WORTH_TRYING"
+        candidate = Recommendation(1, "X", reasons=[self._strong()])
+        assert _label(candidate) == "GOOD_FIT"
+
+    def test_two_single_source_matched_dimensions_is_good_fit(self):
+        from fragrance_graph.api import _label
+
+        candidate = Recommendation(
+            1, "X", reasons=[self._single_source(), self._single_source(kind="concept")]
+        )
+        assert _label(candidate) == "GOOD_FIT"
+
+    def test_one_single_source_matched_dimension_is_partial_fit(self):
+        """A `SINGLE_SOURCE` match is real evidence the request was
+        answered — never rejected, never `EXPLORATORY_PICK` — just not
+        enough to call more than partial. Independence is not a gate on
+        eligibility for a tier at all (`commerce-audit.md` §1/§4)."""
+        from fragrance_graph.api import _label
+
+        candidate = Recommendation(1, "X", reasons=[self._single_source()])
+        assert _label(candidate) == "PARTIAL_FIT"
+
+    def test_only_graph_or_semantic_reasons_is_exploratory_pick(self):
+        from fragrance_graph.api import _label
+
+        candidate = Recommendation(
+            1, "X", reasons=[self._strong(kind="graph")]
+        )
+        assert _label(candidate) == "EXPLORATORY_PICK"
 
     def test_caveats_never_influence_the_label(self):
         from fragrance_graph.api import _label
 
         candidate = Recommendation(
             1, "X",
-            reasons=[self._weak(kind="graph")],
-            caveats=[self._declarable(kind="avoid")],
+            reasons=[self._strong(kind="graph")],
+            caveats=[self._strong(kind="avoid")],
         )
-        assert _label(candidate, 1) == "ALTERNATIVE_DIRECTION"
+        assert _label(candidate) == "EXPLORATORY_PICK"
+
+    def test_label_takes_no_rank_parameter(self):
+        """Structural, not behavioural: the old label needed `index` to
+        gate `BEST_MATCH`. The new one has no parameter a caller could
+        even pass a rank through — "never position-based" is enforced by
+        the signature, not by a test asserting two calls agree."""
+        import inspect
+
+        from fragrance_graph.api import _label
+
+        assert list(inspect.signature(_label).parameters) == ["candidate"]
 
 
 class TestAuditSurfaceRegistration:

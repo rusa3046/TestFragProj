@@ -141,11 +141,13 @@ def _claim(conn, i, *, frag, claim_type, value, author, channel="chan_a",
 
 _SCORE_LIKE = re.compile(r"score|match|percent", re.I)
 
-#: The only four label values `api._label` may ever produce. Any other
-#: string is not a category this product defines and no response may
-#: carry it.
+#: The only four label values `api._label` (`commerce_card.result_tier`)
+#: may ever produce. Any other string is not a category this product
+#: defines and no response may carry it. Renamed from `BEST_MATCH`/
+#: `STRONG_MATCH`/`WORTH_TRYING`/`ALTERNATIVE_DIRECTION` for the commerce
+#: result tiers (spec §16) — see `commerce_card.result_tier`'s docstring.
 _ALLOWED_LABELS = frozenset(
-    {"BEST_MATCH", "STRONG_MATCH", "WORTH_TRYING", "ALTERNATIVE_DIRECTION"}
+    {"STRONG_FIT", "GOOD_FIT", "PARTIAL_FIT", "EXPLORATORY_PICK"}
 )
 
 

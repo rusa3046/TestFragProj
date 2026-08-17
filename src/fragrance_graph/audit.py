@@ -262,6 +262,7 @@ def audit(conn: psycopg.Connection) -> AuditReport:
     _audit_name_facts(conn, report)
     _audit_releases(conn, report)
     _audit_pages(conn, report)
+    _audit_commerce(conn, report)
     return report
 
 
@@ -457,6 +458,109 @@ def _audit_pages(conn: psycopg.Connection, report: AuditReport) -> None:
                           f"{pair.left} vs {pair.right}: "
                           f"{pair.commenters} people, {pair.sources} sources")
             )
+
+
+#: Internal audit/engineering vocabulary a *customer-facing* sentence must
+#: never carry — the specific defect `commerce_card.headline` exists to
+#: fix (`commerce-audit.md` §1/§7: "grep the wording layer for
+#: independence/bar/threshold in customer strings and eliminate"). Checked
+#: only against the commerce surface, not folded into `FORBIDDEN` (which
+#: every rendered surface is checked against): a genuinely honest
+#: *engineering* sentence is allowed to say "insufficient comparative
+#: evidence" or report a pair's own `commenters`/`sources` count
+#: (`_audit_pages`, above) — only the customer-facing commerce layer must
+#: never use this vocabulary at all.
+INTERNAL_TERMS = ("independence", "threshold", "consensus", "clears the bar")
+
+
+def _check_commerce_text(report: AuditReport, surface: str, text: str) -> None:
+    lowered = text.lower()
+    for phrase in FORBIDDEN:
+        if phrase in lowered:
+            report.violations.append(
+                Violation(surface, "forbidden phrasing in commerce text", f"{text!r}")
+            )
+    for phrase in INTERNAL_TERMS:
+        if phrase in lowered:
+            report.violations.append(
+                Violation(surface, "internal-audit vocabulary in commerce text",
+                          f"{phrase!r} in {text!r}")
+            )
+
+
+def _audit_commerce(conn: psycopg.Connection, report: AuditReport) -> None:
+    """The commerce presentation layer's own audited wording
+    (`commerce_card.TierWording`) — a distinct surface from `Reason.
+    phrase()` (checked by `_check_reason`) because a tier-templated
+    sentence never becomes a `Reason` itself; see `commerce_card.py`'s
+    module docstring for why this layer exists at all.
+
+    Two passes, because a real corpus is not guaranteed to happen to
+    exercise every confidence tier, attribute type, or the CONTESTED/mixed
+    branch on any given run (a small or freshly-seeded fixture database
+    might have nothing at `STRONG`, nothing performance-shaped, nothing
+    disputed):
+
+    1. **Synthetic** — every template in every one of `TierWording`'s
+       ladders (note/vibe, performance, occasion, tradeoff), plus `mixed`,
+       `preference_matched`, and both headline branches, called directly
+       with a benign, fixed subject/constraint list. This is what makes
+       "every template" a guarantee independent of what the corpus holds
+       — a `checked["commerce card"]` count that is never zero, and a
+       coverage set that never silently shrinks, just because today's
+       corpus happens to have no `STRONG`-tier fact or no disputed one.
+       Deliberately *not* adversarial input: this is the routine gate
+       `main()` exits non-zero on, and it must stay clean on legitimate
+       wording — the adversarial version of this same check (proving a
+       hostile *subject* value, e.g. a user-typed note name, still gets
+       caught when a template interpolates it) is a positive-control test
+       (`tests/test_audit.py`), not part of the pass/fail gate itself; see
+       that test for why baking adversarial input into `main()`'s own exit
+       code would make the gate permanently red rather than provably
+       working.
+    2. **Real** — every `PROBES` query's actual headline and every
+       returned candidate's actual `fit_signals`/`relevant_tradeoffs`,
+       exactly as a real customer response would render them — the same
+       "exercised against the real corpus" discipline every other surface
+       in this module holds to.
+    """
+    from fragrance_graph.commerce_card import TierWording, build_card, headline
+
+    surface = "commerce card"
+
+    def check(text: str) -> None:
+        report.checked[surface] = report.checked.get(surface, 0) + 1
+        _check_commerce_text(report, surface, text)
+
+    benign = "feminine"
+    # Every confidence-tier ladder this module writes — note/vibe
+    # (`strong`/.../`single_source`), performance (`*_performance`),
+    # occasion (`*_occasion`), and the tradeoff ladder — plus the two
+    # single-template surfaces (`preference_matched`, `mixed`). One list,
+    # not four separate loops, so a fifth ladder added later only has to
+    # be appended here once for this coverage guarantee to include it.
+    for template in (
+        TierWording.strong, TierWording.moderate, TierWording.limited,
+        TierWording.single_source,
+        TierWording.strong_performance, TierWording.moderate_performance,
+        TierWording.limited_performance, TierWording.single_source_performance,
+        TierWording.strong_occasion, TierWording.moderate_occasion,
+        TierWording.limited_occasion, TierWording.single_source_occasion,
+        TierWording.tradeoff_strong, TierWording.tradeoff_moderate,
+        TierWording.tradeoff_limited,
+        TierWording.preference_matched, TierWording.mixed,
+    ):
+        check(template(benign))
+    check(TierWording.headline_with_results([benign], [benign]))
+    check(TierWording.headline_no_results([benign]))
+
+    for _, query in PROBES:
+        answer = recommend(conn, query)
+        check(headline(answer.plan, answer.results, answer.note))
+        for candidate in answer.results:
+            card = build_card(candidate)
+            for sentence in card.fit_signals + card.relevant_tradeoffs:
+                check(sentence)
 
 
 def main(argv: list[str] | None = None) -> int:

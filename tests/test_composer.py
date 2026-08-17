@@ -698,3 +698,90 @@ class TestAContradictedAvoidIsVisibleNotOnlyMachineReadable:
                            if s["entity_type"] == "budget"]
             assert budget_rows and budget_rows[0]["display"] == "under $250"
         assert_honest(body)
+
+
+# --- the preference-matrix upgrade: PARTIAL_MATCH / CONTESTED --------------
+
+
+class TestPreferenceMatrixContestedIsNeitherMatchNorContradiction:
+    """spec §32/§43: "2 people say strong projection, 4 say weak" must
+    come back `PARTIAL_MATCH`/CONTESTED — never `MATCH` (the minority
+    can't win it outright) and never a plain `CONTRADICTION` (it is not
+    settled against, either)."""
+
+    def _seeded(self, conn):
+        bottle = add_fragrance(conn, "Disputed Projection Bottle")
+        for i, author in enumerate(["p1", "p2"]):
+            _claim(conn, i, frag=bottle, claim_type="PROJECTION", value=None,
+                   author=author, channel=f"strong{i}", sentiment="POSITIVE")
+        for i, author in enumerate(["p3", "p4", "p5", "p6"]):
+            _claim(conn, 10 + i, frag=bottle, claim_type="PROJECTION", value=None,
+                   author=author, channel=f"weak{i}", sentiment="NEGATIVE")
+        return bottle
+
+    def test_a_2_for_4_against_projection_want_is_contested_not_matched_or_contradicted(
+        self, client, conn
+    ):
+        bottle = self._seeded(conn)
+        session_id = _create(client)
+        body = _compose(client, session_id, [
+            {"bucket": "want", "entity_type": "performance", "value": "strong projection"},
+        ]).json()
+        by_id = {r["fragrance_id"]: r for r in body["results"]}
+        assert bottle in by_id
+        row = next(
+            s for s in by_id[bottle]["preference_status"]
+            if s["value"] == "strong projection"
+        )
+        # Legacy `status` stays one of the pre-existing three values
+        # (nothing downstream that keys on it should have to change)...
+        assert row["status"] in ("matched", "contradicted", "unknown")
+        # ...but the new fields carry the real distinction: genuinely
+        # contested, never a clean win.
+        assert row["match_kind"] == "partial_match"
+        assert row["contested"] is True
+        assert row["people"] == 2  # the supporting side's own count
+        assert_honest(body)
+
+
+# --- like+performance: bucket priority, not a rejected combination --------
+
+
+class TestLikePerformanceIsNowUsable:
+    """spec §11/`commerce-audit.md` §5: `like`+`performance` used to be
+    refused into `unexpressed` — a bucket-*priority* rule (LIKE is a
+    softer positive) mistaken for a usability gap. It must now compile
+    and credit a candidate exactly like `want`+`performance` already did.
+
+    Uses the sentiment axis's *positive* end ("strong projection") —
+    `TestAnchorPlusWant`'s own fixture shape. A negative-end performance
+    value ("subtle"/"weak") cannot be matched to evidence at all today,
+    `like` or `want`: `evidence.attribute_facts` always names a sentiment
+    axis fact by its positive end (`POSITIVE_END`), so
+    `recommend._preference_fact`'s exact-value match never finds a
+    negative-end request regardless of bucket — a pre-existing gap in
+    `_score`'s sentiment-axis matching, not something this bucket-priority
+    fix introduced or is responsible for closing; noted, not fixed, here.
+    """
+
+    def _seeded(self, conn):
+        bottle = add_fragrance(conn, "Loud Skin Scent Bottle")
+        for i, author in enumerate(["p1", "p2", "p3"]):
+            _claim(conn, i, frag=bottle, claim_type="PROJECTION", value=None,
+                   author=author, channel=f"c{i}", sentiment="POSITIVE")
+        return bottle
+
+    def test_like_performance_compiles_and_credits_a_candidate(self, client, conn):
+        bottle = self._seeded(conn)
+        session_id = _create(client)
+        body = _compose(client, session_id, [
+            {"bucket": "like", "entity_type": "performance", "value": "strong projection"},
+        ]).json()
+        assert not any(
+            "performance" in u["reason"] or "like" in u.get("preference", "")
+            for u in body["unexpressed"]
+        ), f"like+performance was rejected into unexpressed: {body['unexpressed']}"
+        by_id = {r["fragrance_id"]: r for r in body["results"]}
+        assert bottle in by_id
+        assert _status_by_value(by_id[bottle])["strong projection"] == "matched"
+        assert_honest(body)
