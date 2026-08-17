@@ -96,6 +96,17 @@ class Constraint:
     #: The words the user actually typed, kept so an explanation can quote
     #: the request back rather than paraphrasing it.
     said: str = ""
+    #: False (default): the candidate must HAVE evidence for this value —
+    #: the meaning this dataclass has always had. True: the candidate must
+    #: NOT have real evidence for it — a genuinely new meaning, added for
+    #: the composer's "avoid a note, exclude it outright" chip
+    #: (`session.PreferenceState.to_plan`, `avoid`+`mode="exclude"`).
+    #: Kept on the same dataclass rather than a second one because a
+    #: candidate-matching function would otherwise have to know about two
+    #: constraint shapes; `recommend._score`'s Stage 1 branches on this
+    #: one field instead. Defaults to False so every existing caller that
+    #: only ever meant "must have" is unaffected.
+    exclude: bool = False
 
 
 @dataclass(frozen=True)

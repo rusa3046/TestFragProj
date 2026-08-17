@@ -80,6 +80,7 @@ from fragrance_graph.plan import PERFORMANCE_PHRASES as _PERFORMANCE_PHRASES
 from fragrance_graph.plan import VIBE_WORDS as _VIBE_WORDS
 from fragrance_graph.plan import Constraint, Intent, Preference, QueryPlan, parse, parse_with_corpus
 from fragrance_graph.plan import Direction as PlanDirection
+from fragrance_graph.query import find_fragrance
 
 log = logging.getLogger("fragrance_graph.session")
 
@@ -158,6 +159,33 @@ class WORDING:
     def comparative_stale_anchor(parsed_against: str, current_anchor: str) -> str:
         return f"was said about {parsed_against}, current anchor is {current_anchor}"
 
+    # --- composer (`PreferenceItem`) wording — see `to_plan`'s "composer
+    # items" section for where each of these is used. ---------------------
+
+    @staticmethod
+    def multiple_anchors_not_ranked() -> str:
+        return "multiple anchors not yet ranked"
+
+    @staticmethod
+    def want_fragrance_not_supported() -> str:
+        return "wanting a specific fragrance is not a supported preference; use like instead"
+
+    @staticmethod
+    def like_performance_not_supported() -> str:
+        return "a performance target is expressed via want, not like"
+
+    @staticmethod
+    def avoid_occasion_not_supported() -> str:
+        return "avoiding an occasion is not supported; set the occasion you want instead"
+
+    @staticmethod
+    def budget_only_via_want() -> str:
+        return "a budget is only recognised in the want bucket"
+
+    @staticmethod
+    def fragrance_not_found(name: str) -> str:
+        return f"{name!r} does not match any fragrance in the catalogue"
+
 
 #: `plan.Direction.HIGH`/`LOW` -> this module's `MORE`/`LESS`. There is no
 #: entry for `LESS_THAN_ANCHOR`/`MORE_THAN_ANCHOR`: those are handled
@@ -223,6 +251,246 @@ def _match_occasion(text: str) -> str | None:
     return None
 
 
+class Bucket(StrEnum):
+    """Which of the composer's three buckets a `PreferenceItem` sits in —
+    the product's own vocabulary (see `composer-spec-digest.md`), distinct
+    from `Direction` above: a bucket is where the chip was dropped, a
+    `Direction` is which way a compiled preference pushes, and the two do
+    not map one-to-one (a `want` and a `like` on the same note both push
+    the same way; see `PreferenceState.to_plan`'s "composer items"
+    section for exactly where they stop being the same)."""
+
+    #: "I like this" — preserve/seek. A fragrance becomes the anchor; a
+    #: note/characteristic/vibe becomes something to keep.
+    LIKE = "like"
+    #: "I don't want this" — reduce it or exclude it outright, `mode`
+    #: says which (see `AvoidMode`). A fragrance is excluded from results.
+    AVOID = "avoid"
+    #: "Get me more of this than a mere like would" — a target, stronger
+    #: than LIKE. Occasion and budget are only ever expressed here.
+    WANT = "want"
+
+
+class EntityType(StrEnum):
+    """What kind of thing a `PreferenceItem.value` names."""
+
+    FRAGRANCE = "fragrance"
+    NOTE = "note"
+    #: A characteristic word ("warm", "sweet", "powdery") whose
+    #: `plan.py` attribute is ambiguous until looked up — see
+    #: `item_plan_attribute`.
+    SCENT_CHARACTERISTIC = "scent_characteristic"
+    PERFORMANCE = "performance"
+    VIBE = "vibe"
+    OCCASION = "occasion"
+    BUDGET = "budget"
+
+
+class AvoidMode(StrEnum):
+    """How an `avoid` bucket item should push — only meaningful there;
+    `PreferenceItem.mode` is `None` for `like`/`want` items."""
+
+    #: A soft push away from the value — compiles to `Direction.LOW`, or
+    #: `Direction.LESS_THAN_ANCHOR` when an anchor exists (mirrors
+    #: `plan.py`'s own `TOO_X` reading of "too warm").
+    REDUCE = "reduce"
+    #: A hard filter: a candidate with real evidence *for* the value is
+    #: not a candidate at all. Compiles to `Constraint(..., exclude=True)`.
+    EXCLUDE = "exclude"
+
+
+#: Which `AvoidMode` an `avoid` item defaults to when it names none of its
+#: own. The spec states two of these explicitly — `note` excludes,
+#: `scent_characteristic`/`vibe` reduce — and this generalises the same
+#: choice to every other attribute-shaped entity type as REDUCE, the
+#: softer of the two mechanisms, since nothing in the spec asks for a
+#: stricter default anywhere else. `fragrance` and `budget` are absent on
+#: purpose: a fragrance avoid never reaches this (it excludes via the
+#: existing feedback/exclusion machinery, not a `Constraint`), and
+#: avoiding a budget is not an expressible preference at all — see
+#: `to_plan`'s composer-items section.
+_AVOID_DEFAULT_MODE: dict[str, AvoidMode] = {
+    EntityType.NOTE.value: AvoidMode.EXCLUDE,
+    EntityType.SCENT_CHARACTERISTIC.value: AvoidMode.REDUCE,
+    EntityType.VIBE.value: AvoidMode.REDUCE,
+    EntityType.PERFORMANCE.value: AvoidMode.REDUCE,
+    EntityType.OCCASION.value: AvoidMode.REDUCE,
+}
+
+
+def avoid_mode(item: PreferenceItem) -> AvoidMode | None:
+    """The effective `AvoidMode` for an `avoid`-bucket item: its own
+    `mode` if it named one, else `_AVOID_DEFAULT_MODE`'s entry for its
+    `entity_type`, else `None` for an entity type with no default
+    (`fragrance`, `budget` — both handled elsewhere in `to_plan`).
+    Public so `api.py` can render "reduce" vs "exclude" for
+    `interpreted_preferences` using the exact rule `to_plan` compiled by,
+    rather than a second guess at the same default table.
+    """
+    if item.mode is not None:
+        return AvoidMode(item.mode)
+    return _AVOID_DEFAULT_MODE.get(item.entity_type)
+
+
+@dataclass(frozen=True)
+class PreferenceItem:
+    """One chip: a structured preference from the composer, as opposed to
+    a sentence (`merge_utterance`) or a bare descriptor+direction
+    (`merge_preference`). See `composer-spec-digest.md` for the product
+    shape this mirrors.
+
+    `value` is a canonical string — a fragrance's `canonical_name` for
+    `entity_type="fragrance"`, the bare descriptor word otherwise.
+    Resolving a raw user string (a typed name, a UI's `entity_id`) to
+    that canonical form is the caller's job (`api.py`'s `/compose`
+    handler); this dataclass only validates the *shape* of what it is
+    handed.
+
+    Validation happens in `__post_init__`, which means an invalid item
+    can never exist — the M1 poison-event lesson applied at the
+    strongest possible point: there is no code path that records an
+    event before construction, because construction itself is where
+    validation happens. `rebuild` still wraps `PreferenceItem(**payload)`
+    in the same `try/except ValueError` every other replay path uses, for
+    a row that reached `session_events` some other way (see `rebuild`'s
+    own docstring for why that is not a contradiction).
+    """
+
+    #: "like" | "avoid" | "want" — see `Bucket`.
+    bucket: str
+    #: "fragrance" | "note" | "scent_characteristic" | "performance" |
+    #: "vibe" | "occasion" | "budget" — see `EntityType`.
+    entity_type: str
+    value: str = ""
+    #: "reduce" | "exclude" | None — see `AvoidMode`. Meaningful only for
+    #: `bucket="avoid"`; ignored (never validated against the bucket)
+    #: everywhere else, exactly like a UI sending a stray field.
+    mode: str | None = None
+    #: Budget only: always "<=" today. A field rather than a hard-coded
+    #: assumption so a future ">=" ("at least this expensive") is a new
+    #: valid value here, not a redesign.
+    operator: str | None = None
+    #: Budget only: a positive USD amount.
+    amount: float | None = None
+
+    def __post_init__(self) -> None:
+        bucket = (self.bucket or "").strip().lower()
+        entity_type = (self.entity_type or "").strip().lower()
+        object.__setattr__(self, "bucket", bucket)
+        object.__setattr__(self, "entity_type", entity_type)
+        try:
+            Bucket(bucket)
+        except ValueError:
+            raise ValueError(
+                f"unknown bucket {self.bucket!r}; must be one of "
+                f"{', '.join(b.value for b in Bucket)}"
+            ) from None
+        try:
+            EntityType(entity_type)
+        except ValueError:
+            raise ValueError(
+                f"unknown entity_type {self.entity_type!r}; must be one of "
+                f"{', '.join(e.value for e in EntityType)}"
+            ) from None
+        if self.mode is not None:
+            mode = self.mode.strip().lower()
+            object.__setattr__(self, "mode", mode)
+            try:
+                AvoidMode(mode)
+            except ValueError:
+                raise ValueError(
+                    f"unknown mode {self.mode!r}; must be one of "
+                    f"{', '.join(m.value for m in AvoidMode)}, or omitted"
+                ) from None
+
+        if entity_type == EntityType.BUDGET.value:
+            if self.operator != "<=":
+                raise ValueError(
+                    f"a budget item's operator must be '<=', got {self.operator!r}"
+                )
+            if self.amount is None or self.amount <= 0:
+                raise ValueError(
+                    f"a budget item needs a positive amount, got {self.amount!r}"
+                )
+        else:
+            value = (self.value or "").strip()
+            object.__setattr__(self, "value", value)
+            if not value:
+                raise ValueError(f"a {entity_type} preference needs a value")
+
+    def as_payload(self) -> dict:
+        """This item's fields, as the exact keyword shape its own
+        constructor accepts — `PreferenceItem(**item.as_payload()) ==
+        item` — used as the `session_events` payload for
+        `"preference_item_added"` and reconstructed the identical way by
+        `rebuild`."""
+        return {
+            "bucket": self.bucket, "entity_type": self.entity_type,
+            "value": self.value, "mode": self.mode,
+            "operator": self.operator, "amount": self.amount,
+        }
+
+
+def item_plan_attribute(item: PreferenceItem) -> tuple[str, str] | None:
+    """The `(plan.py attribute, value)` pair a composer item's `value`
+    compiles to, for the entity types that are ordinary evidence
+    attributes. Returns `None` for `fragrance` and `budget`, which are
+    not evidence-attribute lookups at all — a fragrance names a bottle,
+    not a fact about one, and a budget is commerce data `plan.py` has no
+    attribute for (see `to_plan`'s composer-items section and
+    `recommend.price_floor`).
+
+    `note`, `vibe` and `occasion` are taken literally: the composer
+    already states which one it means, so there is nothing to
+    disambiguate. `scent_characteristic` and `performance` are
+    genuinely ambiguous by design — a shopper choosing "warm" from a
+    characteristics picker has not said whether that is a note or a
+    vibe — and are resolved by `classify_attribute`, the identical
+    vocabulary tables `plan.parse` itself reads for the same word typed
+    as a sentence. That is the same convergence promise the module
+    docstring makes for the free-text/chip path, extended to the
+    composer: a chip for "warm" and a sentence about "warm" land on the
+    same `(attribute, value)` key regardless of which of the three
+    input paths produced them.
+
+    Public so `api.py` can look candidates' evidence up by the identical
+    key `to_plan` compiled the item's `Preference`/`Constraint` under —
+    for `preference_status`, a second, independently-derived key would
+    risk silently disagreeing with the one that actually decided the
+    candidate.
+    """
+    entity_type = EntityType(item.entity_type)
+    if entity_type is EntityType.NOTE:
+        return "note", item.value.strip().lower()
+    if entity_type is EntityType.VIBE:
+        return "vibe", item.value.strip().lower()
+    if entity_type is EntityType.OCCASION:
+        return "occasion", item.value.strip().lower()
+    if entity_type in (EntityType.SCENT_CHARACTERISTIC, EntityType.PERFORMANCE):
+        return classify_attribute(item.value)
+    return None
+
+
+def _resolve_item_fragrance(
+    conn: psycopg.Connection | None, value: str
+) -> tuple[str, int | None]:
+    """`value` (a typed name, or an already-canonical one) resolved
+    against the catalogue — mirrors `plan._resolve`'s job for the
+    composer's own fragrance-lookup path, using the identical resolver
+    (`query.find_fragrance`) rather than a second one that could
+    disagree about the same name. `conn=None` (no database — the same
+    shape `merge_utterance` accepts for vocabulary-only tests) leaves
+    the name unresolved rather than raising, matching `record_feedback`'s
+    existing tolerance of an id-less name.
+    """
+    if conn is None:
+        return value, None
+    row = find_fragrance(conn, value)
+    if row is None:
+        return value, None
+    return row["canonical_name"], row["id"]
+
+
 @dataclass
 class PreferenceState:
     """Everything accumulated about what one person wants, over one
@@ -261,6 +529,34 @@ class PreferenceState:
     #: log is exactly what `session_events` replays to rebuild this
     #: object; collapsing it early would throw away what replay needs.
     feedback: list[tuple[int, str]] = field(default_factory=list)
+
+    #: Every `PreferenceItem` ever added, in add order, append-only —
+    #: never mutated or removed in place. A removal (`remove_item`) marks
+    #: an *index* into this list as inactive rather than deleting from
+    #: it, so an id a UI is holding (the position it rendered a chip at)
+    #: stays valid even after some other chip is removed. See
+    #: `active_items`.
+    items: list[PreferenceItem] = field(default_factory=list)
+    #: Indices into `items` that have been removed. A `set`, not a
+    #: filtered copy of `items`, for the same reason `excluded_ids` is
+    #: computed from `feedback` rather than tracked separately — one
+    #: source of truth, recomputed on read.
+    _removed_item_indices: set[int] = field(default_factory=set, repr=False)
+    #: index into `items` -> resolved fragrance id, for every item whose
+    #: `entity_type` is `"fragrance"`. Resolved once, at `add_item` time,
+    #: and cached here rather than re-resolved on every `to_plan()` call —
+    #: a name that later stops resolving (a fragrance renamed, a fixture
+    #: torn down) must not retroactively un-anchor a session that already
+    #: had a real id for it.
+    _item_fragrance_ids: dict[int, int | None] = field(default_factory=dict, repr=False)
+    #: index into `items` -> the resolved catalogue `canonical_name`, for
+    #: every fragrance item that *did* resolve. A shopper may type an
+    #: alias ("Delina" for "Parfums de Marly Delina") or a different
+    #: case; the plan's anchor, and everything read back to the shopper
+    #: (`summary()`, `interpreted_preferences`), must name the bottle the
+    #: way the catalogue does, the same discipline `merge_utterance`'s
+    #: own anchor resolution already holds to. See `display_value`.
+    _item_fragrance_names: dict[int, str] = field(default_factory=dict, repr=False)
 
     _anchor_id: int | None = field(default=None, repr=False)
     _anchor_name: str | None = field(default=None, repr=False)
@@ -403,6 +699,123 @@ class PreferenceState:
     def _set(self, attribute: str, value: str, direction: Direction) -> None:
         self.attribute_prefs[f"{attribute}:{value}"] = direction
 
+    # --- composer (`PreferenceItem`) -----------------------------------
+
+    def add_item(self, conn: psycopg.Connection | None, item: PreferenceItem) -> int:
+        """Record one composer chip. Returns the index it can later be
+        removed by (`remove_item`) — stable across future adds and
+        removes because `items` is append-only; see the field's
+        docstring.
+
+        Unlike `merge_preference`/`set_occasion`, this does **not**
+        mutate `attribute_prefs`/`occasion`/`budget_usd`/the anchor
+        fields in place. `to_plan()` reads `active_items` fresh every
+        time it compiles instead — see its "composer items" section for
+        why: an in-place mutation here would have to be *undone* by
+        `remove_item`, precisely the kind of hand-written inverse that
+        event-sourcing exists to avoid needing.
+
+        The one exception is fragrance resolution, which happens once,
+        here, and is cached in `_item_fragrance_ids` — resolving against
+        the catalogue is a database read `to_plan()` cannot afford to
+        repeat on every compile, and a name's resolution does not change
+        based on which other items are currently active.
+        """
+        index = len(self.items)
+        self.items.append(item)
+        if item.entity_type == EntityType.FRAGRANCE.value:
+            name, fragrance_id = _resolve_item_fragrance(conn, item.value)
+            self._item_fragrance_ids[index] = fragrance_id
+            if fragrance_id is not None:
+                self._item_fragrance_names[index] = name
+        return index
+
+    def display_value(self, index: int, item: PreferenceItem) -> str:
+        """The value to compile/show for this item: the resolved
+        catalogue `canonical_name` for a fragrance item that resolved
+        (falls back to whatever was typed, unresolved, if it did not —
+        `to_plan`'s own `plan.unparsed`/`unexpressed` handling is what
+        decides what happens to an item in that state; this method only
+        answers "what name"), and the item's own `value` for everything
+        else, unchanged."""
+        if item.entity_type == EntityType.FRAGRANCE.value:
+            return self._item_fragrance_names.get(index, item.value)
+        return item.value
+
+    def remove_item(self, index: int) -> None:
+        """Deactivate the item at `index` (chip removal). An out-of-range
+        index is a no-op rather than an error — the same tolerance
+        `record_feedback` already gives an unresolved fragrance id — so a
+        replayed session that had an item removed after a since-reverted
+        schema change does not brick on replay."""
+        if 0 <= index < len(self.items):
+            self._removed_item_indices.add(index)
+
+    @property
+    def active_items(self) -> list[tuple[int, PreferenceItem]]:
+        """`(index, item)` for every composer item that has not been
+        removed, in add order — what `to_plan()`, `composer_excluded_ids`,
+        `effective_budget_usd` and `effective_occasion` all compile from."""
+        return [
+            (i, item) for i, item in enumerate(self.items)
+            if i not in self._removed_item_indices
+        ]
+
+    @property
+    def composer_excluded_ids(self) -> frozenset[int]:
+        """Fragrance ids to exclude purely from active `avoid`+`fragrance`
+        composer items — computed fresh from `active_items`, so removing
+        such a chip un-excludes the bottle without needing to invert any
+        other state (mirrors `excluded_ids`, computed fresh from
+        `feedback` for the identical reason).
+
+        Kept deliberately separate from `excluded_ids` (spray-feedback
+        NO) rather than routed through `record_feedback`: that would make
+        removing a composer chip require appending a compensating
+        LOVE/undo event to a log that represents a *different* kind of
+        signal (a shopper's verdict on a bottle they smelled), and would
+        conflate two things that should stay independently readable. A
+        caller that wants "every id that must never appear" reads the
+        union of both — see `api._rerank`.
+        """
+        return frozenset(
+            fid
+            for i, item in self.active_items
+            if item.bucket == Bucket.AVOID.value and item.entity_type == EntityType.FRAGRANCE.value
+            and (fid := self._item_fragrance_ids.get(i)) is not None
+        )
+
+    def effective_budget_usd(self) -> float | None:
+        """The budget that actually governs this session: an explicit
+        `/prefs` `budget_usd` always wins when set (matching this
+        module's own "whichever call happened most recently" convergence
+        rule for the chip/free-text path — see the module docstring);
+        otherwise the first active composer `want`+`budget` item's
+        amount, or `None` if neither exists.
+        """
+        if self.budget_usd is not None:
+            return self.budget_usd
+        for _, item in self.active_items:
+            if item.entity_type == EntityType.BUDGET.value and item.bucket == Bucket.WANT.value:
+                return item.amount
+        return None
+
+    def effective_occasion(self) -> str | None:
+        """The occasion that actually governs this session — same
+        precedence rule as `effective_budget_usd`: an explicit `/prefs`
+        `occasion` always wins; otherwise the first active composer
+        occasion item (`want` or `like`; see `to_plan`'s composer-items
+        section for why `avoid`+`occasion` is not expressible), or `None`.
+        """
+        if self.occasion is not None:
+            return self.occasion
+        for _, item in self.active_items:
+            if item.entity_type == EntityType.OCCASION.value and item.bucket in (
+                Bucket.WANT.value, Bucket.LIKE.value,
+            ):
+                return item.value
+        return None
+
     # --- reading ------------------------------------------------------
 
     @property
@@ -479,13 +892,95 @@ class PreferenceState:
           `QueryPlan` has no dedicated occasion field at all, only this
           one soft preference shape, so an occasion that cannot become
           one has nothing else to become.
-        - **`budget_usd`** — always `unexpressed`, via
-          `WORDING.budget_unused`. Nothing in `plan.py` or
-          `recommend.py` has a notion of price; `data/corpus/` records
-          what people said about how a fragrance smells and performs, not
-          what it costs. Reported every time it is set, not only the
-          first time, so a caller cannot mistake silence after the first
-          report for the budget having started mattering.
+        - **`budget_usd`**, or a composer `want`+`budget` item when
+          `budget_usd` itself is unset (`effective_budget_usd`) — always
+          reported here via `WORDING.budget_unused`, because `to_plan`
+          has no visibility into whether real price data exists for
+          *this* query's candidates; that is only known once
+          `recommend_plan` has actually run. `api._recommendations_for`
+          is what removes this entry after the fact when
+          `Answer.priced_candidates` comes back true — see
+          `recommend_plan`'s "Why budget is a parameter" docstring
+          section. Reported every time it is set, not only the first
+          time, so a caller cannot mistake silence after the first report
+          for the budget having started mattering.
+
+        ## Composer items (`self.items`, via `active_items`)
+
+        Every active `PreferenceItem` compiles independently of the
+        free-text/chip machinery above — the two coexist in one
+        `QueryPlan` rather than one overriding the other, per the module
+        docstring's "chips and utterances coexist in one state." The
+        mapping, exhaustively:
+
+        - **`like` + `fragrance`** — the *first* active such item becomes
+          the anchor, but only if no free-text/feedback anchor
+          (`_anchor_name`) is already set; a free-text LOVE always wins,
+          matching that path's own "most recent wins" rule applied to a
+          slot the composer is contesting from outside it. Every
+          *further* active `like`+`fragrance` item — whether it lost to a
+          free-text anchor or to an earlier composer one — is named in
+          `unexpressed` via `WORDING.multiple_anchors_not_ranked`:
+          ranking against more than one anchor at once is a later phase
+          (see `composer-spec-digest.md`'s "Multiple anchors" section);
+          this phase holds every one of them rather than dropping any.
+          A name that does not resolve to a catalogue id is added to
+          `plan.unparsed` instead (never to the anchor slot) so the
+          vector-retrieval path (`recommend._semantic_candidates`) still
+          gets a chance at it, the same treatment `plan._read_intent_and_
+          anchor` already gives an unresolved free-text anchor name.
+        - **`avoid` + `fragrance`** — excluded via `composer_excluded_ids`
+          (`api._rerank` unions it with spray-feedback `excluded_ids`),
+          never through `record_feedback`: see that property's docstring
+          for why the two exclusion sources are kept independent. A name
+          that does not resolve is reported in `unexpressed` via
+          `WORDING.fragrance_not_found` — nothing to exclude by id, and
+          silently ignoring a stated avoid would be exactly the kind of
+          drop this module's invariant forbids.
+        - **`like`/`want` + (`note`|`vibe`|`scent_characteristic`)** — a
+          soft `Preference` at `Direction.HIGH`, keyed by
+          `item_plan_attribute(item)`. `want` and `like` compile
+          *identically* here — both mean "push toward this" — the
+          distinction the spec draws between them ("WANT is stronger
+          than LIKE") is not a different `Direction`, it is which
+          `PreferenceItem.bucket` a later "matched" credit counts under
+          (see the ranking tie-break in `api._tiebreak_by_composer_
+          matches`), because `plan.Preference` has no field to carry a
+          bucket and inventing one would be a second, parallel encoding
+          of exactly what `self.items` already records.
+        - **`want` + `performance`** — identical treatment to the note/
+          vibe/characteristic case above.
+        - **`like` + `performance`** — *not* expressible: the spec's own
+          mapping table lists `like` for note/characteristic/vibe only,
+          treating a performance target as something you `want`, never
+          merely `like`. Reported in `unexpressed` via
+          `WORDING.like_performance_not_supported` rather than silently
+          reinterpreted as a `want`.
+        - **`avoid` + (`note`|`vibe`|`scent_characteristic`|`performance`
+          |`occasion`)** — `avoid_mode(item)` decides the mechanism:
+          `AvoidMode.EXCLUDE` compiles to a hard
+          `Constraint(..., exclude=True)` (see `plan.Constraint.exclude`
+          and `recommend._score`'s Stage 1); `AvoidMode.REDUCE` compiles
+          to a soft `Preference` at `Direction.LESS_THAN_ANCHOR` when an
+          anchor is set, else `Direction.LOW` — the exact mirror of how
+          `plan._read_complaints` reads "too warm" (`TOO_X`). The default
+          mode per entity type is `_AVOID_DEFAULT_MODE`; a `note` defaults
+          to exclude, everything else defaults to reduce, both
+          overridable by the item's own `mode`.
+        - **`want` + `occasion`**, or **`like` + `occasion`** — folds into
+          `effective_occasion()` exactly like a `/prefs` `occasion` field
+          would, and compiles through the *same* code path immediately
+          below (`_match_occasion`) — one occasion mechanism, two ways to
+          set it. **`avoid` + `occasion`** is not expressible (there is
+          only one occasion slot, so "avoid" and "want" cannot coexist on
+          it) and is reported via `WORDING.avoid_occasion_not_supported`.
+        - **`want` + `budget`**, or **`avoid`/`like` + `budget`** — only
+          `want` is expressible; folds into `effective_budget_usd()`
+          exactly like a `/prefs` `budget_usd` field. `avoid`/`like` +
+          `budget` is reported via `WORDING.budget_only_via_want`.
+        - **`want` + `fragrance`** — not expressible ("I want a specific
+          bottle" is not a preference over the corpus's evidence);
+          reported via `WORDING.want_fragrance_not_supported`.
         """
         plan = QueryPlan(
             text=self.free_text_history[-1] if self.free_text_history else "",
@@ -531,19 +1026,110 @@ class PreferenceState:
                         "reason": WORDING.extra_liked_bottle(),
                     })
 
-        if self.occasion:
-            matched = _match_occasion(self.occasion)
+        # --- composer items — see the docstring's "Composer items"
+        # section above for the full mapping this loop implements.
+        #
+        # Two passes, not one, and the split matters: every `fragrance`
+        # item is resolved first so the anchor is fully settled — exactly
+        # the order `plan.parse` itself already enforces
+        # (`_read_intent_and_anchor` runs before `_read_complaints`) —
+        # before any `avoid`+`mode=reduce` item below asks "is there an
+        # anchor" to decide between `LESS_THAN_ANCHOR` and `LOW`. A
+        # single pass in item-add order would make that answer depend on
+        # whether a shopper happened to tap "avoid warm" before or after
+        # "like Side Effect", which is not a distinction the product
+        # means to draw.
+        composer_anchor_taken = plan.anchor is not None
+        for index, item in self.active_items:
+            if item.entity_type != EntityType.FRAGRANCE.value:
+                continue
+            fragrance_id = self._item_fragrance_ids.get(index)
+            name = self.display_value(index, item)
+            if item.bucket == Bucket.LIKE.value:
+                if fragrance_id is None:
+                    if name not in plan.unparsed:
+                        plan.unparsed.append(name)
+                    continue
+                if not composer_anchor_taken:
+                    plan.anchor, plan.anchor_id = name, fragrance_id
+                    composer_anchor_taken = True
+                else:
+                    unexpressed.append({
+                        "preference": f"liked bottle: {name}",
+                        "reason": WORDING.multiple_anchors_not_ranked(),
+                    })
+            elif item.bucket == Bucket.AVOID.value:
+                if fragrance_id is None:
+                    unexpressed.append({
+                        "preference": f"avoid: {name}",
+                        "reason": WORDING.fragrance_not_found(name),
+                    })
+                # else: handled by `composer_excluded_ids`.
+            else:  # want + fragrance
+                unexpressed.append({
+                    "preference": f"want: {name}",
+                    "reason": WORDING.want_fragrance_not_supported(),
+                })
+
+        for _index, item in self.active_items:
+            entity_type = item.entity_type
+            bucket = item.bucket
+            if entity_type == EntityType.FRAGRANCE.value:
+                continue  # already handled above
+
+            if entity_type == EntityType.BUDGET.value:
+                if bucket != Bucket.WANT.value:
+                    unexpressed.append({
+                        "preference": f"{bucket}: budget",
+                        "reason": WORDING.budget_only_via_want(),
+                    })
+                continue  # want+budget folds into effective_budget_usd()
+
+            if entity_type == EntityType.OCCASION.value:
+                if bucket == Bucket.AVOID.value:
+                    unexpressed.append({
+                        "preference": f"avoid: {item.value}",
+                        "reason": WORDING.avoid_occasion_not_supported(),
+                    })
+                continue  # want/like + occasion folds into effective_occasion()
+
+            attribute, value = item_plan_attribute(item)  # type: ignore[misc]
+
+            if bucket == Bucket.LIKE.value:
+                if entity_type == EntityType.PERFORMANCE.value:
+                    unexpressed.append({
+                        "preference": f"like: {item.value}",
+                        "reason": WORDING.like_performance_not_supported(),
+                    })
+                    continue
+                plan.soft.append(Preference(attribute, value, PlanDirection.HIGH, said=item.value))
+            elif bucket == Bucket.WANT.value:
+                plan.soft.append(Preference(attribute, value, PlanDirection.HIGH, said=item.value))
+            else:  # avoid
+                mode = avoid_mode(item)
+                if mode is AvoidMode.EXCLUDE:
+                    plan.hard.append(Constraint(attribute, value, said=item.value, exclude=True))
+                else:  # AvoidMode.REDUCE
+                    direction = (
+                        PlanDirection.LESS_THAN_ANCHOR if plan.anchor
+                        else PlanDirection.LOW
+                    )
+                    plan.soft.append(Preference(attribute, value, direction, said=item.value))
+
+        effective_occasion = self.effective_occasion()
+        if effective_occasion:
+            matched = _match_occasion(effective_occasion)
             if matched:
                 plan.soft.append(
-                    Preference("occasion", matched, PlanDirection.HIGH, said=self.occasion)
+                    Preference("occasion", matched, PlanDirection.HIGH, said=effective_occasion)
                 )
             else:
                 unexpressed.append({
                     "preference": "occasion",
-                    "reason": WORDING.occasion_unrecognised(self.occasion),
+                    "reason": WORDING.occasion_unrecognised(effective_occasion),
                 })
 
-        if self.budget_usd is not None:
+        if self.effective_budget_usd() is not None:
             unexpressed.append({
                 "preference": "budget",
                 "reason": WORDING.budget_unused(),
@@ -554,8 +1140,16 @@ class PreferenceState:
     def summary(self) -> dict:
         """The public fields, as plain JSON-safe data — what `api.py`
         sends back for "current state." `_anchor_id`/`_anchor_name`/
-        `_comparative` are deliberately absent: they are compilation
-        bookkeeping, not something a caller reads."""
+        `_comparative`/`_item_fragrance_ids`/`_removed_item_indices` are
+        deliberately absent: they are compilation bookkeeping, not
+        something a caller reads.
+
+        `items` lists only *active* items (`active_items`) — a removed
+        chip is gone from a UI's point of view, even though its index is
+        still reserved and cannot be reused by a later add. `index` is
+        exactly the value `DELETE /api/session/{id}/compose/{index}`
+        expects, so a client never has to compute it separately.
+        """
         return {
             "liked_fragrances": list(self.liked_fragrances),
             "disliked_fragrances": list(self.disliked_fragrances),
@@ -565,6 +1159,16 @@ class PreferenceState:
             "free_text_history": list(self.free_text_history),
             "feedback": [
                 {"fragrance_id": fid, "verdict": v} for fid, v in self.feedback
+            ],
+            "items": [
+                {
+                    "index": index, "bucket": item.bucket,
+                    "entity_type": item.entity_type,
+                    "value": self.display_value(index, item),
+                    "mode": item.mode, "operator": item.operator,
+                    "amount": item.amount,
+                }
+                for index, item in self.active_items
             ],
         }
 
@@ -582,7 +1186,7 @@ def rebuild(
     between requests.
 
     `events` is `(kind, payload)` pairs in write order — exactly
-    `session_events.kind, session_events.payload`, oldest first. Three
+    `session_events.kind, session_events.payload`, oldest first. Five
     kinds:
 
     - `"say"` — `{"text": ...}`, replayed through `merge_utterance`.
@@ -594,16 +1198,26 @@ def rebuild(
       at once (`api.py`'s `/prefs`) replays all of them.
     - `"feedback"` — `{"fragrance_id": ..., "name": ..., "verdict": ...}`,
       replayed through `record_feedback`.
+    - `"preference_item_added"` — exactly `PreferenceItem.as_payload()`'s
+      shape, replayed through `PreferenceItem(**payload)` then
+      `add_item`. Reconstructing the item is what actually validates it
+      on replay (`PreferenceItem.__post_init__`) — the same "validate
+      before/at the point of use" discipline `merge_preference`/
+      `record_feedback` already give their own inputs, applied to a
+      dataclass rather than an enum conversion.
+    - `"preference_item_removed"` — `{"index": ...}`, replayed through
+      `remove_item`.
 
     An unrecognised `kind`, a `"prefs"` payload matching none of the three
-    shapes, or an event whose values `merge_preference`/`record_feedback`
-    reject (`ValueError` — an invalid `Direction` or `Verdict` string) is
-    skipped, with a warning logged, rather than raising. `/prefs` validates
-    before it ever writes an event (see `api.py`), so a bad value reaching
-    this function at all means it got into `session_events` some other
-    way — a manual insert, a future direct-DB write, a value that was
-    valid when written and stopped being valid after a `Direction`/
-    `Verdict` member was renamed. Either way, the append-only log is
+    shapes, or an event whose values reconstruct into something invalid
+    (`ValueError` — an invalid `Direction`/`Verdict` string, or an invalid
+    `PreferenceItem`) is skipped, with a warning logged, rather than
+    raising. `/prefs` and `/compose` both validate before they ever write
+    an event (see `api.py`), so a bad value reaching this function at all
+    means it got into `session_events` some other way — a manual insert, a
+    future direct-DB write, a value that was valid when written and
+    stopped being valid after a `Direction`/`Verdict`/`Bucket`/
+    `EntityType` member was renamed. Either way, the append-only log is
     supposed to be history, and history must never be able to brick the
     present: one row this function cannot make sense of should cost that
     row, not the session.
@@ -629,6 +1243,10 @@ def rebuild(
                 state.record_feedback(
                     payload["fragrance_id"], payload["name"], payload["verdict"]
                 )
+            elif kind == "preference_item_added":
+                state.add_item(conn, PreferenceItem(**payload))
+            elif kind == "preference_item_removed":
+                state.remove_item(payload["index"])
         except ValueError as exc:
             log.warning(
                 "skipping unreplayable session event kind=%r payload=%r: %s",

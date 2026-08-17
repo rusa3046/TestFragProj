@@ -405,6 +405,12 @@ class Answer:
     results: list[Recommendation] = field(default_factory=list)
     #: Why the answer is empty or partial, in words a person can act on.
     note: str = ""
+    #: Set by `recommend_plan` when a `budget_usd` was given AND at least
+    #: one candidate (before budget filtering ran) carried real in-stock
+    #: price data. `api.py` reads this to decide whether the composer's
+    #: "no price data yet" `unexpressed` entry still describes what this
+    #: particular answer did — see `_apply_budget`'s docstring.
+    priced_candidates: bool = False
 
     def render(self) -> str:
         parts = [self.plan.render(), ""]
@@ -437,6 +443,19 @@ def _matches(fact: AttributeFact, attribute: str, value: str) -> bool:
     if fact.attribute != attribute:
         return False
     return value == fact.value or value in fact.value.split()
+
+
+def fact_matches(fact: AttributeFact, attribute: str, value: str) -> bool:
+    """Public alias of `_matches`, for a caller outside this module that
+    must never quietly apply a *different* matching rule than the one
+    that decided a candidate's own reasons/caveats/hard constraints.
+    `api.py`'s per-`PreferenceItem` match-status computation
+    (`preference_status` — see `session.item_plan_attribute`) is exactly
+    that caller: it re-derives "does this candidate's evidence answer
+    this attribute/value" from the same facts `_score` already read, and
+    it has to use the identical rule or the two could disagree about the
+    same candidate."""
+    return _matches(fact, attribute, value)
 
 
 def _concept_matches(fact: AttributeFact, concept: str) -> bool:
@@ -540,6 +559,7 @@ def recommend_plan(
     *,
     limit: int = DEFAULT_LIMIT,
     attribution: Attribution = Attribution.PROPOSED,
+    budget_usd: float | None = None,
 ) -> Answer:
     """`recommend`, starting from an already-built `QueryPlan` rather than
     a sentence. Everything below this point in `recommend` moved here
@@ -547,6 +567,25 @@ def recommend_plan(
     built by `PreferenceState.to_plan()` is judged by exactly the code a
     typed sentence is judged by, not a second path that could quietly
     drift from it.
+
+    ## Why budget is a parameter here, not a `QueryPlan` field
+
+    `QueryPlan` stays commerce-free. It is a portable description of what
+    was asked, evidence-shaped end to end, and `session.py`'s own
+    docstring states the M1 reality this module has held to since:
+    "Nothing in `plan.py` or `recommend.py` has a notion of price."
+    Composer Phase A breaks that, deliberately, for exactly one thing —
+    a shopper's budget really does have to filter results now — and the
+    least invasive way to do that is to keep the plan itself unchanged
+    and thread the number through as an explicit argument to the
+    function that *judges* a plan, the same way `attribution` already is.
+    `retailer_variants` is already read from this codebase's service
+    layer (`api._official_block`); this function already holds `conn`
+    per call, so no new wiring is needed beyond the parameter itself.
+    Filtering happens here, before `candidates[:limit]`, specifically so
+    a budget cannot silently shrink a five-result page to fewer just
+    because the last one or two happened to be priced out — the same
+    reason every other hard constraint runs before the limit, not after.
     """
     answer = Answer(plan=plan)
 
@@ -616,14 +655,29 @@ def recommend_plan(
         ]
         if avoid_prefs:
             fallback = _anchor_profile_fallback(
-                conn, plan, avoid_prefs, grouped, names, limit
+                conn, plan, avoid_prefs, grouped, names
             )
             if fallback is not None:
-                answer.results, answer.note = fallback
+                fallback_results, answer.note = fallback
+                filtered, priced = _apply_budget(conn, fallback_results, budget_usd)
+                answer.priced_candidates = priced
+                answer.results = filtered[:limit]
                 return answer
 
-    answer.results = candidates[:limit]
-    answer.note = _note(plan, candidates, rejected_by_hard, grouped)
+    filtered, priced = _apply_budget(conn, candidates, budget_usd)
+    answer.priced_candidates = priced
+    if candidates and not filtered:
+        # Every candidate the evidence produced was priced, and priced
+        # out — a different, more honest thing to say than "nothing in
+        # the corpus speaks to this request" (`_note`'s own fallback),
+        # which would blame the evidence for what the budget did.
+        answer.note = (
+            f"{len(candidates)} candidate(s) matched, but every one with "
+            f"known pricing is above ${budget_usd:.2f}."
+        )
+    else:
+        answer.note = _note(plan, filtered, rejected_by_hard, grouped)
+    answer.results = filtered[:limit]
     return answer
 
 
@@ -758,6 +812,19 @@ def _score(
 
     # Stage 1 — hard constraints filter. A miss is not a low score.
     for constraint in plan.hard:
+        if constraint.exclude:
+            # The composer's "avoid a note, exclude it" chip. The
+            # candidate fails when it has real evidence *for* the
+            # excluded value — the identical bar `_satisfies_hard` already
+            # applies to a "must have" constraint, read backwards. A
+            # candidate nobody has said anything about either way is not
+            # excluded: absence of warmth evidence is not evidence of
+            # coolness, the same MISSING DATA rule the soft avoid path
+            # already holds to (see `_score_comparative`'s docstring).
+            positive = Constraint(constraint.attribute, constraint.value)
+            if _satisfies_hard(facts, positive) is not None:
+                return None
+            continue
         fact = _satisfies_hard(facts, constraint)
         if fact is None:
             return None
@@ -1150,6 +1217,76 @@ def _weight(fact: AttributeFact) -> float:
     }[fact.strength]
 
 
+#: --- budget: a real, commerce-sourced hard filter ----------------------
+#:
+#: See `recommend_plan`'s "Why budget is a parameter here" docstring
+#: section for why this lives here rather than on `QueryPlan`.
+
+
+def price_floor(conn: psycopg.Connection, fragrance_ids: list[int]) -> dict[int, float]:
+    """The cheapest **in-stock** listed price for each of `fragrance_ids`
+    that has one — a fragrance with no key in the returned mapping has no
+    usable price data at all, which is the honest MISSING DATA state, not
+    zero and not "assume affordable".
+
+    Only `in_stock` variants count toward the minimum: a bottle nobody can
+    currently buy at $40 is not evidence it is within a $40 budget. Public
+    (not `_`-prefixed) because `api.py`'s per-`PreferenceItem` match-status
+    computation needs the identical number `_apply_budget` filtered on —
+    two independently-computed "the price" values could disagree about the
+    same bottle.
+    """
+    if not fragrance_ids:
+        return {}
+    rows = conn.execute(
+        """
+        SELECT rl.fragrance_id AS fragrance_id, MIN(rv.price_usd) AS min_price
+          FROM retailer_listings rl
+          JOIN retailer_variants rv ON rv.listing_id = rl.id
+         WHERE rl.fragrance_id = ANY(%s)
+           AND rv.in_stock
+           AND rv.price_usd IS NOT NULL
+         GROUP BY rl.fragrance_id
+        """,
+        (list(fragrance_ids),),
+    ).fetchall()
+    return {r["fragrance_id"]: float(r["min_price"]) for r in rows}
+
+
+def _apply_budget(
+    conn: psycopg.Connection,
+    candidates: list[Recommendation],
+    budget_usd: float | None,
+) -> tuple[list[Recommendation], bool]:
+    """`candidates`, minus anything real pricing rules out, plus whether
+    any of them carried price data at all.
+
+    A candidate is excluded only when its own `price_floor` is *known*
+    and exceeds `budget_usd` — a hard filter, run before any truncation
+    to a display limit, the same as every other hard constraint. A
+    candidate with no price data anywhere in the corpus is never
+    excluded: the MISSING DATA rule applies to commerce exactly as it
+    applies to evidence — absence of a price is not evidence of being
+    over budget. `api.py` reports such a candidate's budget
+    `preference_status` as "unknown", never "matched".
+
+    The second return value — whether *any* candidate here had real
+    price data, checked before filtering — is what lets the caller tell
+    "budget filtered real prices" apart from "nothing about this
+    candidate set has ever been priced", which is the distinction
+    `session.WORDING.budget_unused`'s "no price data yet" wording needs
+    to still be true when it is shown.
+    """
+    if budget_usd is None or not candidates:
+        return candidates, False
+    prices = price_floor(conn, [c.fragrance_id for c in candidates])
+    kept = [
+        c for c in candidates
+        if c.fragrance_id not in prices or prices[c.fragrance_id] <= budget_usd
+    ]
+    return kept, bool(prices)
+
+
 #: --- the anchor-profile fallback -------------------------------------
 #:
 #: "I like Side Effect but it's too warm" refuses honestly on the
@@ -1210,7 +1347,6 @@ def _anchor_profile_fallback(
     avoid_prefs: list[Preference],
     grouped: dict[int, list[AttributeFact]],
     names: dict[int, str],
-    limit: int,
 ) -> tuple[list[Recommendation], str] | None:
     """"Less warm than Side Effect" has no comparative baseline; "what
     shares Side Effect's official notes, minus the warm ones" does — this
@@ -1340,7 +1476,12 @@ def _anchor_profile_fallback(
     if not scored:
         return None
     scored.sort(key=lambda pair: pair[0])
-    results = [rec for _, rec in scored][:limit]
+    # Not truncated to a display limit here: the caller (`recommend_plan`)
+    # applies budget filtering — a hard constraint — before that limit is
+    # taken, and it needs the full ranked list to do it on, for the same
+    # reason the ordinary path never truncates before its own hard
+    # constraints run.
+    results = [rec for _, rec in scored]
     avoided_desc = _join_and(sorted(avoid_literal))
     return results, _declared_basis_note(plan.anchor or "the anchor", avoided_desc)
 
@@ -1399,7 +1540,16 @@ def _note(
             "been answered as a different, easier one."
         )
     if plan.hard:
-        wanted = ", ".join(f"{c.attribute}={c.value}" for c in plan.hard)
+        # `exclude` constraints (the composer's "avoid a note, exclude
+        # it" chip — see `plan.Constraint.exclude`) ask a different
+        # question than a "must have" constraint, and the wording says
+        # so rather than reading the same when every bottle considered
+        # turned out to carry the excluded value.
+        wanted = ", ".join(
+            f"excluding {c.attribute}={c.value}" if c.exclude
+            else f"{c.attribute}={c.value}"
+            for c in plan.hard
+        )
         return (
             f"No bottle in the corpus has evidence for {wanted}. "
             f"{len(grouped)} bottles were considered and {rejected} were "

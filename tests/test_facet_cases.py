@@ -80,6 +80,30 @@ def _create(client, mode=None) -> str:
     return resp.json()["session_id"]
 
 
+def _price(conn, fragrance_id, item_id, price_usd, *, in_stock=True):
+    """One retailer listing + one variant for `fragrance_id`, the same
+    raw-SQL shape `tests/test_retail.py::TestSeedingFromListings._listing`
+    uses — real `retailer_listings`/`retailer_variants` rows, exactly
+    what `recommend.price_floor` reads, rather than a mock."""
+    row = conn.execute(
+        """INSERT INTO retailer_listings
+           (retailer, retailer_item_id, url, title_raw, brand_raw,
+            fragrance_id, retrieved_at, collection_mode, rights_basis,
+            image_ref_only)
+           VALUES ('nordstrom', %s, 'https://x', 'x', 'x', %s,
+                   '2026-08-17T00:00:00Z', 'test', 'test', true)
+           RETURNING id""",
+        (item_id, fragrance_id),
+    ).fetchone()
+    conn.execute(
+        """INSERT INTO retailer_variants
+           (listing_id, sku, size_display, price_usd, in_stock, retrieved_at)
+           VALUES (%s, %s, '3.4 oz', %s, %s, '2026-08-17T00:00:00Z')""",
+        (row["id"], item_id, price_usd, in_stock),
+    )
+    conn.commit()
+
+
 def _claim(conn, i, *, frag, claim_type, value, author, channel="chan_a",
            sentiment="POSITIVE", video=None):
     """One person asserting one attribute of one bottle, with a real
@@ -587,13 +611,15 @@ class TestBudgetAndAvoidSweetThenPersistentExclusion:
     """Retail mockup: a shopper sets an $80 budget chip, says "not too
     sweet," rejects the top suggestion, and keeps refining.
 
-    WHEN RETAIL PRICES LAND (M3): the budget assertions in this test
-    must flip from "reported as unexpressed, never filters" to "filters
-    results below $80" — deliberately, by someone reading this comment
-    and rewriting them, never by this test quietly starting to pass or
-    fail for an unrelated reason. See `PreferenceState.to_plan`'s
-    docstring: "Nothing in `plan.py` or `recommend.py` has a notion of
-    price" is the M1 reality this test pins tightly on purpose.
+    WHEN RETAIL PRICES LAND (M3): this is that moment, flipped by hand
+    per the promise the comment this docstring replaces made — never by
+    this test quietly starting to pass or fail for an unrelated reason.
+    `retailer_listings`/`retailer_variants` (migration 0016) now carry
+    real prices, and the composer's budget is wired into `recommend_plan`
+    as a genuine hard filter (`recommend._apply_budget`,
+    `recommend.price_floor`) rather than always landing in
+    `unexpressed` — see `recommend_plan`'s "Why budget is a parameter"
+    docstring section and `PreferenceState.to_plan`'s budget paragraph.
     """
 
     def _seeded(self, conn):
@@ -601,16 +627,30 @@ class TestBudgetAndAvoidSweetThenPersistentExclusion:
         for i, author in enumerate(["p1", "p2"]):
             note(conn, i, frag=fresh_bottle, value="citrus", author=author,
                  channel=f"f{i}")
+        _price(conn, fresh_bottle, "fresh-1", 60.0)  # under the $80 budget
+
         sweet_bottle = add_fragrance(conn, "Vanilla Sugar Bomb")
         for i, author in enumerate(["q1", "q2", "q3"]):
             note(conn, 10 + i, frag=sweet_bottle, value="sweet", author=author,
                  channel=f"s{i}")
-        return fresh_bottle, sweet_bottle
+        _price(conn, sweet_bottle, "sweet-1", 150.0)  # over the $80 budget
 
-    def test_budget_unexpressed_sweet_avoid_compiles_no_stays_excluded_across_refinement(
+        # A third candidate the corpus has real evidence for, priced
+        # nowhere at all — the MISSING DATA rule
+        # (`recommend._apply_budget`'s docstring) says absence of a price
+        # is not evidence of being over budget, so this one must survive
+        # the filter untouched.
+        unpriced_bottle = add_fragrance(conn, "Ozone Breeze Unpriced")
+        for i, author in enumerate(["u1", "u2"]):
+            note(conn, 30 + i, frag=unpriced_bottle, value="ozone", author=author,
+                 channel=f"u{i}")
+
+        return fresh_bottle, sweet_bottle, unpriced_bottle
+
+    def test_budget_filters_real_prices_avoid_sweet_compiles_no_stays_excluded_across_refinement(
         self, client, conn
     ):
-        self._seeded(conn)
+        fresh_bottle, sweet_bottle, unpriced_bottle = self._seeded(conn)
         session_id = _create(client)
 
         budget_resp = client.post(
@@ -618,6 +658,10 @@ class TestBudgetAndAvoidSweetThenPersistentExclusion:
         )
         budget_body = budget_resp.json()
         assert budget_body["state"]["budget_usd"] == 80.0
+        # Nothing has been asked for yet — an empty session recommends
+        # nothing, so nothing has run to learn whether real prices exist
+        # for any candidate set. `to_plan`'s own compile-time report
+        # still stands here; see `api._recommendations_for`.
         assert budget_body["unexpressed"] == [
             {"preference": "budget", "reason": "no price data yet"}
         ]
@@ -630,14 +674,31 @@ class TestBudgetAndAvoidSweetThenPersistentExclusion:
         )
         say_body = say_resp.json()
         assert say_body["state"]["attribute_prefs"]["note:sweet"] == "less"
-        # Budget survives the second reply, still carried in state and
-        # still reported — every time it is set, not only the first
-        # time (see `to_plan`'s docstring for why silence must not be
-        # mistaken for the budget having started mattering).
+        # Budget survives the second reply, still carried in state.
         assert say_body["state"]["budget_usd"] == 80.0
-        assert say_body["unexpressed"] == [
-            {"preference": "budget", "reason": "no price data yet"}
-        ]
+
+        result_ids = {r["fragrance_id"] for r in say_body["results"]}
+        # Real filtering, not a promise: the $150 bottle is gone even
+        # though nothing about "not too sweet" ruled it out on evidence
+        # grounds; the $60 one, and the never-priced one, both survived.
+        assert sweet_bottle not in result_ids
+        assert fresh_bottle in result_ids
+        assert unpriced_bottle in result_ids
+        # Real price data existed for this candidate set, so the
+        # "no price data yet" entry no longer describes what actually
+        # happened — `api._recommendations_for` removes it.
+        assert say_body["unexpressed"] == []
+
+        by_id = {r["fragrance_id"]: r for r in say_body["results"]}
+        unpriced_status = {
+            s["value"]: s["status"]
+            for s in by_id[unpriced_bottle]["preference_status"]
+        }
+        # No composer items were used in this session (`/say` and
+        # `/prefs` only), so `preference_status` is honestly empty —
+        # there is nothing composer-shaped to report status for.
+        assert by_id[unpriced_bottle]["preference_status"] == []
+        assert unpriced_status == {}
         assert_honest(say_body)
 
         results = say_body["results"]
@@ -660,9 +721,7 @@ class TestBudgetAndAvoidSweetThenPersistentExclusion:
             "an explicit NO must survive a later, unrelated refinement"
         )
         assert refine_body["state"]["budget_usd"] == 80.0
-        assert refine_body["unexpressed"] == [
-            {"preference": "budget", "reason": "no price data yet"}
-        ]
+        assert sweet_bottle not in {r["fragrance_id"] for r in refine_body["results"]}
         assert_honest(refine_body)
 
 
