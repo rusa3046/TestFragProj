@@ -151,6 +151,23 @@ DERIVED_TABLES = {
     ),
 }
 
+#: Curated input that lives *alongside* the corpus rather than inside it —
+#: the mirror image of `DERIVED_TABLES`. Those tables are computed FROM the
+#: corpus and can go quietly stale, which is why each one carries a
+#: liveness query as well as a rebuild command. A table named here has no
+#: such concept: it is not computed from anything, it is its own committed
+#: file under `data/curation/` that `import_corpus` does not read and never
+#: will, so after a rebuild it is not stale, it is simply empty. Forcing it
+#: into `DERIVED_TABLES` would mean inventing a `live_sql` that always
+#: answers the same question `total` already does — dishonest plumbing for
+#: a fact that is really just "was this re-imported after the rebuild".
+#:
+#: `fragrance_graph.houses` explains why houses specifically fall on this
+#: side of the line rather than being folded into the corpus itself.
+CURATED_INPUT_TABLES = {
+    "houses": "python -m fragrance_graph.houses import",
+}
+
 
 def _import_releases(
     conn: psycopg.Connection, directory: Path, stats: CorpusStats
@@ -256,6 +273,39 @@ def rebuild_notice(state: dict[str, DerivedCount]) -> str:
         "cases that have nothing to do with your change.",
     ]
     return "\n".join(lines)
+
+
+def curated_input_notice(conn: psycopg.Connection) -> str:
+    """What `CURATED_INPUT_TABLES` still needs re-importing, or '' if none.
+
+    Deliberately a separate function from `rebuild_notice` rather than a
+    shared one over both dicts: `rebuild_notice` reads `DerivedCount`,
+    which carries a `live` figure `derived_state` computed with each
+    table's `live_sql`. A curated-input table has no `live_sql` to run —
+    see `CURATED_INPUT_TABLES` — so there is nothing to pass it. The check
+    here is the whole of what "needs importing" means for these tables: a
+    bare row count of zero.
+    """
+    lines = []
+    for table, command in CURATED_INPUT_TABLES.items():
+        try:
+            total = conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+        except psycopg.Error:
+            # Older database, migration not applied. Absent, not empty —
+            # same reasoning as the try/except in `derived_state`.
+            conn.rollback()
+            continue
+        if total == 0:
+            lines.append(f"  {table:<22} {'empty':<22} uv run {command}")
+    if not lines:
+        return ""
+    return "\n".join([
+        "Curated input needs re-importing. It is committed alongside the "
+        "corpus but is not part of it, so a rebuild from data/corpus/ never "
+        "restores it:",
+        "",
+        *lines,
+    ])
 
 
 COMMENT_FIELDS = (
@@ -936,6 +986,9 @@ def main(argv: list[str] | None = None) -> int:
             notice = rebuild_notice(derived_state(conn))
             if notice:
                 print(f"\n{notice}")
+            curated_notice = curated_input_notice(conn)
+            if curated_notice:
+                print(f"\n{curated_notice}")
     finally:
         conn.close()
     return 0

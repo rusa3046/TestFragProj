@@ -38,7 +38,8 @@ from fragrance_graph.gate import MIN_COMMENTERS, MIN_SOURCES
 from fragrance_graph.resolve.names import (
     Candidate,
     Match,
-    best_match,
+    best_match_conservative_trailing_brand,
+    brand_tokens,
     debranded,
     looks_like_junk,
     normalize_name,
@@ -50,14 +51,50 @@ log = logging.getLogger("fragrance_graph.resolve.entities")
 def load_candidates(conn: psycopg.Connection) -> list[Candidate]:
     """Every canonical fragrance, with the names it answers to."""
     candidates = []
-    for row in conn.execute("SELECT id, canonical_name, aliases FROM fragrances"):
+    for row in conn.execute("SELECT id, canonical_name, brand, aliases FROM fragrances"):
         try:
             aliases = tuple(json.loads(row["aliases"] or "[]"))
         except json.JSONDecodeError:
             log.warning("Fragrance %s has unparseable aliases; ignoring", row["id"])
             aliases = ()
-        candidates.append(Candidate(row["id"], row["canonical_name"], aliases))
+        candidates.append(
+            Candidate(row["id"], row["canonical_name"], aliases, row["brand"] or "")
+        )
     return candidates
+
+
+def known_brands(conn: psycopg.Connection) -> set[tuple[str, ...]]:
+    """Every brand the trailing-brand resolver may treat as real, as
+    `brand_tokens` tuples rather than raw strings.
+
+    Two sources, merged. `houses.known_house_names` carries the curated
+    Wikidata batch — but Wikidata's own name for a house is often its full
+    legal one and accented ("Initio Parfums Privés"), while the real
+    catalogue's `fragrances.brand` for the same house is unaccented
+    ("Initio Parfums Prives") and a commenter's mention is shorter still
+    ("Initio"). Three spellings of one house that are never equal as
+    strings — which is why this returns `brand_tokens` tuples: routing
+    every source through `normalize_name` folds the accent, and
+    `split_trailing_brand`'s prefix check is what accepts the short form.
+    Neither source alone covers every shape a real brand takes here, so
+    both are searched; a brand needs to pass only one of them to count as
+    known.
+
+    Imported inside the function to avoid a cycle: `houses` does not
+    import this module today, but keeping the dependency one-directional
+    and load-bearing only where it is needed is cheaper than reasoning
+    about whether that stays true.
+    """
+    from fragrance_graph.houses import known_house_names
+
+    names = known_house_names(conn) | {
+        row["brand"]
+        for row in conn.execute(
+            "SELECT DISTINCT brand FROM fragrances"
+            " WHERE brand IS NOT NULL AND brand <> ''"
+        )
+    }
+    return {tokens for name in names if (tokens := brand_tokens(name))}
 
 
 def add_fragrance(
@@ -687,6 +724,15 @@ def backfill(conn: psycopg.Connection, *, dry_run: bool = False) -> BackfillStat
 
     Idempotent: rows already carrying an id are skipped, so this can be
     re-run after each curation pass and only does the new work.
+
+    This is the one place pair-resolution actually runs — `apply_batch`,
+    the CLI `backfill` command, the daily scheduled run (`daily.py`) and
+    the frontier evals (`frontier.py`) all call it rather than matching
+    mentions themselves — so the trailing-"by <brand>" retry in
+    `resolve.names` is wired in here rather than at any of those call
+    sites, to land on every one of them at once. See
+    `best_match_conservative_trailing_brand` for what the retry does and
+    does not do.
     """
     candidates = load_candidates(conn)
     stats = BackfillStats()
@@ -694,13 +740,16 @@ def backfill(conn: psycopg.Connection, *, dry_run: bool = False) -> BackfillStat
         log.warning("No fragrances defined yet — nothing can resolve.")
         return stats
 
+    brands = known_brands(conn)
     cache: dict[str, Match | None] = {}
 
     def resolve(text: str | None) -> Match | None:
         if not text:
             return None
         if text not in cache:
-            cache[text] = best_match(text, candidates)
+            cache[text] = best_match_conservative_trailing_brand(
+                text, candidates, brands
+            )
         return cache[text]
 
     rows = conn.execute(
