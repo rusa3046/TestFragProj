@@ -7,7 +7,10 @@
 <style>
   /* FACET identity, from the product mockups: ivory ground, near-black
      ink, restrained gold, serif display. Kiosk-first: big targets, one
-     column, no hover-dependence. */
+     column, no hover-dependence — the composer's "how FACET reads this"
+     rail (design mockup 1a) is rendered as a full-width dark card below
+     the buckets rather than a side panel, to keep that one-column rule
+     rather than break it for a wider desktop layout. */
   :root {
     --ivory: #F7F3EC; --card: #FFFDF9; --ink: #1C1917; --muted: #6E675C;
     --line: #DCD5C8; --gold: #8A6A24; --gold-soft: #EFE7D2;
@@ -29,22 +32,24 @@
   }
   h1 { font-size: 1.7rem; font-weight: 400; margin: 1rem 0 .3rem; text-wrap: balance; }
   .sub { color: var(--muted); margin: 0 0 1.2rem; }
+  .sub.small { font-size: .85rem; text-align: center; margin: .5rem 0 1.2rem; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .6rem; }
   .chip, .tile {
     font: inherit; background: var(--card); color: var(--ink);
     border: 1px solid var(--line); border-radius: .35rem;
     padding: .7rem .9rem; cursor: pointer; text-align: center;
   }
-  .tile[aria-pressed="true"], .chip[aria-pressed="true"] {
-    border-color: var(--gold); background: var(--gold-soft);
-  }
   .chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0 1rem; }
-  .chip { font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem; padding: .5rem .8rem; }
+  .chip { font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem; padding: .5rem .8rem; text-align: left; }
   .say-row { display: flex; gap: .5rem; margin: 1.1rem 0; }
   .say-row input {
     flex: 1; font: inherit; padding: .7rem .9rem;
     border: 1px solid var(--line); border-radius: .35rem; background: var(--card);
   }
+  .say-row.demoted {
+    margin-top: 1.6rem; padding-top: 1rem; border-top: 1px dashed var(--line);
+  }
+  .say-row.demoted input { font-size: .88rem; }
   button.gold {
     font-family: ui-sans-serif, system-ui, sans-serif; font-size: .9rem;
     letter-spacing: .04em; background: var(--ink); color: var(--ivory);
@@ -108,10 +113,15 @@
     margin: .8rem 0 .3rem;
   }
   .detail .empty { color: var(--muted); font-size: .9rem; }
+  .detail .disclaimer {
+    background: var(--gold-soft); border-left: 3px solid var(--gold);
+    padding: .6rem .8rem; margin: .7rem 0 .2rem; font-size: .85rem; color: #4a453d;
+  }
   .official-notes span {
     display: inline-block; background: var(--gold-soft); border-radius: 1rem;
     font-size: .84rem; padding: .2rem .7rem; margin: .15rem .2rem .15rem 0;
   }
+  .listings .price { font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem; margin: .2rem 0; }
   footer.actions {
     position: fixed; bottom: 0; left: 0; right: 0;
     background: var(--card); border-top: 1px solid var(--line);
@@ -124,6 +134,114 @@
   }
   .hidden { display: none !important; }
   .price { font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem; }
+
+  /* --- composer buckets ------------------------------------------------ */
+  .bucket {
+    background: var(--card); border: 1px solid var(--line); border-radius: .5rem;
+    padding: .9rem 1rem; margin: 0 0 .9rem;
+  }
+  .bucket-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    flex-wrap: wrap; gap: .3rem .8rem; margin-bottom: .6rem;
+  }
+  .bucket-title {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .78rem;
+    letter-spacing: .16em; text-transform: uppercase; color: var(--gold); font-weight: 700;
+  }
+  .bucket[data-bucket="avoid"] .bucket-title { color: var(--no); }
+  .bucket-hint { font-size: .82rem; color: var(--muted); }
+  .chips.quick { margin-top: -.3rem; }
+  .chip.active-chip { display: inline-flex; align-items: center; gap: .5rem; cursor: default; }
+  .chip-tag {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .6rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  }
+  .chip-x {
+    font: inherit; background: none; border: none; cursor: pointer;
+    color: var(--muted); font-size: 1.05rem; line-height: 1; padding: 0;
+  }
+  .chip-x:hover { color: var(--no); }
+  .chip.add-chip, .chip.quick-chip {
+    border-style: dashed; background: transparent; color: var(--gold);
+  }
+  .chip.quick-chip { color: var(--muted); font-size: .8rem; }
+  .chip.suggestion { border-style: dashed; }
+  .hint { color: var(--muted); font-size: .8rem; margin-right: .3rem; }
+  .empty { color: var(--muted); font-size: .9rem; }
+  .drawer-search {
+    width: 100%; font: inherit; padding: .6rem .8rem; margin-bottom: .6rem;
+    border: 1px solid var(--line); border-radius: .35rem; background: var(--card);
+  }
+
+  /* --- "how FACET reads this" read-back rail --------------------------- */
+  .readback {
+    background: var(--ink); color: var(--ivory); border-radius: .5rem;
+    padding: 1rem 1.1rem; margin: 1rem 0;
+  }
+  .readback-title {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .7rem;
+    letter-spacing: .18em; text-transform: uppercase; color: #C9A455; margin-bottom: .8rem;
+  }
+  .readback-block { margin: 0 0 .8rem; }
+  .readback-label {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .66rem;
+    letter-spacing: .14em; text-transform: uppercase; color: #a99a7e; margin-bottom: .25rem;
+  }
+  .readback-label.gold { color: #C9A455; }
+  .readback-value { font-size: .95rem; line-height: 1.45; }
+  .readback-held { border-top: 1px dashed #4a453d; margin-top: .5rem; padding-top: .7rem; }
+  .readback-held-line { font-size: .82rem; color: #b3aa9a; margin: .25rem 0; }
+
+  /* --- results: summary echo + status strip ----------------------------- */
+  .facet-summary {
+    background: var(--card); border: 1px solid var(--line); border-radius: .4rem;
+    padding: .8rem .9rem; margin: .8rem 0 1rem;
+  }
+  .summary-row { margin: .3rem 0; font-size: .92rem; }
+  .summary-label {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .68rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--gold);
+  }
+  .chip.summary-chip { padding: .2rem .6rem; font-size: .8rem; margin: .1rem .3rem .1rem 0; cursor: default; display: inline-block; }
+  .facet-summary-actions { display: flex; gap: .6rem; margin-top: .5rem; }
+  .status-strip { display: flex; flex-wrap: wrap; gap: .35rem; margin: .3rem 0 .6rem; }
+  .status-chip {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .74rem;
+    border: 1px solid var(--line); border-radius: 1rem; padding: .15rem .55rem;
+  }
+  .status-line {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem; margin: .3rem 0;
+  }
+  .status-matched { color: var(--love); border-color: var(--love); }
+  .status-contradicted { color: var(--no); border-color: var(--no); }
+  .status-unknown { color: var(--muted); }
+
+  /* --- honest empty state ------------------------------------------------ */
+  .empty-state { margin: 1.4rem 0; }
+  .empty-state h2 { font-size: 1.4rem; font-weight: 400; margin: 0 0 .5rem; }
+
+  /* --- add-something drawer --------------------------------------------- */
+  .drawer {
+    position: fixed; inset: 0; background: rgba(28, 25, 23, .55);
+    display: flex; align-items: flex-end; justify-content: center; z-index: 20;
+  }
+  .drawer-panel {
+    background: var(--ivory); width: 100%; max-width: 40rem;
+    max-height: 85vh; overflow-y: auto; border-radius: .6rem .6rem 0 0;
+    padding: 1rem 1.2rem 1.6rem;
+  }
+  .drawer-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: .8rem; }
+  .drawer-head-text { display: flex; flex-direction: column; }
+  #drawer-title { font-size: 1.1rem; }
+  .drawer-subtitle {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .7rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--gold); margin-top: .2rem;
+  }
+  .drawer-head-buttons { display: flex; gap: .3rem; align-items: center; }
+  .drawer-back, .drawer-close {
+    font-size: 1.2rem; line-height: 1; background: none; border: none;
+    cursor: pointer; color: var(--muted); padding: .2rem .5rem;
+  }
 </style>
 </head>
 <body>
@@ -133,69 +251,78 @@
     <div class="tag">Fragrance discovery, refined</div>
   </header>
 
-  <!-- SCREEN 1: vibes + free text ------------------------------------- -->
-  <section id="screen-start">
-    <h1>Let&rsquo;s find your signature.</h1>
-    <p class="sub">Tap what resonates &mdash; or just say it in your own words.
-       Every suggestion is backed by what real wearers wrote in public,
-       counted person by person.</p>
+  <!-- SCREEN 1: the composer — three buckets, live plan read-back ------- -->
+  <section id="screen-composer">
+    <h1>Find something you&rsquo;ll love.</h1>
+    <p class="sub">Start with anything you already know. Add as much or as
+       little as you want.</p>
 
-    <div class="section-label">Pick a vibe (or a few)</div>
-    <!-- Every chip phrase below is drawn from the parser's own
-         vocabulary (plan.VIBE_WORDS), so a tap can never become a dead
-         filter. Chips ARE sentences: each goes through /say, the same
-         path typed words take. -->
-    <div class="tiles" id="vibes">
-      <button class="tile" data-say="feminine">Feminine</button>
-      <button class="tile" data-say="fresh">Fresh</button>
-      <button class="tile" data-say="warm and cozy">Warm &amp; Cozy</button>
-      <button class="tile" data-say="clean">Clean</button>
-      <button class="tile" data-say="romantic">Romantic</button>
-      <button class="tile" data-say="elegant">Elegant</button>
-      <button class="tile" data-say="playful">Playful</button>
-      <button class="tile" data-say="dark and mysterious">Dark &amp; Mysterious</button>
-    </div>
+    <div id="vocab-notice" class="note hidden"></div>
 
-    <div class="section-label">What matters most?</div>
-    <div class="chips">
-      <button class="chip" data-say="long lasting">Long lasting</button>
-      <button class="chip" data-say="strong projection">Noticeable</button>
-      <button class="chip" data-say="subtle">Subtle / skin scent</button>
-    </div>
+    <section class="bucket" data-bucket="like">
+      <div class="bucket-head">
+        <span class="bucket-title">&hearts; I Like</span>
+        <span class="bucket-hint">Keep and seek more of this</span>
+      </div>
+      <div class="chips" data-chip-row="like"></div>
+      <div class="chips quick" data-quick-row="like"></div>
+    </section>
 
-    <div class="section-label">Occasion</div>
-    <div class="chips">
-      <button class="chip" data-say="everyday">Everyday</button>
-      <button class="chip" data-say="work">Work</button>
-      <button class="chip" data-say="date night">Date night</button>
-      <button class="chip" data-say="wedding">Wedding</button>
-      <button class="chip" data-say="night out">Going out</button>
-      <button class="chip" data-say="summer">Summer</button>
-    </div>
+    <section class="bucket" data-bucket="avoid">
+      <div class="bucket-head">
+        <span class="bucket-title">&#10005; I Avoid</span>
+        <span class="bucket-hint">A note is left out entirely; a character is dialled down</span>
+      </div>
+      <div class="chips" data-chip-row="avoid"></div>
+      <div class="chips quick" data-quick-row="avoid"></div>
+    </section>
 
-    <div class="section-label">Budget (optional)</div>
-    <div class="chips" id="budgets">
-      <button class="chip" data-budget="50">Under $50</button>
-      <button class="chip" data-budget="100">Under $100</button>
-      <button class="chip" data-budget="250">Under $250</button>
-    </div>
+    <section class="bucket" data-bucket="want">
+      <div class="bucket-head">
+        <span class="bucket-title">&#10022; I Want</span>
+        <span class="bucket-hint">Occasion, performance and budget live here</span>
+      </div>
+      <div class="chips" data-chip-row="want"></div>
+      <div class="chips quick" data-quick-row="want"></div>
+    </section>
 
-    <div class="say-row">
-      <input id="say-input" placeholder="&ldquo;Like Delina but the rose is too strong&hellip;&rdquo;"
+    <aside id="readback" class="readback hidden">
+      <div class="readback-title">How FACET reads this</div>
+      <div id="readback-sections"></div>
+      <div id="readback-held" class="readback-held hidden">
+        <div class="readback-label gold">Held, not used yet</div>
+        <div id="readback-held-lines"></div>
+      </div>
+    </aside>
+
+    <button class="gold" id="find-matches" style="width:100%">Find My Matches &rarr;</button>
+    <p class="sub small">Add as much or as little as you know.</p>
+
+    <div class="say-row demoted">
+      <input id="say-input" placeholder="&hellip;or describe it in your own words"
              aria-label="Describe what you're looking for">
       <button class="gold" id="say-go">Tell FACET</button>
     </div>
-
-    <button class="gold" id="to-results" style="width:100%">See what to spray &rarr;</button>
   </section>
 
-  <!-- SCREEN 2: results ------------------------------------------------ -->
+  <!-- SCREEN 2: results -------------------------------------------------- -->
   <section id="screen-results" class="hidden">
     <h1>Spray these first.</h1>
     <p class="sub">At most three. Tap how each one lands and the list
        rethinks itself.</p>
+    <div id="facet-summary" class="facet-summary hidden">
+      <div id="facet-summary-lines"></div>
+      <div class="facet-summary-actions">
+        <button id="edit-prefs" class="detail-toggle">Edit preferences</button>
+        <button id="adjust" class="detail-toggle">Adjust</button>
+      </div>
+    </div>
     <div id="engine-note" class="note hidden"></div>
     <div id="unexpressed" class="unexpressed"></div>
+    <div id="empty-state" class="empty-state hidden">
+      <h2>Nothing here clears the bar yet.</h2>
+      <p id="empty-state-note" class="note"></p>
+    </div>
     <div id="queue"></div>
     <div class="say-row">
       <input id="refine-input" placeholder="&ldquo;Too sweet&hellip; something brighter?&rdquo;"
@@ -205,18 +332,60 @@
   </section>
 
   <footer class="actions">
-    <button id="back-start" class="hidden">&larr; Preferences</button>
     <button id="start-over">Start over</button>
   </footer>
 </main>
+
+<!-- the add-something drawer: category -> value, shared by every bucket
+     and by the results screen's "Adjust" affordance -------------------- -->
+<div id="drawer" class="drawer hidden" role="dialog" aria-modal="true">
+  <div class="drawer-panel">
+    <div class="drawer-head">
+      <div class="drawer-head-text">
+        <span id="drawer-title">What would you like to add?</span>
+        <span id="drawer-subtitle" class="drawer-subtitle"></span>
+      </div>
+      <div class="drawer-head-buttons">
+        <button id="drawer-back" class="drawer-back hidden" aria-label="Back">&larr;</button>
+        <button id="drawer-close" class="drawer-close" aria-label="Close">&times;</button>
+      </div>
+    </div>
+    <div id="drawer-bucket-step" class="drawer-step hidden">
+      <div class="tiles">
+        <button class="tile" data-drawer-bucket="like">&hearts; I Like</button>
+        <button class="tile" data-drawer-bucket="avoid">&#10005; I Avoid</button>
+        <button class="tile" data-drawer-bucket="want">&#10022; I Want</button>
+      </div>
+    </div>
+    <div id="drawer-category-step" class="drawer-step hidden">
+      <div class="tiles" id="drawer-categories"></div>
+    </div>
+    <div id="drawer-value-step" class="drawer-step hidden">
+      <div id="drawer-value-body"></div>
+    </div>
+  </div>
+</div>
 
 <script>
 "use strict";
 /* FACET kiosk. Renders ONLY what the API says: every sentence about
    evidence arrives pre-worded from the audited layer and is inserted as
-   text (never HTML). This file composes chrome, never claims. */
+   text (never HTML). This file composes chrome, never claims.
+
+   Composer chips are never hardcoded: every chip that names a note,
+   scent style, vibe, performance value or occasion is either something
+   GET /api/vocabulary returned (coverage-gated on the server) or a
+   fragrance GET /api/search resolved. Budget is the one UI-constructed
+   exception the spec calls out (four fixed presets), never a vocabulary
+   read. */
 
 let SESSION = null;
+let VOCAB = null;
+let VOCAB_FAILED = false;
+let LAST = null; // most recent full session response (state, note,
+                  // unexpressed, results, interpreted_preferences) —
+                  // the composer's only model of "current state".
+let currentScreen = "composer";
 
 const $ = (sel) => document.querySelector(sel);
 const api = async (path, opts) => {
@@ -226,6 +395,13 @@ const api = async (path, opts) => {
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return r.json();
 };
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
 
 async function ensureSession() {
   if (!SESSION) {
@@ -244,13 +420,6 @@ async function say(text) {
   });
 }
 
-async function setBudget(usd) {
-  const sid = await ensureSession();
-  return api(`/api/session/${sid}/prefs`, {
-    method: "POST", body: JSON.stringify({ budget_usd: usd }),
-  });
-}
-
 async function feedback(fragranceId, verdict) {
   const sid = await ensureSession();
   return api(`/api/session/${sid}/feedback`, {
@@ -258,30 +427,479 @@ async function feedback(fragranceId, verdict) {
   });
 }
 
-async function sprayQueue() {
-  const sid = await ensureSession();
-  return api(`/api/session/${sid}/spray-queue`);
+/* --- vocabulary --------------------------------------------------------- */
+
+async function loadVocabulary() {
+  try {
+    VOCAB = await api("/api/vocabulary");
+  } catch (err) {
+    VOCAB_FAILED = true;
+    VOCAB = { notes: [], vibes: [], occasions: [], performance: [], declared_notes: [] };
+  }
 }
 
-/* --- rendering (text nodes only for API content) --------------------- */
+/* One list of `{value, bottles}` per drawer category, sourced only from
+   what /api/vocabulary returned — nothing here is a literal chip value.
+   "scent_characteristic" has no vocabulary of its own (see api.py's
+   vocabulary() docstring): a shopper choosing a "characteristic" has not
+   said whether it is a note or a vibe, so this groups both lists under
+   that one picker, exactly as the endpoint's own docstring describes,
+   rather than the UI inventing a second, parallel classification. */
+function vocabValues(category) {
+  if (!VOCAB) return [];
+  function merged(lists) {
+    const seen = new Map();
+    lists.forEach((entries) => (entries || []).forEach((e) => {
+      const prev = seen.get(e.value);
+      if (!prev || e.bottles > prev.bottles) seen.set(e.value, e);
+    }));
+    return [...seen.values()].sort(
+      (a, b) => b.bottles - a.bottles || a.value.localeCompare(b.value));
+  }
+  switch (category) {
+    case "note": return merged([VOCAB.notes, VOCAB.declared_notes]);
+    case "scent_characteristic": return merged([VOCAB.notes, VOCAB.vibes]);
+    case "vibe": return VOCAB.vibes || [];
+    case "performance": return VOCAB.performance || [];
+    case "occasion": return VOCAB.occasions || [];
+    default: return [];
+  }
+}
+
+/* --- composer constants ------------------------------------------------- */
+
+const CATEGORY_LABEL = {
+  fragrance: "Fragrance", note: "Note", scent_characteristic: "Scent Style",
+  performance: "Performance", vibe: "Vibe", occasion: "Occasion", budget: "Budget",
+};
+const BUCKET_LABEL = { like: "I Like", avoid: "I Avoid", want: "I Want" };
+// Which drawer categories a bucket offers — the spec's own per-bucket
+// mapping (composer-spec-digest.md + the Phase B brief): fragrances are
+// anchors/negative-anchors in like/avoid only, never want; budget is
+// only ever a want.
+const CATEGORY_BY_BUCKET = {
+  like: ["fragrance", "note", "scent_characteristic", "performance", "vibe"],
+  avoid: ["fragrance", "note", "scent_characteristic"],
+  want: ["note", "scent_characteristic", "vibe", "performance", "occasion", "budget"],
+};
+// Quick-select defaults per bucket: [category, howMany], each slice
+// drawn from vocabValues() at render time — never a literal word here.
+const QUICK_SOURCES = {
+  like: [["vibe", 3], ["note", 3], ["performance", 2]],
+  avoid: [["note", 3], ["scent_characteristic", 3]],
+  want: [["note", 2], ["scent_characteristic", 2], ["vibe", 2], ["performance", 2], ["occasion", 2]],
+};
+const BUDGET_PRESETS = [100, 150, 200, 250];
+
+/* --- composer: compose/remove, then re-render everything from the
+   response — the page never maintains its own preference model beyond
+   what the last response said. ------------------------------------------ */
+
+async function composeMany(prefs) {
+  const sid = await ensureSession();
+  const body = await api(`/api/session/${sid}/compose`, {
+    method: "POST", body: JSON.stringify({ preferences: prefs }),
+  });
+  LAST = body;
+  renderBuckets();
+  renderReadback();
+  if (currentScreen === "results") await refreshQueue();
+  return body;
+}
+
+async function composeOne(pref) {
+  return composeMany([pref]);
+}
+
+async function removeComposeItem(index) {
+  const sid = await ensureSession();
+  const body = await api(`/api/session/${sid}/compose/${index}`, { method: "DELETE" });
+  LAST = body;
+  renderBuckets();
+  renderReadback();
+  if (currentScreen === "results") await refreshQueue();
+  return body;
+}
+
+function renderComposerScreen() {
+  renderBuckets();
+  renderReadback();
+}
+
+/* --- bucket chip rows ---------------------------------------------------- */
+
+function chipTag(item, interp) {
+  if (item.bucket === "like" && item.entity_type === "fragrance") return "anchor";
+  if (item.bucket === "avoid" && item.entity_type !== "fragrance" && interp) {
+    if ((interp.exclude || []).includes(item.value)) return "excluded";
+    if ((interp.reduce || []).includes(item.value)) return "reduce";
+  }
+  return item.entity_type;
+}
+
+function activeChip(item, interp) {
+  let label = item.entity_type === "budget" ? `under $${item.amount}` : item.value;
+  // Mode hint per spec: a subtle "less"/"never" prefix — always read off
+  // the server's own reduce/exclude split (`interpreted_preferences`,
+  // built from `avoid_mode()`), never a client-side reimplementation of
+  // that default table.
+  if (item.bucket === "avoid" && item.entity_type !== "fragrance" && interp) {
+    if ((interp.exclude || []).includes(item.value)) label = `never ${label}`;
+    else if ((interp.reduce || []).includes(item.value)) label = `less ${label}`;
+  }
+  const chip = el("span", "chip active-chip");
+  chip.append(document.createTextNode(label));
+  chip.append(el("span", "chip-tag", chipTag(item, interp)));
+  const x = el("button", "chip-x", "×");
+  x.type = "button";
+  x.setAttribute("aria-label", `Remove ${label}`);
+  x.addEventListener("click", async () => { await removeComposeItem(item.index); });
+  chip.append(x);
+  return chip;
+}
+
+function quickChip(bucket, entityType, value) {
+  const b = el("button", "chip quick-chip", `+ ${value}`);
+  b.type = "button";
+  b.addEventListener("click", async () => {
+    await composeOne({ bucket, entity_type: entityType, value });
+  });
+  return b;
+}
+
+function quickBudgetChip(amount) {
+  const b = el("button", "chip quick-chip", `+ Under $${amount}`);
+  b.type = "button";
+  b.addEventListener("click", async () => {
+    await composeOne({ bucket: "want", entity_type: "budget", operator: "<=", amount });
+  });
+  return b;
+}
+
+function renderBucketChips(bucket, items) {
+  const row = $(`[data-chip-row="${bucket}"]`);
+  row.replaceChildren();
+  const interp = LAST && LAST.interpreted_preferences;
+  items.filter((it) => it.bucket === bucket).forEach((it) => {
+    row.append(activeChip(it, interp));
+  });
+  const addChip = el("button", "chip add-chip", "+ Add");
+  addChip.type = "button";
+  addChip.addEventListener("click", () => openDrawer(bucket));
+  row.append(addChip);
+}
+
+function renderQuickRow(bucket, items) {
+  const row = $(`[data-quick-row="${bucket}"]`);
+  row.replaceChildren();
+  const activeKeys = new Set(
+    items.filter((it) => it.bucket === bucket)
+      .map((it) => `${it.entity_type}:${(it.value || "").toLowerCase()}`)
+  );
+  (QUICK_SOURCES[bucket] || []).forEach(([category, n]) => {
+    vocabValues(category).slice(0, n).forEach((entry) => {
+      const key = `${category}:${entry.value.toLowerCase()}`;
+      if (activeKeys.has(key)) return;
+      row.append(quickChip(bucket, category, entry.value));
+    });
+  });
+  if (bucket === "want") {
+    const hasBudget = items.some((it) => it.bucket === "want" && it.entity_type === "budget");
+    if (!hasBudget) BUDGET_PRESETS.forEach((amount) => row.append(quickBudgetChip(amount)));
+  }
+}
+
+function renderBuckets() {
+  const items = (LAST && LAST.state && LAST.state.items) || [];
+  ["like", "avoid", "want"].forEach((bucket) => {
+    renderBucketChips(bucket, items);
+    renderQuickRow(bucket, items);
+  });
+}
+
+/* --- "how FACET reads this" — the live plan read-back ------------------- */
+
+/* Groups `state.items` into the read-back panel's five sections. Notes
+   liked outright read as "Must have"; every other like/want item (vibe,
+   scent style, performance, occasion) reads as "Prefer" — a labelling
+   choice, not a claim that either compiles to a hard filter server-side
+   (only avoid+exclude does; see session.py's to_plan docstring). Avoid
+   items are split reduce/exclude by cross-referencing the server's own
+   interpreted_preferences.reduce/exclude arrays, never a client-side
+   guess at avoid_mode()'s default table. Budget never appears in the
+   live sections (mirrors the design mockup): it only ever surfaces via
+   "Held, not used yet", the same place a missing price already lands. */
+function readbackGroups(state, interp) {
+  const items = (state && state.items) || [];
+  const anchor = (interp && interp.anchors && interp.anchors[0]) || null;
+  const reduceSet = new Set((interp && interp.reduce) || []);
+  const excludeSet = new Set((interp && interp.exclude) || []);
+  const mustHave = [];
+  const prefer = [];
+  const lessOf = [];
+  const notAtAll = [];
+
+  items.forEach((item) => {
+    if (item.entity_type === "budget") return;
+    if (item.entity_type === "fragrance") {
+      if (item.bucket === "avoid") notAtAll.push(`fragrance · ${item.value}`);
+      return; // like+fragrance -> "Compared against"; want+fragrance -> unexpressed
+    }
+    if (item.bucket === "like" && item.entity_type === "note") {
+      mustHave.push(`note · ${item.value}`);
+    } else if (item.bucket === "like" || item.bucket === "want") {
+      prefer.push(`${item.entity_type} · ${item.value}`);
+    } else if (item.bucket === "avoid") {
+      if (excludeSet.has(item.value)) {
+        notAtAll.push(`${item.entity_type} · ${item.value}`);
+      } else if (reduceSet.has(item.value)) {
+        const suffix = anchor ? `, less than ${anchor}` : "";
+        lessOf.push(`${item.entity_type} · ${item.value}${suffix}`);
+      }
+    }
+  });
+  return { anchor, mustHave, prefer, lessOf, notAtAll };
+}
+
+function heldNotUsedLine(u) {
+  return `${u.preference} — ${u.reason}`;
+}
+
+function renderReadback() {
+  const panel = $("#readback");
+  const state = LAST && LAST.state;
+  const interp = LAST && LAST.interpreted_preferences;
+  const unexpressed = (LAST && LAST.unexpressed) || [];
+  if (!state || !(state.items || []).length) {
+    panel.classList.add("hidden");
+    return;
+  }
+  panel.classList.remove("hidden");
+  const g = readbackGroups(state, interp);
+  const sections = [
+    ["Compared against", g.anchor ? [g.anchor] : []],
+    ["Must have", g.mustHave],
+    ["Prefer", g.prefer],
+    ["Less of", g.lessOf],
+    ["Not at all", g.notAtAll],
+  ];
+  const body = $("#readback-sections");
+  body.replaceChildren();
+  sections.forEach(([label, values]) => {
+    if (!values.length) return;
+    const block = el("div", "readback-block");
+    block.append(el("div", "readback-label", label));
+    block.append(el("div", "readback-value", values.join(", ")));
+    body.append(block);
+  });
+  const held = $("#readback-held");
+  const heldLines = $("#readback-held-lines");
+  heldLines.replaceChildren();
+  if (unexpressed.length) {
+    held.classList.remove("hidden");
+    unexpressed.forEach((u) => heldLines.append(el("div", "readback-held-line", heldNotUsedLine(u))));
+  } else {
+    held.classList.add("hidden");
+  }
+}
+
+/* --- results: compact summary echo of the same read-back data ----------- */
+
+function renderSummary(interp) {
+  const box = $("#facet-summary");
+  const lines = $("#facet-summary-lines");
+  lines.replaceChildren();
+  if (!interp) { box.classList.add("hidden"); return; }
+  const sections = [
+    ["Starting from", interp.anchors],
+    ["You like", interp.preserve],
+    ["Less of", interp.reduce],
+    ["Never", interp.exclude],
+    ["Looking for", interp.target],
+    ["", interp.constraints],
+  ];
+  let any = false;
+  sections.forEach(([label, values]) => {
+    if (!values || !values.length) return;
+    any = true;
+    const row = el("div", "summary-row");
+    if (label) row.append(el("span", "summary-label", `${label}: `));
+    values.forEach((v) => row.append(el("span", "chip summary-chip", v)));
+    lines.append(row);
+  });
+  box.classList.toggle("hidden", !any);
+}
+
+/* --- the add-something drawer -------------------------------------------- */
+
+let DRAWER = { bucket: null, category: null, stack: [] };
+
+function openDrawer(bucket) {
+  DRAWER = { bucket: bucket || null, category: null, stack: [] };
+  $("#drawer").classList.remove("hidden");
+  pushDrawerStep(bucket ? "category" : "bucket");
+}
+
+function closeDrawer() {
+  $("#drawer").classList.add("hidden");
+  DRAWER = { bucket: null, category: null, stack: [] };
+}
+
+function pushDrawerStep(step) {
+  DRAWER.stack.push(step);
+  renderDrawerStep();
+}
+
+function popDrawerStep() {
+  DRAWER.stack.pop();
+  if (!DRAWER.stack.length) { closeDrawer(); return; }
+  renderDrawerStep();
+}
+
+function renderDrawerStep() {
+  const step = DRAWER.stack[DRAWER.stack.length - 1];
+  $("#drawer-bucket-step").classList.toggle("hidden", step !== "bucket");
+  $("#drawer-category-step").classList.toggle("hidden", step !== "category");
+  $("#drawer-value-step").classList.toggle("hidden", step !== "value");
+  $("#drawer-back").classList.toggle("hidden", DRAWER.stack.length < 2);
+  $("#drawer-subtitle").textContent = DRAWER.bucket ? BUCKET_LABEL[DRAWER.bucket] || "" : "";
+  if (step === "category") renderDrawerCategoryStep();
+  if (step === "value") renderDrawerValueStep();
+}
+
+function renderDrawerCategoryStep() {
+  const box = $("#drawer-categories");
+  box.replaceChildren();
+  (CATEGORY_BY_BUCKET[DRAWER.bucket] || []).forEach((cat) => {
+    const b = el("button", "tile", CATEGORY_LABEL[cat]);
+    b.type = "button";
+    b.addEventListener("click", () => {
+      DRAWER.category = cat;
+      pushDrawerStep("value");
+    });
+    box.append(b);
+  });
+}
+
+function renderDrawerValueStep() {
+  const body = $("#drawer-value-body");
+  body.replaceChildren();
+  if (DRAWER.category === "fragrance") body.append(buildFragranceSearch());
+  else if (DRAWER.category === "budget") body.append(buildBudgetPicker());
+  else body.append(buildVocabPicker(DRAWER.category));
+}
+
+function buildFragranceSearch() {
+  const wrap = el("div");
+  const input = el("input");
+  input.className = "drawer-search";
+  input.placeholder = "Search fragrances…";
+  input.setAttribute("aria-label", "Search fragrances");
+  const results = el("div", "chips");
+  wrap.append(input, results);
+  let timer = null;
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (!q) { results.replaceChildren(); return; }
+    timer = setTimeout(() => runFragranceSearch(q, results), 300);
+  });
+  return wrap;
+}
+
+function fragranceResultChip(item, isSuggestion) {
+  const b = el("button", "chip");
+  if (isSuggestion) b.classList.add("suggestion");
+  b.type = "button";
+  const label = item.brand ? `${item.name} — ${item.brand}` : item.name;
+  if (isSuggestion) b.append(el("span", "hint", "did you mean"));
+  b.append(document.createTextNode(label));
+  b.addEventListener("click", async () => {
+    await composeOne({ bucket: DRAWER.bucket, entity_type: "fragrance", entity_id: item.fragrance_id });
+    closeDrawer();
+  });
+  return b;
+}
+
+async function runFragranceSearch(q, results) {
+  let body;
+  try {
+    body = await api(`/api/search?q=${encodeURIComponent(q)}`);
+  } catch (err) {
+    results.replaceChildren(el("span", "empty", "Search failed — try again."));
+    return;
+  }
+  results.replaceChildren();
+  if (body.match) results.append(fragranceResultChip(body.match, false));
+  (body.suggestions || []).forEach((s) => results.append(fragranceResultChip(s, true)));
+  if (!body.match && !(body.suggestions || []).length) {
+    results.append(el("span", "empty", "No matches."));
+  }
+}
+
+function buildVocabPicker(category) {
+  const wrap = el("div");
+  const filterBox = el("input");
+  filterBox.className = "drawer-search";
+  filterBox.placeholder = "Filter…";
+  filterBox.setAttribute("aria-label", `Filter ${CATEGORY_LABEL[category] || category}`);
+  const grid = el("div", "chips");
+  wrap.append(filterBox, grid);
+  const values = vocabValues(category);
+
+  function draw(filterText) {
+    grid.replaceChildren();
+    const f = filterText.trim().toLowerCase();
+    const shown = values.filter((e) => !f || e.value.toLowerCase().includes(f));
+    if (!shown.length) { grid.append(el("span", "empty", "No matches.")); return; }
+    shown.forEach((entry) => {
+      const b = el("button", "chip", entry.value);
+      b.type = "button";
+      b.addEventListener("click", async () => {
+        await composeOne({ bucket: DRAWER.bucket, entity_type: category, value: entry.value });
+        closeDrawer();
+      });
+      grid.append(b);
+    });
+  }
+  filterBox.addEventListener("input", () => draw(filterBox.value));
+  draw("");
+  return wrap;
+}
+
+function buildBudgetPicker() {
+  const grid = el("div", "tiles");
+  BUDGET_PRESETS.forEach((amount) => {
+    const b = el("button", "tile", `Under $${amount}`);
+    b.type = "button";
+    b.addEventListener("click", async () => {
+      await composeOne({ bucket: "want", entity_type: "budget", operator: "<=", amount });
+      closeDrawer();
+    });
+    grid.append(b);
+  });
+  return grid;
+}
+
+/* --- result cards --------------------------------------------------------- */
 
 const LABELS = {
   BEST_MATCH: "Best match", STRONG_MATCH: "Strong match",
   WORTH_TRYING: "Worth trying", ALTERNATIVE_DIRECTION: "Alternative direction",
 };
 
-function el(tag, cls, text) {
-  const node = document.createElement(tag);
-  if (cls) node.className = cls;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
+const STATUS_WORD = {
+  matched: "matched",
+  contradicted: "contradicted",
+  unknown: "nothing recorded either way",
+};
+const STATUS_MARK = { matched: "✓", contradicted: "△", unknown: "○" };
 
 function renderUnexpressed(list) {
   const box = $("#unexpressed");
   box.replaceChildren();
   (list || []).forEach((u) => {
-    box.append(el("span", "", `not used: ${u.preference} — ${u.reason}`));
+    box.append(el("span", "", `not used: ${heldNotUsedLine(u)}`));
   });
 }
 
@@ -291,11 +909,46 @@ function renderNote(note) {
   box.textContent = note || "";
 }
 
+/* The honest empty state (design mockup 1c): when nothing clears the
+   evidence bar, the heading is chrome but the explanation under it is
+   ONLY the engine's own refusal `note`, verbatim — never invented, and
+   never silently blank when the engine did have something to say. */
+function renderResultsState(body) {
+  const engineNote = $("#engine-note");
+  const emptyBox = $("#empty-state");
+  const emptyNote = $("#empty-state-note");
+  const isEmpty = !(body.queue || []).length;
+  if (isEmpty) {
+    engineNote.classList.add("hidden");
+    emptyBox.classList.remove("hidden");
+    emptyNote.textContent = body.note
+      || "Add a chip or two, then try again — nothing has been asked yet.";
+  } else {
+    emptyBox.classList.add("hidden");
+    renderNote(body.note);
+  }
+}
+
+function statusStrip(candidate) {
+  const items = candidate.preference_status || [];
+  if (!items.length) return null;
+  const strip = el("div", "status-strip");
+  items.forEach((s) => {
+    const label = s.entity_type === "budget" ? (s.display || "budget") : s.value;
+    const chip = el("span", `status-chip status-${s.status}`);
+    chip.append(document.createTextNode(`${STATUS_MARK[s.status] || "○"} ${label}`));
+    strip.append(chip);
+  });
+  return strip;
+}
+
 function card(candidate) {
   const art = el("article", "card");
   art.append(el("span", "badge", LABELS[candidate.label] || candidate.label));
   art.append(el("h3", "", candidate.name));
   if (candidate.digest) art.append(el("p", "digest", candidate.digest));
+  const strip = statusStrip(candidate);
+  if (strip) art.append(strip);
 
   if ((candidate.reasons || []).length) {
     const d = el("details");
@@ -329,71 +982,93 @@ function card(candidate) {
   art.append(verdicts);
 
   const toggle = el("button", "detail-toggle", "the full story");
-  toggle.addEventListener("click", () => loadDetail(candidate.fragrance_id, art, toggle));
+  toggle.addEventListener("click", () => loadDetail(candidate, art, toggle));
   art.append(toggle);
   return art;
 }
 
-/* Bottle detail: the three separated truths, separated on screen too. */
-async function loadDetail(fragranceId, art, toggle) {
+/* Bottle detail, three blocks, strictly in this order (design mockup 1b):
+   (a) the audited digest + evidence phrases, exactly as the API worded
+   them; (b) "Your chips" — this bottle's own preference_status, from the
+   card the shopper was already looking at (never re-derived); (c)
+   "Official" — what the house declares, kept apart from what people say,
+   ending in the fixed disclaimer line the mockup specifies. */
+async function loadDetail(candidate, art, toggle) {
   toggle.remove();
-  const body = await api(`/api/fragrance/${fragranceId}`);
+  const body = await api(`/api/fragrance/${candidate.fragrance_id}`);
   const box = el("div", "detail");
 
-  box.append(el("h4", "", "Official"));
+  box.append(el("h4", "", "Evidence"));
+  const own = (body.results || []).find((r) => r.fragrance_id === candidate.fragrance_id)
+    || (body.results || [])[0];
+  if (own && own.digest) box.append(el("p", "digest", own.digest));
+  const evList = el("ul");
+  ((own && own.reasons) || []).forEach((r) => evList.append(el("li", "", r.text)));
+  ((own && own.caveats) || []).forEach((r) => evList.append(el("li", "", r.text)));
+  if (evList.children.length) box.append(evList);
+  else box.append(el("p", "empty", body.note || "Not enough independent voices yet."));
+
+  box.append(el("h4", "", "Your chips"));
+  const statuses = candidate.preference_status || [];
+  if (statuses.length) {
+    statuses.forEach((s) => {
+      const label = s.entity_type === "budget" ? (s.display || "budget") : s.value;
+      const words = STATUS_WORD[s.status] || s.status;
+      box.append(el("div", `status-line status-${s.status}`, `${label} — ${words}`));
+    });
+  } else {
+    box.append(el("p", "empty", "No active preferences to check against this bottle."));
+  }
+
+  box.append(el("h4", "", "Official — what the house declares"));
   const official = body.official || { declared_notes: [], listings: [] };
-  if (official.declared_notes.length) {
+  const stageOrder = { top: 0, heart: 1, base: 2, unspecified: 3 };
+  const sortedNotes = [...(official.declared_notes || [])].sort(
+    (a, b) => (stageOrder[a.stage] ?? 9) - (stageOrder[b.stage] ?? 9)
+  );
+  if (sortedNotes.length) {
     const wrap = el("div", "official-notes");
-    official.declared_notes.forEach((n) => {
+    sortedNotes.forEach((n) => {
       wrap.append(el("span", "", n.stage === "unspecified" ? n.note : `${n.note} (${n.stage})`));
     });
     box.append(wrap);
   }
-  (official.listings || []).forEach((l) => {
-    const p = el("p", "price");
-    const price = l.price_min_usd === null ? "" :
-      (l.price_min_usd === l.price_max_usd ? ` — $${l.price_min_usd}` :
-       ` — $${l.price_min_usd}–$${l.price_max_usd}`);
-    p.textContent = `at ${l.retailer}${price}`;
-    box.append(p);
-  });
-  if (!official.declared_notes.length && !(official.listings || []).length) {
+  if ((official.listings || []).length) {
+    const listingsBox = el("div", "listings");
+    official.listings.forEach((l) => {
+      const price = l.price_min_usd === null ? "" :
+        (l.price_min_usd === l.price_max_usd ? ` $${l.price_min_usd}` :
+         ` $${l.price_min_usd}–$${l.price_max_usd}`);
+      listingsBox.append(el("p", "price", `Listed at ${l.retailer}${price}`));
+    });
+    box.append(listingsBox);
+  }
+  if (!sortedNotes.length && !(official.listings || []).length) {
     box.append(el("p", "empty", "No official data yet."));
   }
+  box.append(el("p", "disclaimer",
+    "Declared notes are the house's own list. They never count toward the evidence above."));
 
-  box.append(el("h4", "", "What people say"));
-  if ((body.results || []).length) {
-    const ul = el("ul");
-    body.results.forEach((r) => {
-      (r.reasons || []).forEach((reason) => ul.append(el("li", "", reason.text)));
-      (r.caveats || []).forEach((reason) => ul.append(el("li", "", reason.text)));
-    });
-    box.append(ul);
-  } else {
-    box.append(el("p", "empty",
-      body.note || "Not enough independent voices yet."));
-  }
   art.append(box);
 }
 
 async function refreshQueue() {
-  const body = await sprayQueue();
+  const sid = await ensureSession();
+  const body = await api(`/api/session/${sid}/spray-queue`);
   const queue = $("#queue");
   queue.replaceChildren();
-  renderNote(body.note);
+  renderResultsState(body);
   renderUnexpressed(body.unexpressed);
-  if (!(body.queue || []).length && !body.note) {
-    renderNote("Nothing meets the evidence bar for these preferences yet — try fewer filters, or ask in your own words.");
-  }
+  renderSummary(body.interpreted_preferences);
   (body.queue || []).forEach((c) => queue.append(card(c)));
 }
 
 /* --- screens ---------------------------------------------------------- */
 
 function show(which) {
-  $("#screen-start").classList.toggle("hidden", which !== "start");
+  $("#screen-composer").classList.toggle("hidden", which !== "composer");
   $("#screen-results").classList.toggle("hidden", which !== "results");
-  $("#back-start").classList.toggle("hidden", which === "start");
+  currentScreen = which;
 }
 
 async function handleSay(inputSel, after) {
@@ -416,53 +1091,67 @@ async function handleSay(inputSel, after) {
   if (after) await after();
 }
 
-document.addEventListener("click", async (event) => {
-  const tile = event.target.closest("[data-say]");
-  if (tile) {
-    const pressed = tile.getAttribute("aria-pressed") === "true";
-    if (!pressed) {
-      tile.setAttribute("aria-pressed", "true");
-      await say(tile.dataset.say);
-    }
-    return;
-  }
-  const budget = event.target.closest("[data-budget]");
-  if (budget) {
-    document.querySelectorAll("[data-budget]").forEach((b) =>
-      b.setAttribute("aria-pressed", "false"));
-    budget.setAttribute("aria-pressed", "true");
-    await setBudget(Number(budget.dataset.budget));
-  }
-});
+// The composer's primary action advances to the matches it just
+// computed. Without this it would be a working endpoint behind a silent
+// button — the first shipped kiosk's own lesson (see sayThenShow below):
+// silent success reads as broken.
+async function findMatches() {
+  show("results");
+  await refreshQueue();
+}
+$("#find-matches").addEventListener("click", findMatches);
 
-// The start box advances to the matches it just computed. Without this
-// it was a working endpoint behind a silent button: the session updated,
-// nothing visible changed, and "works silently" reads as "broken".
 const sayThenShow = () =>
   handleSay("#say-input", async () => { show("results"); await refreshQueue(); });
 $("#say-go").addEventListener("click", sayThenShow);
 $("#say-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") sayThenShow();
 });
-$("#to-results").addEventListener("click", async () => {
-  show("results");
-  await refreshQueue();
-});
 $("#refine-go").addEventListener("click", () =>
   handleSay("#refine-input", refreshQueue));
 $("#refine-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") handleSay("#refine-input", refreshQueue);
 });
-$("#back-start").addEventListener("click", () => show("start"));
-$("#start-over").addEventListener("click", () => {
+
+function editPreferences() {
+  show("composer");
+  renderComposerScreen();
+}
+$("#edit-prefs").addEventListener("click", editPreferences);
+$("#adjust").addEventListener("click", () => openDrawer(null));
+
+function startOver() {
   SESSION = null;
-  document.querySelectorAll("[aria-pressed]").forEach((b) =>
-    b.setAttribute("aria-pressed", "false"));
+  LAST = null;
   renderNote("");
   renderUnexpressed([]);
+  $("#empty-state").classList.add("hidden");
   $("#queue").replaceChildren();
-  show("start");
+  renderSummary(null);
+  renderComposerScreen();
+  show("composer");
+}
+$("#start-over").addEventListener("click", startOver);
+
+document.querySelectorAll("[data-drawer-bucket]").forEach((b) => {
+  b.addEventListener("click", () => {
+    DRAWER.bucket = b.dataset.drawerBucket;
+    pushDrawerStep("category");
+  });
 });
+$("#drawer-close").addEventListener("click", closeDrawer);
+$("#drawer-back").addEventListener("click", popDrawerStep);
+
+(async function init() {
+  await loadVocabulary();
+  if (VOCAB_FAILED) {
+    const notice = $("#vocab-notice");
+    notice.classList.remove("hidden");
+    notice.textContent =
+      "Could not load suggested chips right now — you can still add things with + Add.";
+  }
+  renderComposerScreen();
+})();
 </script>
 </body>
 </html>

@@ -278,6 +278,16 @@ PERFORMANCE_PHRASES = {
     "long lasting": ("longevity", "long lasting", Direction.HIGH),
     "lasts all day": ("longevity", "long lasting", Direction.HIGH),
     "good longevity": ("longevity", "long lasting", Direction.HIGH),
+    # Intensifier forms, from a real session log: "insane longevity" was
+    # typed three times in eleven seconds while the parser refused it.
+    "insane longevity": ("longevity", "long lasting", Direction.HIGH),
+    "crazy longevity": ("longevity", "long lasting", Direction.HIGH),
+    "amazing longevity": ("longevity", "long lasting", Direction.HIGH),
+    "incredible longevity": ("longevity", "long lasting", Direction.HIGH),
+    "beast mode longevity": ("longevity", "long lasting", Direction.HIGH),
+    "insane projection": ("projection", "strong", Direction.HIGH),
+    "crazy projection": ("projection", "strong", Direction.HIGH),
+    "huge projection": ("projection", "strong", Direction.HIGH),
 }
 
 #: Occasions and seasons. The corpus writes these plainly, so they need no
@@ -321,7 +331,7 @@ TOO_MUCH = re.compile(
     # "delina but the rose" out of "I love Delina but the rose is too
     # strong", which then looked for bottles whose note is that sentence.
     r"(?:^|\b(?:but|and|though|however)\s+)?(?:the |its |it's |that )?"
-    r"((?:[a-z]+ )?[a-z]+) is (?:too|way too) "
+    r"((?:[a-z]+ )?[a-z]+?)(?: is)? (?:too|way too) "
     r"(?:much|strong|overpowering|dominant|intense|loud|heavy)\b"
 )
 
@@ -336,9 +346,42 @@ TOO_X = re.compile(
     r"too ([a-z]+)\b"
 )
 
+#: "less bright" — the negation reader only sees vocabulary words, so
+#: "less <anything>" gets TOO_X's default-note treatment, pointing down,
+#: never anchored (the engine's anchored scoring belongs to complaints).
+LESS_X = re.compile(r"(?<!not )\bless ([a-z]+)\b")
+
 #: Words after "too" that need the left-attribute form to mean anything:
 #: "too much" names no attribute at all.
 TOO_X_EMPTY = {"much", "many"}
+
+#: The positive mirror of TOO_X, from a real session log: "more citrus",
+#: "more of a oud note", and the bare comparative "brighter" all asked
+#: for MORE of something and none of them parsed. "more of a[n] X
+#: (note)" and "more X" compile like TOO_X does, pointing up instead of
+#: down.
+MORE_X = re.compile(
+    r"\b(?:way |a bit |a little )?more (?:of (?:a|an|the) )?"
+    r"([a-z]+)(?: notes?)?\b"
+)
+
+#: Bare "-er" comparatives ("brighter", "fresher", "sweeter") as a WHOLE
+#: utterance only — inside a sentence the other readers own the words.
+#: The stem must be a word some vocabulary already knows; "-er" words
+#: that stem to nothing ("summer", "amber"!) must never fire, which is
+#: why this is a whole-utterance pattern with a vocabulary check rather
+#: than a free suffix rule.
+COMPARATIVE_ER = re.compile(r"^\s*([a-z]+)(?:i?er)\s*$")
+
+MORE_X_EMPTY = TOO_X_EMPTY
+
+#: Adjectives people actually compare with "-er", curated: the vocabulary
+#: check alone missed "brighter" because "bright" belongs to no formal
+#: vocabulary — it reaches plans only through TOO_X's default-note path.
+COMPARATIVE_STEMS = frozenset({
+    "bright", "fresh", "sweet", "warm", "light", "dark", "soft", "strong",
+    "clean", "smoky", "spicy", "fruity", "woody", "heavy", "loud",
+})
 
 #: "like X but ..." / "similar to X but ..."
 #: Where a fragrance name stops. Anything that starts a new clause or
@@ -348,7 +391,7 @@ TOO_X_EMPTY = {"much", "many"}
 #: the raspberry constraint on the way past.
 _NAME_END = (
     r"(?:\s+(?:but|that|with|and|for|which|containing|minus|without|"
-    r"except|though|however)\b|\s*[,\.\?!]|$)"
+    r"except|though|however|is)\b|\s*[,\.\?!]|$)"
 )
 
 ANCHOR_PATTERNS = (
@@ -532,6 +575,9 @@ def _read_complaints(text: str, plan: QueryPlan) -> list[tuple[int, int]]:
         consumed.append((match.start(), match.end()))
         term = match.group(1).strip()
         term = re.sub(r"^(the|its|it's|that|but|and|though|however) ", "", term)
+        # The optional "is" can end up inside the greedy capture ("rose
+        # is"); it is never part of an attribute name.
+        term = re.sub(r" is$", "", term)
         attribute = "note"
         if term in SENTIMENT_AXES or term in ATTRIBUTE_WORDS:
             attribute = ATTRIBUTE_WORDS.get(term, term)
@@ -575,6 +621,72 @@ def _read_complaints(text: str, plan: QueryPlan) -> list[tuple[int, int]]:
                 said=match.group(0),
             )
         )
+
+    for match in LESS_X.finditer(text):
+        span = (match.start(), match.end())
+        if any(s < span[1] and span[0] < e for s, e in consumed):
+            continue
+        term = match.group(1).strip()
+        if term in TOO_X_EMPTY:
+            continue
+        consumed.append(span)
+        attribute = "note"
+        if term in SENTIMENT_AXES or term in ATTRIBUTE_WORDS:
+            attribute = ATTRIBUTE_WORDS.get(term, term)
+        elif term in VIBE_WORDS:
+            attribute = "vibe"
+        if not any(p.value == term for p in plan.soft):
+            plan.soft.append(
+                Preference(attribute=attribute, value=term,
+                           direction=Direction.LOW, said=match.group(0)))
+
+    for match in MORE_X.finditer(text):
+        span = (match.start(), match.end())
+        if any(s < span[1] and span[0] < e for s, e in consumed):
+            continue
+        term = match.group(1).strip()
+        if term in MORE_X_EMPTY:
+            continue
+        consumed.append(span)
+        attribute = "note"
+        if term in SENTIMENT_AXES or term in ATTRIBUTE_WORDS:
+            attribute = ATTRIBUTE_WORDS.get(term, term)
+        elif term in VIBE_WORDS:
+            attribute = "vibe"
+        plan.soft.append(
+            Preference(
+                attribute=attribute,
+                value=term,
+                direction=Direction.HIGH,
+                said=match.group(0),
+            )
+        )
+
+    er = COMPARATIVE_ER.match(text.strip())
+    if er:
+        stem = er.group(1)
+        # try the plain stem and the "-y" restoration (brighter -> bright,
+        # sweeter -> sweet, smokier -> smoky via "smoki" -> "smoky").
+        candidates = [stem, stem + "y", stem.rstrip("i") + "y"]
+        known = next(
+            (w for w in candidates
+             if w in SENTIMENT_AXES or w in ATTRIBUTE_WORDS
+             or w in VIBE_WORDS or w in COMPARATIVE_STEMS),
+            None,
+        )
+        if known is not None:
+            attribute = "note"
+            if known in SENTIMENT_AXES or known in ATTRIBUTE_WORDS:
+                attribute = ATTRIBUTE_WORDS.get(known, known)
+            elif known in VIBE_WORDS:
+                attribute = "vibe"
+            plan.soft.append(
+                Preference(
+                    attribute=attribute, value=known,
+                    direction=Direction.HIGH,
+                    said=text.strip(),
+                )
+            )
     return consumed
 
 
@@ -761,4 +873,34 @@ def parse_with_corpus(conn: psycopg.Connection, text: str) -> QueryPlan:
     vocabulary = _NOTE_CACHE.get(conn)
     if vocabulary is None:
         vocabulary = _NOTE_CACHE[conn] = note_vocabulary(conn)
-    return parse(conn, text, notes=vocabulary)
+    plan = parse(conn, text, notes=vocabulary)
+    if plan.anchor is None and plan.intent is Intent.RECOMMEND:
+        # Bare-name anchors, from a real session log: "side effect is
+        # nice but too warm" and "khamrah but not too sweet" both carried
+        # a complaint that compiled anchorless because no like/love
+        # pattern introduced the name. When the utterance contains
+        # exactly one catalogue surface form, that bottle is the anchor;
+        # two or more stay ambiguous and anchorless, refused rather than
+        # guessed — same conservatism as the video-subject rule.
+        from fragrance_graph.attributes import names_in, surface_forms
+
+        found = names_in(text.lower(), surface_forms(conn))
+        if len(found) == 1:
+            frag_id, canonical = next(iter(found.items()))
+            plan.anchor = canonical
+            plan.anchor_id = frag_id
+            # A complaint ("too warm") parsed before the anchor existed
+            # compiled LOW; now that the bottle is known, it means what
+            # every anchored complaint means. ONLY complaint-shaped
+            # prefs upgrade — "less bright"/"more citrus" stay absolute,
+            # the engine's scored directions.
+            plan.soft = [
+                Preference(
+                    p.attribute, p.value, Direction.LESS_THAN_ANCHOR, p.said
+                )
+                if p.direction is Direction.LOW
+                and p.said.lstrip().startswith(("too ", "way too ", "so "))
+                else p
+                for p in plan.soft
+            ]
+    return plan
