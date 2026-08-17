@@ -330,3 +330,70 @@ class TestTheApiResponsesSurfaceIsAudited:
         assert "api responses" not in report.checked
         assert any("api responses" in u for u in report.unexercised)
         assert not [v for v in report.violations if v.surface == "api responses"]
+
+
+class TestTheCommerceCardSurfaceIsAudited:
+    """`commerce_card.TierWording` — the new tier-gated customer templates
+    (spec §22-23) — checked by `audit._audit_commerce`, a distinct surface
+    from `Reason.phrase()` because a tier sentence never becomes a
+    `Reason`. Two halves, mirroring `_audit_commerce`'s own docstring: the
+    routine gate stays clean on benign input (sensitivity would be
+    meaningless if the gate could not also pass), and a *separate*,
+    explicit test proves detection actually works against adversarial
+    input — the same split `TestApiResponsesSensitivity`-style tests use
+    elsewhere in this suite, and the reason `_audit_commerce` itself does
+    not bake adversarial text into the routine gate (`commerce-audit.md`'s
+    own reasoning: a check that always fails is not a check anyone reads).
+    """
+
+    def test_commerce_card_is_checked_and_clean_on_the_real_corpus(self, corpus):
+        report = audit(corpus)
+        assert report.checked.get("commerce card"), "commerce card unchecked"
+        assert not [v for v in report.violations if v.surface == "commerce card"]
+
+    def test_every_template_ladder_is_exercised_every_run(self, conn):
+        """Independent of what the corpus holds — see `_audit_commerce`'s
+        docstring for why this has to be guaranteed synthetically rather
+        than left to corpus luck. Fix-round F2 added two more ladders
+        (performance, occasion) plus the tradeoff ladder and `mixed`; this
+        pins that the synthetic floor grew with them rather than staying
+        at the pre-F2 count and silently leaving the new templates
+        uncovered on a corpus that happens not to exercise them."""
+        report = audit(conn)
+        # note/vibe(4) + performance(4) + occasion(4) + tradeoff(3) +
+        # preference_matched(1) + mixed(1) + 2 headline branches = 19,
+        # the synthetic floor `_audit_commerce` always contributes.
+        assert report.checked.get("commerce card", 0) >= 19
+
+    def test_a_forbidden_phrase_reaching_a_tier_template_is_caught(self):
+        """The sensitivity half: `TierWording`'s templates interpolate
+        their subject verbatim (by design — a shopper's own preference
+        value has to be nameable), so a hostile subject string must still
+        be caught by the same check the routine gate runs, not silently
+        pass through because the template's *own* wording is clean."""
+        from fragrance_graph.audit import AuditReport, _check_commerce_text
+        from fragrance_graph.commerce_card import TierWording
+
+        report = AuditReport()
+        hostile = TierWording.strong("the community agrees consensus threshold")
+        _check_commerce_text(report, "commerce card", hostile)
+        violations = [v for v in report.violations if v.surface == "commerce card"]
+        assert violations, "a forbidden phrase in a tier template's subject went unflagged"
+        rules = {v.rule for v in violations}
+        assert "forbidden phrasing in commerce text" in rules
+        assert "internal-audit vocabulary in commerce text" in rules
+
+    def test_internal_audit_vocabulary_never_reaches_a_real_headline(self, corpus):
+        """`commerce-audit.md` §1/§7's own instruction, checked directly:
+        grep the wording layer for independence/bar/threshold/consensus
+        in every headline the real corpus actually produces."""
+        from fragrance_graph.audit import INTERNAL_TERMS, PROBES
+        from fragrance_graph.commerce_card import headline
+        from fragrance_graph.recommend import recommend
+
+        for _, query in PROBES:
+            answer = recommend(corpus, query)
+            text = headline(answer.plan, answer.results, answer.note)
+            lowered = text.lower()
+            for phrase in INTERNAL_TERMS:
+                assert phrase not in lowered, f"{phrase!r} leaked into headline {text!r}"

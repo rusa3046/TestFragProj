@@ -12,11 +12,13 @@ import pytest
 
 from fragrance_graph.evidence import (
     Attribution,
+    ConfidenceTier,
     Strength,
     Support,
     attribute_facts,
     coverage,
     strength_of,
+    tier_of,
 )
 from fragrance_graph.ingest.store import ingest
 from fragrance_graph.resolve.entities import add_fragrance
@@ -489,3 +491,84 @@ class TestInferenceAttributesBothSidesOfADispute:
         )[0]
         assert fact.strength is Strength.CONTESTED
         assert not fact.may_declare
+
+
+class TestConfidenceTier:
+    """`evidence.ConfidenceTier`/`tier_of` — the recommendation-grade
+    confidence read of a `Support`, graded independently of `Strength`
+    (see `ConfidenceTier`'s own docstring for why the two are not the same
+    question). No database needed: `tier_of` takes a bare `Support`.
+
+    Boundary cases only — the thresholds are named constants
+    (`gate.MIN_COMMENTERS`, `gate.MIN_SOURCES`) documented on the enum
+    itself; these tests pin the *behaviour* those constants produce, not
+    a second copy of the numbers.
+    """
+
+    def test_no_supporters_is_unknown(self):
+        assert tier_of(Support(people=0, creators=0, videos=0)) is ConfidenceTier.UNKNOWN
+
+    def test_exactly_one_person_is_single_source_regardless_of_creators(self):
+        # A malformed count (1 person, 2 "creators") should never happen in
+        # practice, but the rule is "one person" first — see `tier_of`.
+        assert tier_of(Support(people=1, creators=1, videos=1)) is ConfidenceTier.SINGLE_SOURCE
+        assert tier_of(Support(people=1, creators=2, videos=2)) is ConfidenceTier.SINGLE_SOURCE
+
+    def test_two_people_one_creator_is_limited(self):
+        """More than one person, but not shown independent of each other
+        — "one room," in `gate.py`'s own phrase — is more than a single
+        remark, but not corroboration."""
+        assert tier_of(Support(people=2, creators=1, videos=1)) is ConfidenceTier.LIMITED
+
+    def test_two_people_two_creators_is_moderate(self):
+        assert tier_of(Support(people=2, creators=2, videos=1)) is ConfidenceTier.MODERATE
+
+    def test_three_people_two_creators_but_one_video_is_moderate_not_strong(self):
+        """The multi-video requirement is the whole point of `STRONG`
+        being stricter than the published-pair gate alone: three
+        commenters replying to each other under one video are one room
+        and one comment section, not "wearers consistently describe.\""""
+        assert tier_of(
+            Support(people=3, creators=2, videos=1)
+        ) is ConfidenceTier.MODERATE
+
+    def test_gate_level_support_across_two_videos_is_strong(self):
+        assert tier_of(
+            Support(people=3, creators=2, videos=2)
+        ) is ConfidenceTier.STRONG
+
+    def test_tiers_are_ordered_for_max_comparisons(self):
+        """`result_tier`/`_reason_tier` (`commerce_card.py`) take
+        `max()` over several tiers — this only produces the right answer
+        if the enum really is ordered strong-to-weak as `>=` expects."""
+        assert (
+            ConfidenceTier.STRONG > ConfidenceTier.MODERATE
+            > ConfidenceTier.LIMITED > ConfidenceTier.SINGLE_SOURCE
+            > ConfidenceTier.UNKNOWN
+        )
+
+    def test_attribute_fact_tier_reads_the_supporting_side_only(self, conn):
+        """`AttributeFact.tier` is `tier_of(self.supporting)` — contested
+        or not is a separate question (`fact.strength is CONTESTED`),
+        never folded into the tier itself. A minimal fixture: one
+        supporting comment is enough to prove the property delegates
+        correctly without re-deriving `tier_of`'s own boundary logic."""
+        frag = add_fragrance(conn, "Tier Property Bottle")
+        say(conn, 900, subject_id=frag, claim_type="NOTE_DESCRIPTOR",
+            value="oud", author="only-one")
+        fact = attribute_facts(conn, fragrance_id=frag)[0]
+        assert fact.tier is ConfidenceTier.SINGLE_SOURCE
+        assert fact.tier is tier_of(fact.supporting)
+
+    def test_a_name_derived_note_is_never_more_than_unknown(self, conn):
+        """`from_name` facts carry zero people by construction
+        (`name_facts`'s own docstring) — `tier_of` already returns
+        `UNKNOWN` for a zero-people `Support` with no special case needed,
+        and this pins that no special case is silently required."""
+        from fragrance_graph.evidence import AttributeFact
+
+        fact = AttributeFact(
+            fragrance_id=1, attribute="note", value="rose",
+            supporting=Support(people=0, creators=0), from_name=True,
+        )
+        assert fact.tier is ConfidenceTier.UNKNOWN

@@ -82,6 +82,21 @@
   }
   article.card h3 { margin: .1rem 0 .3rem; font-size: 1.2rem; font-weight: 400; }
   .digest { margin: .2rem 0 .6rem; }
+  /* L1 commerce blocks: "Why try this" / "Worth knowing" — always
+     visible (never a <details> toggle; see `commerceSection`'s
+     docstring), asymmetric by design: a fit-signal list can run to five
+     lines, a tradeoff list never runs past two. */
+  .commerce-block { margin: .5rem 0; }
+  .commerce-label {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .72rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--gold);
+    margin-bottom: .25rem;
+  }
+  /* The second commerce block on a card is always "Worth knowing" —
+     tinted with the same "no"/caution colour the verdict buttons use. */
+  article.card .commerce-block + .commerce-block .commerce-label { color: var(--no); }
+  .commerce-list { margin: .2rem 0; padding-left: 1.2rem; }
+  .commerce-list li { margin: .2rem 0; font-size: .95rem; }
   details { margin: .4rem 0; }
   summary {
     cursor: pointer; font-family: ui-sans-serif, system-ui, sans-serif;
@@ -242,6 +257,43 @@
     font-size: 1.2rem; line-height: 1; background: none; border: none;
     cursor: pointer; color: var(--muted); padding: .2rem .5rem;
   }
+
+  /* --- >=1024px: laptop/desktop widens, kiosk stays single-column below
+     this. The composer's buckets and the "how FACET reads this" rail
+     become the side-by-side layout design mockup 1a specified (a side
+     panel, not a full-width card under the buckets); results become a
+     two-column grid. Nothing here changes below 1024px — every rule
+     above this point is the untouched kiosk layout. */
+  @media (min-width: 1024px) {
+    main { max-width: 68rem; }
+
+    #screen-composer {
+      display: grid;
+      grid-template-columns: 1fr 22rem;
+      column-gap: 2rem;
+      align-items: start;
+    }
+    #buckets-col { grid-column: 1; grid-row: 1; }
+    #readback {
+      grid-column: 2; grid-row: 1;
+      margin: 0; position: sticky; top: 1.2rem;
+    }
+    /* Everything else in the composer (the vocabulary notice, the CTA,
+       the say row) spans the full width, in its own row below the
+       buckets/rail pair — explicit so it can never compete with either
+       of the two cells above for grid placement. */
+    #vocab-notice, #find-matches, .sub.small, .say-row.demoted {
+      grid-column: 1 / -1;
+    }
+
+    #screen-results #queue {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0 1rem;
+      align-items: start;
+    }
+    #screen-results #queue article.card { margin: .8rem 0; }
+  }
 </style>
 </head>
 <body>
@@ -259,6 +311,11 @@
 
     <div id="vocab-notice" class="note hidden"></div>
 
+    <!-- Wrapper for the >=1024px responsive layout only (mockup 1a: the
+         rail is a side panel next to the buckets, not a full-width card
+         beneath them) — inert at kiosk width, where `main`'s single-
+         column rule still governs and this is plain document flow. -->
+    <div id="buckets-col">
     <section class="bucket" data-bucket="like">
       <div class="bucket-head">
         <span class="bucket-title">&hearts; I Like</span>
@@ -285,6 +342,7 @@
       <div class="chips" data-chip-row="want"></div>
       <div class="chips quick" data-quick-row="want"></div>
     </section>
+    </div>
 
     <aside id="readback" class="readback hidden">
       <div class="readback-title">How FACET reads this</div>
@@ -320,7 +378,7 @@
     <div id="engine-note" class="note hidden"></div>
     <div id="unexpressed" class="unexpressed"></div>
     <div id="empty-state" class="empty-state hidden">
-      <h2>Nothing here clears the bar yet.</h2>
+      <h2>Nothing matches this combination yet.</h2>
       <p id="empty-state-note" class="note"></p>
     </div>
     <div id="queue"></div>
@@ -884,8 +942,8 @@ function buildBudgetPicker() {
 /* --- result cards --------------------------------------------------------- */
 
 const LABELS = {
-  BEST_MATCH: "Best match", STRONG_MATCH: "Strong match",
-  WORTH_TRYING: "Worth trying", ALTERNATIVE_DIRECTION: "Alternative direction",
+  STRONG_FIT: "Strong Fit", GOOD_FIT: "Good Fit",
+  PARTIAL_FIT: "Partial Fit", EXPLORATORY_PICK: "Exploratory Pick",
 };
 
 const STATUS_WORD = {
@@ -909,10 +967,11 @@ function renderNote(note) {
   box.textContent = note || "";
 }
 
-/* The honest empty state (design mockup 1c): when nothing clears the
-   evidence bar, the heading is chrome but the explanation under it is
-   ONLY the engine's own refusal `note`, verbatim — never invented, and
-   never silently blank when the engine did have something to say. */
+/* The honest empty state (design mockup 1c): the heading is chrome, but
+   the explanation under it is ONLY the API's own `note` (the commerce
+   headline — `api.headline`/`commerce_card.headline`, positively framed,
+   never internal audit vocabulary), verbatim — never invented, and never
+   silently blank when the API did have something to say. */
 function renderResultsState(body) {
   const engineNote = $("#engine-note");
   const emptyBox = $("#empty-state");
@@ -942,7 +1001,35 @@ function statusStrip(candidate) {
   return strip;
 }
 
-function card(candidate) {
+/* Filters out any blank/whitespace-only string before it ever becomes a
+   list item — the §36 fix, at the rendering layer, as defence in depth
+   alongside `api._reason_json`'s own serialization-time filter (which
+   already keeps a blank sentence out of the payload in the first place).
+   A count built from `.length` on this filtered array can never say more
+   than what actually gets an `<li>`. */
+function nonEmptyStrings(list) {
+  return (list || []).map((s) => (s || "").trim()).filter(Boolean);
+}
+
+/* L1: "Why try this" (fit signals, preference-mapped, tier-worded) and
+   "Worth knowing" (at most 1-2 shopper-relevant tradeoffs) — the commerce
+   card `api.build_card` computed, asymmetric by design (spec §17-27).
+   Always visible, never behind a `<details>` toggle: this is the case
+   FOR trying the bottle, not an aside. Raw per-reason engineering detail
+   (the old "why it fits (N)"/"worth knowing (N)" lists) moved to "the
+   full story" (`loadDetail`'s "Evidence" section) — see that function. */
+function commerceSection(label, items) {
+  const shown = nonEmptyStrings(items);
+  if (!shown.length) return null;
+  const box = el("div", "commerce-block");
+  box.append(el("div", "commerce-label", `${label} (${shown.length})`));
+  const ul = el("ul", "commerce-list");
+  shown.forEach((text) => ul.append(el("li", "", text)));
+  box.append(ul);
+  return box;
+}
+
+function card(candidate, commerceCard) {
   const art = el("article", "card");
   art.append(el("span", "badge", LABELS[candidate.label] || candidate.label));
   art.append(el("h3", "", candidate.name));
@@ -950,22 +1037,11 @@ function card(candidate) {
   const strip = statusStrip(candidate);
   if (strip) art.append(strip);
 
-  if ((candidate.reasons || []).length) {
-    const d = el("details");
-    d.append(el("summary", "", `why it fits (${candidate.reasons.length})`));
-    const ul = el("ul");
-    candidate.reasons.forEach((r) => ul.append(el("li", "", r.text)));
-    d.append(ul);
-    art.append(d);
-  }
-  if ((candidate.caveats || []).length) {
-    const d = el("details");
-    d.append(el("summary", "", `worth knowing (${candidate.caveats.length})`));
-    const ul = el("ul");
-    candidate.caveats.forEach((r) => ul.append(el("li", "", r.text)));
-    d.append(ul);
-    art.append(d);
-  }
+  const why = commerceSection("Why try this", commerceCard && commerceCard.fit_signals);
+  if (why) art.append(why);
+  const caveat = commerceSection("Worth knowing", commerceCard && commerceCard.relevant_tradeoffs);
+  if (caveat) art.append(caveat);
+
   art.append(el("p", "ev",
     `${candidate.people} people across ${candidate.creators} channels behind everything cited`));
 
@@ -1060,7 +1136,10 @@ async function refreshQueue() {
   renderResultsState(body);
   renderUnexpressed(body.unexpressed);
   renderSummary(body.interpreted_preferences);
-  (body.queue || []).forEach((c) => queue.append(card(c)));
+  const commerceCards = new Map(
+    ((body.commerce && body.commerce.cards) || []).map((c) => [c.fragrance_id, c])
+  );
+  (body.queue || []).forEach((c) => queue.append(card(c, commerceCards.get(c.fragrance_id))));
 }
 
 /* --- screens ---------------------------------------------------------- */

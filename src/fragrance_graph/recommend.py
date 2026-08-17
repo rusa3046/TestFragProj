@@ -95,6 +95,28 @@ class Reason:
     strength: Strength
     people: int = 0
     creators: int = 0
+    #: Distinct videos behind the `people` count. Carried alongside
+    #: `people`/`creators` — never derived from them — so a caller can grade
+    #: this reason's `evidence.ConfidenceTier` (which needs the multi-video
+    #: signal for `STRONG`) without re-deriving counts from `claim_ids`.
+    #: Defaults to `0` for reasons with no `AttributeFact` behind them
+    #: (`graph`, `comparative`, `declared_overlap`), which `tier_of` grades
+    #: as at most `MODERATE` when `people`/`creators` clear `MIN_SOURCES`
+    #: without it — never `STRONG`, since `STRONG` is the one tier that
+    #: specifically requires the multi-video signal. Acceptable: none of
+    #: those kinds currently claim `STRONG`-gated customer language.
+    videos: int = 0
+    #: The `plan.py`/`evidence.py` attribute this reason is about
+    #: (`"note"`, `"vibe"`, `"projection"`, `"occasion"`, ...) — carried
+    #: verbatim from `AttributeFact.attribute` wherever a fact produced
+    #: this reason, empty for the kinds that have no single fact behind
+    #: them (`graph`, `semantic`, `absence`). Exists so a caller wording a
+    #: customer sentence (`commerce_card.py`) can pick the right template
+    #: for the *kind of thing* being described — a performance axis reads
+    #: differently from a note — without re-parsing `text`, which is
+    #: already composed and not reliably reversible (`_subject` used to
+    #: guess this from string prefixes; a real field is not a guess).
+    attribute: str = ""
     claim_ids: tuple[int, ...] = ()
     #: True when any contributing attribution was machine-inferred.
     inferred: bool = False
@@ -106,6 +128,28 @@ class Reason:
     @property
     def declarable(self) -> bool:
         return self.strength.may_declare and not self.inferred
+
+    @property
+    def renderable(self) -> bool:
+        """False when this reason has nothing to say — the §36 fix's real
+        check, and every caller that is about to show a bullet for this
+        `Reason` (`api._reason_json`, `commerce_card.build_card`) must ask
+        this first, not merely glance at `phrase()`'s output afterward.
+
+        Two independent things can go wrong, and checking only one of
+        them misses the other: an empty `text` reaching the
+        `kind in ("graph", "semantic", "absence", "declared_overlap")`
+        branch of `phrase()` returns it *verbatim* (blank, caught by
+        checking `phrase()` alone) — but the same empty `text` reaching
+        the `self.against` branch instead produces `" — 3 people say so
+        and 2 disagree"`: not blank after stripping, just led by a bare
+        dash with nothing in front of it (`commerce-audit.md` §8's
+        reproduction; this is the "worth knowing (1) rendering dashes"
+        half of the bug specifically). So this checks `text` itself
+        *and* the rendered `phrase()`, rather than trusting that a
+        non-empty `text` always produces a sentence that reads as one.
+        """
+        return bool(self.text and self.text.strip()) and bool(self.phrase().strip())
 
     def phrase(self) -> str:
         """The same fact, worded to match how well it is known.
@@ -498,6 +542,8 @@ def _fact_reason(fact: AttributeFact, kind: str) -> Reason:
         strength=fact.strength,
         people=fact.supporting.people,
         creators=fact.supporting.creators,
+        videos=fact.supporting.videos,
+        attribute=fact.attribute,
         claim_ids=fact.supporting.claim_ids,
         inferred=fact.inferred,
         against=fact.opposing.people
@@ -1074,6 +1120,7 @@ def _score_comparative(
                 ),
                 strength=Strength.CONTESTED,
                 people=candidate_level.people,
+                attribute=preference.attribute,
             )
         )
         return
@@ -1093,6 +1140,7 @@ def _score_comparative(
                 ),
                 strength=Strength.OBSERVED,
                 people=candidate_level.people,
+                attribute=preference.attribute,
             )
         )
         result.score -= 1.0
@@ -1123,6 +1171,7 @@ def _score_comparative(
             strength=Strength.OBSERVED,
             people=max(candidate_level.people, 1),
             inferred=candidate_level.inferred or anchor_level.inferred,
+            attribute=preference.attribute,
         )
     )
     result.score += 2.0

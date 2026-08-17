@@ -170,9 +170,11 @@ class WORDING:
     def want_fragrance_not_supported() -> str:
         return "wanting a specific fragrance is not a supported preference; use like instead"
 
-    @staticmethod
-    def like_performance_not_supported() -> str:
-        return "a performance target is expressed via want, not like"
+    # `like_performance_not_supported` lived here through Composer Phase B.
+    # Removed: `like`+`performance` now compiles like `want`+`performance`
+    # (see `to_plan`'s "Composer items" section) — it was a bucket-priority
+    # mistake read as a usability one, not a genuine gap `unexpressed`
+    # should still report. See `commerce-audit.md` §5.
 
     @staticmethod
     def avoid_occasion_not_supported() -> str:
@@ -937,9 +939,9 @@ class PreferenceState:
           `WORDING.fragrance_not_found` — nothing to exclude by id, and
           silently ignoring a stated avoid would be exactly the kind of
           drop this module's invariant forbids.
-        - **`like`/`want` + (`note`|`vibe`|`scent_characteristic`)** — a
-          soft `Preference` at `Direction.HIGH`, keyed by
-          `item_plan_attribute(item)`. `want` and `like` compile
+        - **`like`/`want` + (`note`|`vibe`|`scent_characteristic`|
+          `performance`)** — a soft `Preference` at `Direction.HIGH`,
+          keyed by `item_plan_attribute(item)`. `want` and `like` compile
           *identically* here — both mean "push toward this" — the
           distinction the spec draws between them ("WANT is stronger
           than LIKE") is not a different `Direction`, it is which
@@ -947,15 +949,14 @@ class PreferenceState:
           (see the ranking tie-break in `api._tiebreak_by_composer_
           matches`), because `plan.Preference` has no field to carry a
           bucket and inventing one would be a second, parallel encoding
-          of exactly what `self.items` already records.
-        - **`want` + `performance`** — identical treatment to the note/
-          vibe/characteristic case above.
-        - **`like` + `performance`** — *not* expressible: the spec's own
-          mapping table lists `like` for note/characteristic/vibe only,
-          treating a performance target as something you `want`, never
-          merely `like`. Reported in `unexpressed` via
-          `WORDING.like_performance_not_supported` rather than silently
-          reinterpreted as a `want`.
+          of exactly what `self.items` already records. `like` +
+          `performance` used to be refused as "not expressible"
+          (`WORDING.like_performance_not_supported`, now removed) — that
+          was a bucket-*priority* rule (LIKE is a softer positive, per the
+          spec's own bucket table) mistaken for a usability gap, not a
+          genuine structural limit; see `commerce-audit.md` §5. It now
+          compiles exactly like every other `like`/`want` attribute pair
+          above.
         - **`avoid` + (`note`|`vibe`|`scent_characteristic`|`performance`
           |`occasion`)** — `avoid_mode(item)` decides the mechanism:
           `AvoidMode.EXCLUDE` compiles to a hard
@@ -1096,12 +1097,19 @@ class PreferenceState:
             attribute, value = item_plan_attribute(item)  # type: ignore[misc]
 
             if bucket == Bucket.LIKE.value:
-                if entity_type == EntityType.PERFORMANCE.value:
-                    unexpressed.append({
-                        "preference": f"like: {item.value}",
-                        "reason": WORDING.like_performance_not_supported(),
-                    })
-                    continue
+                # `like`+`performance` used to be refused into
+                # `unexpressed` (`WORDING.like_performance_not_supported`)
+                # — a bucket-priority mistake read as a usability one (see
+                # `commerce-audit.md` §5): the spec's own bucket table
+                # makes LIKE a *softer positive*, never "not used." It now
+                # compiles identically to `want`+`performance` two lines
+                # below — the bucket distinction is not lost, it simply
+                # never lived in `Direction` to begin with (see this
+                # method's own "Composer items" docstring section for
+                # `want`/`like` already compiling identically for note/
+                # vibe/characteristic); it is read back downstream by
+                # `api._tiebreak_by_composer_matches`, which already keys
+                # off `item.bucket`, not off whether the item compiled.
                 plan.soft.append(Preference(attribute, value, PlanDirection.HIGH, said=item.value))
             elif bucket == Bucket.WANT.value:
                 plan.soft.append(Preference(attribute, value, PlanDirection.HIGH, said=item.value))

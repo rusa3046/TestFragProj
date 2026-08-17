@@ -187,15 +187,21 @@ class TestThePageAndTheApiCannotDrift:
 
     def test_empty_state_renders_the_api_note_verbatim(self):
         """Design mockup 1c: a chrome heading, but the explanation under
-        it must be the engine's own `note`, verbatim — never a page-
-        authored substitute when the engine actually said something."""
-        assert "Nothing here clears the bar yet." in HTML
+        it must be the API's own `note`, verbatim — never a page-authored
+        substitute when the API actually said something. The heading
+        itself carries no internal-audit vocabulary ("bar"/"threshold"/
+        "gate"/"independence"/"consensus") — `commerce-audit.md` §7/§1's
+        fix, extended to the one piece of static chrome copy that used to
+        echo it ("clears the bar")."""
+        assert "Nothing matches this combination yet." in HTML
+        for jargon in ("clears the bar", "independence", "threshold", "consensus"):
+            assert jargon not in HTML.lower()
         body = _next_function_body(HTML, "function renderResultsState")
         assert 'emptyNote.textContent = body.note' in body
 
     def test_labels_in_js_match_the_apis_four(self):
-        for label in ("BEST_MATCH", "STRONG_MATCH", "WORTH_TRYING",
-                      "ALTERNATIVE_DIRECTION"):
+        for label in ("STRONG_FIT", "GOOD_FIT", "PARTIAL_FIT",
+                      "EXPLORATORY_PICK"):
             assert label in HTML
 
     def test_no_innerhtml_anywhere(self):
@@ -203,6 +209,41 @@ class TestThePageAndTheApiCannotDrift:
             "API text must be rendered via textContent; innerHTML turns a "
             "hostile bottle name into markup"
         )
+
+    def test_no_internal_terminology_strings_in_the_html(self):
+        """Spec §7/§26: the customer surface never shows independence
+        bars, thresholds, gates or consensus terminology — checked here
+        the same way `audit._audit_commerce` checks the API's own
+        composed sentences, extended to the shipped page's own chrome
+        text (headings, labels) rather than only its API-sourced content."""
+        lowered = HTML.lower()
+        for phrase in ("independence", "threshold", "consensus", "clears the bar"):
+            assert phrase not in lowered, f"internal terminology {phrase!r} leaked into the HTML"
+
+    def test_commerce_sections_count_from_the_same_filtered_list_they_render(self):
+        """§36's fix, pinned at the UI layer: `commerceSection` must build
+        its `(N)` count from the identical array it iterates to build
+        `<li>`s — not `candidate.reasons.length` (the raw, unfiltered
+        payload count the old, buggy version used) against a separately
+        filtered render loop. Both `shown.length` (the count) and
+        `shown.forEach` (the render loop) reading the *same* `shown`
+        binding is what makes the two structurally unable to disagree."""
+        body = _next_function_body(HTML, "function commerceSection")
+        assert "shown.length" in body
+        assert "shown.forEach" in body
+        # And the array itself is always the filtered one, never the raw
+        # `items` parameter rendered directly.
+        assert "nonEmptyStrings(items)" in body
+
+    def test_responsive_layout_rule_present(self):
+        """Spec: kiosk width (<1024px) is untouched; >=1024px widens
+        `main` and lays the composer buckets and the "how FACET reads
+        this" rail out side by side (mockup 1a's original side-panel
+        design), with results as a two-column grid."""
+        assert "@media (min-width: 1024px)" in HTML
+        wide = HTML.split("@media (min-width: 1024px)", 1)[1]
+        assert "#buckets-col" in wide and "#readback" in wide
+        assert "grid-template-columns" in wide
 
     def test_no_numeric_match_score_is_rendered(self):
         """The UI shows labels, never percentages. A '% match' string in

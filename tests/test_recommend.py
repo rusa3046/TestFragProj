@@ -1053,3 +1053,132 @@ class TestSocialConceptsAreNotSynonyms:
 
         assert "compliment" not in " ".join(CONCEPTS["mass appeal"])
         assert "crowd" not in " ".join(CONCEPTS["compliment getting"])
+
+
+class TestCommerceHeadlineIntegration:
+    """`commerce_card.headline`, driven by real `Answer`s from `recommend()`
+    — spec §35 ("almost always return something": only hard-constraint
+    exhaustion is a true no-results) and §1 (the failure case's positive
+    framing), exercised end to end rather than only at the unit level
+    `tests/test_commerce_card.py` already covers.
+    """
+
+    def test_hard_constraint_exhaustion_is_the_one_true_no_results_case(self, catalogue):
+        """A hard "must have raspberry" that nothing in the corpus
+        supports really is empty — and the headline names the
+        requirement honestly, in plain words, never the engine's internal
+        refusal vocabulary."""
+        from fragrance_graph.commerce_card import headline
+
+        conn, a, b = catalogue
+        note(conn, 1, frag=b, value="coffee", author="p1")
+        answer = recommend(conn, "a fragrance with raspberry")
+        assert answer.results == []
+        text = headline(answer.plan, answer.results)
+        assert "raspberry" in text
+        lowered = text.lower()
+        for jargon in ("independence", "threshold", "gate", "consensus"):
+            assert jargon not in lowered
+
+    def test_lack_of_consensus_never_produces_no_results(self, catalogue):
+        """A single person's remark is real evidence a request was
+        answered — the exact case `commerce-audit.md` §1 traces: nothing
+        in `recommend._score` drops a candidate merely because nobody else
+        corroborated it. §35's "almost always return something" holds
+        here, and `commerce_card.result_tier` still assigns a real tier
+        (`PARTIAL_FIT`, never rejection) rather than excluding it."""
+        from fragrance_graph.commerce_card import result_tier
+
+        conn, a, b = catalogue
+        note(conn, 1, frag=a, value="raspberry", author="the-only-person")
+        answer = recommend(conn, "a fragrance with raspberry")
+        assert len(answer.results) == 1
+        assert result_tier(answer.results[0]) in (
+            "PARTIAL_FIT", "GOOD_FIT", "STRONG_FIT",
+        )
+
+
+class TestFailureCaseCompositionReturnsPositivelyFramedResults:
+    """spec §1, reproduced end to end against a real, freshly-seeded
+    corpus: LIKE gorgeous+unique / AVOID cinnamon / WANT strong+feminine /
+    OCC summer — the exact combination named in the spec's own failure
+    case. No bottle in this fixture satisfies every dimension at once
+    (the one candidate with strong/feminine/summer evidence also carries
+    real cinnamon evidence and is hard-excluded by the avoid), which is
+    precisely the shape that used to open with "No match below clears the
+    independence bar." It must now come back with real, if partial,
+    results and a positively-framed headline.
+    """
+
+    def _seeded(self, conn):
+        # Carries everything WANTed, but also the AVOIDed note — excluded
+        # outright by `avoid`+`note` (default mode EXCLUDE), leaving no
+        # full match in the corpus at all.
+        excluded = add_fragrance(conn, "Warm Cinnamon Feminine Bottle")
+        for i, author in enumerate(["e1", "e2", "e3"]):
+            note(conn, i, frag=excluded, value="feminine", author=author,
+                 channel=f"ef{i}", claim_type="AESTHETIC")
+        for i, author in enumerate(["e4", "e5", "e6"]):
+            note(conn, 10 + i, frag=excluded, value="cinnamon", author=author,
+                 channel=f"ec{i}")
+
+        # A real, partial match: feminine, on solid evidence, nothing else.
+        partial = add_fragrance(conn, "Feminine Only Bottle")
+        for i, author in enumerate(["f1", "f2", "f3"]):
+            note(conn, 20 + i, frag=partial, value="feminine", author=author,
+                 channel=f"pf{i}", claim_type="AESTHETIC")
+
+        # A weaker, single-source match on the LIKE-side descriptors.
+        weak = add_fragrance(conn, "Gorgeous Unique Bottle")
+        note(conn, 30, frag=weak, value="gorgeous", author="w1", channel="w0")
+        note(conn, 31, frag=weak, value="unique", author="w2", channel="w1")
+        return excluded, partial, weak
+
+    def test_the_response_is_positively_framed_with_real_partial_results(self, conn):
+        from fragrance_graph.commerce_card import build_card, headline
+        from fragrance_graph.session import PreferenceState
+
+        excluded, partial, weak = self._seeded(conn)
+        state = PreferenceState()
+        state.merge_preference("gorgeous", "more")
+        state.merge_preference("unique", "more")
+        state.merge_preference("cinnamon", "avoid")
+        state.merge_preference("strong projection", "more")
+        state.merge_preference("feminine", "more")
+        state.set_occasion("summer")
+
+        plan, _unexpressed = state.to_plan()
+        answer = recommend_plan(conn, plan)
+
+        # The request is not left empty just because nothing matched
+        # every dimension at once (spec §35/§1) — a real partial match
+        # comes back even though no bottle in this fixture satisfies
+        # LIKE+WANT+AVOID all at the same time.
+        assert answer.results, "a real partial match must still come back"
+        # And the bottle carrying real cinnamon evidence, if it is
+        # returned at all, must carry it as a visible caveat rather than
+        # silently costing it nothing — the soft-avoid path
+        # (`merge_preference`, the free-text/chip mechanism this fixture
+        # exercises) penalises rather than hard-excludes; see
+        # `session.AvoidMode` for the composer's stricter `exclude` mode.
+        by_id = {r.fragrance_id: r for r in answer.results}
+        if excluded in by_id:
+            assert any("cinnamon" in c.text for c in by_id[excluded].caveats)
+
+        text = headline(plan, answer.results)
+        assert text.startswith("Your closest matches")
+        lowered = text.lower()
+        for jargon in ("independence", "bar", "threshold", "gate", "consensus", "clears"):
+            assert jargon not in lowered
+        # The deprioritized dimension is still named, honestly — this is
+        # transparency, not a euphemism for what happened.
+        assert "cinnamon" in text
+
+        cards = {c.fragrance_id: build_card(c) for c in answer.results}
+        # Every returned card carries a real, tier-worded reason — never
+        # an empty "why try this" list standing in for a rejection.
+        for card in cards.values():
+            assert card.fit_signals, f"{card.name!r} has no fit signals at all"
+            assert card.result_tier in (
+                "STRONG_FIT", "GOOD_FIT", "PARTIAL_FIT", "EXPLORATORY_PICK",
+            )
