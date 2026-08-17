@@ -280,10 +280,16 @@ class TestTheExperimentCanActuallyRun:
         assert "nothing converted" in text
         assert "negative result" in text
 
-    def test_report_is_a_registered_command(self):
+    def test_report_is_a_registered_command(self, db_url):
+        """`--db-url` is passed like every other CLI test passes it. The
+        first version called `main(["report"])` bare, which reads the
+        ambient developer DSN — so it passed on any laptop with a dev
+        database and failed on every machine without one, including CI,
+        where it blocked the first PR. A test that needs the developer's
+        environment to pass is testing the developer, not the code."""
         from fragrance_graph.experiments.attribute_gain import main
 
-        assert main(["report"]) == 0
+        assert main(["--db-url", db_url, "report"]) == 0
 
 
 class TestTheCohortIsActuallyEnrichable:
