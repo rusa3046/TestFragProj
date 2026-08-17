@@ -269,6 +269,7 @@ RENDERERS = (
     "site ask pages",
     "site profile pages",
     "site index page",
+    "api responses",
 )
 
 
@@ -325,6 +326,31 @@ def _audit_rendered_text(conn: psycopg.Connection, report: AuditReport) -> None:
         "site index page",
         render_full_index(pairs, indexes, profiles, asked, index_data),
     ))
+
+    # The service layer (`fragrance_graph.api`) needs the optional `[api]`
+    # extra (FastAPI/uvicorn) — see `pyproject.toml` and `api.py`'s module
+    # docstring. A core install has no reason to carry that weight just to
+    # run this audit, so the import is attempted and its absence is
+    # reported as unexercised rather than raised: the `for name in
+    # RENDERERS` loop just below already turns "never appended to
+    # `blocks`" into exactly that report, with no special-casing needed
+    # here beyond not crashing the rest of the audit over a module this
+    # install never installed.
+    #
+    # Two probes, not one: `audited_probe_text` drives only the stateless
+    # `/api/recommend` path, and every sentence the *session* endpoints
+    # compose themselves (`session.WORDING`, reached through `note` and
+    # `unexpressed[].reason`) is invisible to it — a real gap, found by
+    # a reviewer reading `api.py`'s session handlers rather than assuming
+    # one audited probe covered the whole module. See
+    # `audited_session_probe_text`'s own docstring.
+    try:
+        from fragrance_graph.api import audited_probe_text, audited_session_probe_text
+    except ImportError:
+        pass
+    else:
+        blocks.append(("api responses", audited_probe_text(conn)))
+        blocks.append(("api responses", audited_session_probe_text(conn)))
 
     for surface, text in blocks:
         report.checked[surface] = report.checked.get(surface, 0) + 1
