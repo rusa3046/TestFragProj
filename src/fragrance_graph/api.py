@@ -85,10 +85,12 @@ import re
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Literal
 
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
@@ -124,6 +126,17 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="FACET discovery service", lifespan=_lifespan)
+
+# The kiosk. One static file, no build step: `uvicorn fragrance_graph.api:app`
+# is the entire deployment. The page composes chrome only — every sentence
+# about evidence arrives from this API pre-worded by the audited layer and
+# is rendered as text, never markup. See facet/static/index.html's header.
+_FACET_STATIC = Path(__file__).parent / "facet" / "static"
+
+
+@app.get("/", include_in_schema=False)
+def facet_kiosk() -> FileResponse:
+    return FileResponse(_FACET_STATIC / "index.html", media_type="text/html")
 
 #: A fuzzy suggestion is offered as a clickable "did you mean", never
 #: auto-navigated to — the cost of a bad suggestion is a shopper seeing
@@ -563,10 +576,10 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
     """
     _require_session(conn, session_id)
     state = _load_state(conn, session_id)
-    answer, _unexpressed = _recommendations_for(conn, state)
+    answer, unexpressed = _recommendations_for(conn, state)
     results = answer.results
     if not results:
-        return {"note": answer.note, "queue": []}
+        return {"note": answer.note, "queue": [], "unexpressed": unexpressed}
 
     def signature(candidate: Recommendation) -> tuple[str, str] | None:
         if not candidate.reasons:
@@ -592,6 +605,11 @@ def spray_queue(session_id: str, conn: Conn) -> dict:
     return {
         "note": answer.note,
         "queue": [_candidate_json(c, i) for i, c in enumerate(queue)],
+        # The queue screen is where a shopper acts, so it is exactly where
+        # held-but-unusable preferences (budget, a stale comparative) must
+        # be visible — flagged found-but-unfixed in the M1 round, required
+        # by the kiosk, pinned by tests/test_facet_ui.py.
+        "unexpressed": unexpressed,
     }
 
 
@@ -614,7 +632,49 @@ def fragrance_profile(fragrance_id: int, conn: Conn) -> dict:
     if row is None:
         raise HTTPException(status_code=404, detail=f"No fragrance {fragrance_id!r}")
     answer = recommend(conn, f"what do people say about {row['canonical_name']}?")
-    return _answer_json(answer)
+    body = _answer_json(answer)
+    body["official"] = _official_block(conn, fragrance_id)
+    return body
+
+
+def _official_block(conn: psycopg.Connection, fragrance_id: int) -> dict:
+    """What official sources DECLARE about this bottle, strictly separate
+    from what people say. Data fields, not sentences — nothing here is
+    composed wording, so nothing here needs the audit's wording layer;
+    what the audit must guarantee instead is the separation itself, which
+    `tests/test_notes.py` pins: declared notes never appear inside
+    evidence sentences and never move an evidence count.
+
+    Absence is honest: no listing, no declared notes, no prices — the
+    fields are empty lists/None, never filled with guesses. The UI renders
+    "No official data yet", not a shrug of invented values.
+    """
+    from fragrance_graph.notes import declared_for
+
+    listings = conn.execute(
+        """SELECT l.retailer, l.url, l.image_url, l.scent_family,
+                  MIN(v.price_usd) AS price_min, MAX(v.price_usd) AS price_max
+           FROM retailer_listings l
+           LEFT JOIN retailer_variants v ON v.listing_id = l.id
+           WHERE l.fragrance_id = %s
+           GROUP BY l.id, l.retailer, l.url, l.image_url, l.scent_family
+           ORDER BY l.retailer""",
+        (fragrance_id,),
+    ).fetchall()
+    return {
+        "declared_notes": declared_for(conn, fragrance_id),
+        "listings": [
+            {
+                "retailer": r["retailer"],
+                "url": r["url"],
+                "image_url": r["image_url"],
+                "scent_family": r["scent_family"],
+                "price_min_usd": float(r["price_min"]) if r["price_min"] is not None else None,
+                "price_max_usd": float(r["price_max"]) if r["price_max"] is not None else None,
+            }
+            for r in listings
+        ],
+    }
 
 
 def audited_probe_text(conn: psycopg.Connection) -> str:

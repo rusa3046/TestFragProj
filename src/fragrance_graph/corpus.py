@@ -164,8 +164,25 @@ DERIVED_TABLES = {
 #:
 #: `fragrance_graph.houses` explains why houses specifically fall on this
 #: side of the line rather than being folded into the corpus itself.
+#:
+#: `retailer_listings`/`retailer_variants` (migration 0016) belong here
+#: for the identical reason, with a second, sharper argument for why
+#: `import_corpus` must never read or write them: the raw retailer scrape
+#: is not source of truth and never merges to `main` at all (it carries
+#: the retailer's copyrighted marketing prose), so the *only* legitimate
+#: source these two tables can ever be rebuilt from is the curated,
+#: facts-only `data/curation/retailer-listings.jsonl` — never the corpus,
+#: which has no notion of a retailer to begin with. Two dict entries
+#: pointing at the same `retail import` command, not one: the notice
+#: mechanism reports per-table, and a partially-populated database (one
+#: table non-empty, the other not — should never happen in practice, but
+#: the notice does not assume it cannot) should say so per table rather
+#: than silently passing because only one of the two was checked. See
+#: `fragrance_graph.retail`'s module docstring for the full pipeline.
 CURATED_INPUT_TABLES = {
     "houses": "python -m fragrance_graph.houses import",
+    "retailer_listings": "python -m fragrance_graph.retail import",
+    "retailer_variants": "python -m fragrance_graph.retail import",
 }
 
 #: `discovery_sessions` and `session_events` (migration 0015, FACET's
@@ -703,6 +720,33 @@ def import_corpus(
                     conn.execute(
                         f"UPDATE claims SET {column} = NULL "
                         f"WHERE {column} IN ({marks})",
+                        ids,
+                    )
+                # Retailer listings let go the same way and for the same
+                # reason: back to unresolved, never deleted — the listing
+                # is a fact about the store, and `retail resolve` will
+                # re-link it if the bottle ever returns. Without this the
+                # 0016 foreign key (correctly) refuses the prune. Existence
+                # is checked via to_regclass rather than try/except because
+                # a rollback here would also undo the claim unlinking above.
+                if conn.execute(
+                    "SELECT to_regclass('retailer_listings')"
+                ).fetchone()[0]:
+                    conn.execute(
+                        f"UPDATE retailer_listings SET fragrance_id = NULL "
+                        f"WHERE fragrance_id IN ({marks})",
+                        ids,
+                    )
+                # claim_attributions is DERIVED (attributes infer): a
+                # proposal about a bottle that no longer exists means
+                # nothing, so the rows are deleted, not unlinked — the
+                # next `attributes infer` recomputes from scratch anyway.
+                if conn.execute(
+                    "SELECT to_regclass('claim_attributions')"
+                ).fetchone()[0]:
+                    conn.execute(
+                        f"DELETE FROM claim_attributions "
+                        f"WHERE fragrance_id IN ({marks})",
                         ids,
                     )
             conn.cursor().executemany(

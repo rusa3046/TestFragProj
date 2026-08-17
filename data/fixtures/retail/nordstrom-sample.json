@@ -1,0 +1,1105 @@
+[
+  {
+    "url": "https://www.nordstrom.com/s/baccarat-rouge-540-eau-de-parfum/5495565?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444448KTG3",
+    "item_id": "5495565",
+    "variant_id": "444448KTG3",
+    "title": "Baccarat Rouge 540 Eau de Parfum",
+    "description": "",
+    "product_category": "Home>Beauty>Fragrance>Perfume",
+    "category_tree": [
+      {
+        "name": "Home",
+        "url": "https://www.nordstrom.com/"
+      },
+      {
+        "name": "Beauty",
+        "url": "https://www.nordstrom.com/browse/beauty"
+      },
+      {
+        "name": "Fragrance",
+        "url": "https://www.nordstrom.com/browse/beauty/fragrance"
+      },
+      {
+        "name": "Perfume",
+        "url": "https://www.nordstrom.com/browse/beauty/fragrance/perfume"
+      }
+    ],
+    "brand": "Maison Francis Kurkdjian",
+    "image_url": "https://n.nordstrommedia.com/it/33473e89-259b-4f5d-8ad8-d0bcc43b9b20.jpeg",
+    "price": null,
+    "sale_price": null,
+    "availability": "in_stock",
+    "availability_date": null,
+    "group_id": null,
+    "listing_has_variations": true,
+    "variant_attributes": [
+      {
+        "name": "color",
+        "value": "NO COLOR"
+      }
+    ],
+    "variants": [
+      {
+        "variant_type": "color",
+        "variant_options": [
+          {
+            "option_id": "444448KTG3",
+            "option_name": "NO COLOR",
+            "option_price": 715,
+            "in_stock": true,
+            "image": "https://n.nordstrommedia.com/it/33473e89-259b-4f5d-8ad8-d0bcc43b9b20.jpeg"
+          }
+        ]
+      },
+      {
+        "variant_type": "size",
+        "variant_options": [
+          {
+            "option_id": "27585441",
+            "option_name": "6.8 Ounce",
+            "option_price": 715,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "27586435",
+            "option_name": "2.4 Ounce",
+            "option_price": 360,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "30452849",
+            "option_name": "1.2 Ounce",
+            "option_price": 230,
+            "in_stock": true,
+            "image": null
+          }
+        ]
+      }
+    ],
+    "store_name": "Nordstrom",
+    "seller_url": "https://www.nordstrom.com",
+    "seller_privacy_policy": "https://www.nordstrom.com/browse/customer-service/policy/privacy",
+    "seller_tos": "https://www.nordstrom.com/browse/customer-service/policy/terms-conditions",
+    "return_policy": "https://www.nordstrom.com/browse/services/return-policy",
+    "return_window": 30,
+    "target_countries": [
+      "US"
+    ],
+    "store_country": "US",
+    "category_urls": [
+      "https://www.nordstrom.com/",
+      "https://www.nordstrom.com/browse/beauty",
+      "https://www.nordstrom.com/browse/beauty/fragrance",
+      "https://www.nordstrom.com/browse/beauty/fragrance/perfume"
+    ],
+    "star_rating": 4.3,
+    "review_count": 2870,
+    "reviews": [],
+    "additional_image_urls": [
+      "https://n.nordstrommedia.com/it/33473e89-259b-4f5d-8ad8-d0bcc43b9b20.jpeg",
+      "https://n.nordstrommedia.com/it/a0475351-1814-4176-9bd0-a02f4d4569f0.jpeg",
+      "https://n.nordstrommedia.com/it/0fcca701-9f85-4957-9b0d-f752c48b2a27.jpeg",
+      "https://n.nordstrommedia.com/it/85e646d2-cde0-47c1-ad67-21c0ef63903d.jpeg",
+      "https://n.nordstrommedia.com/it/a3ea26b0-104c-427b-b160-9931e724d2d3.jpeg",
+      "https://n.nordstrommedia.com/it/8998b96f-578b-4827-9217-8215e86fb869.jpeg",
+      "https://n.nordstrommedia.com/it/f3a177ca-37e4-48d8-af79-ed5ba3088d11.jpeg",
+      "https://n.nordstrommedia.com/it/671cd71c-756d-4b2d-83d4-6db7971ab936.jpeg",
+      "https://n.nordstrommedia.com/it/6d3f972c-c740-400f-9836-16b747e5da4a.jpeg",
+      "https://n.nordstrommedia.com/it/ba658530-e477-40ad-8ce4-d268ac9c444a.jpeg",
+      "https://n.nordstrommedia.com/it/16e22d71-33fd-4368-8318-cdce41f7f3cf.jpeg"
+    ],
+    "timestamp": "2026-08-17T07:53:46.572Z",
+    "input": {
+      "url": "https://www.nordstrom.com/s/baccarat-rouge-540-eau-de-parfum/5495565?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444448KTG3"
+    }
+  },
+  {
+    "url": "https://www.nordstrom.com/s/burberry-her-eau-de-parfum/5102114?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=4444485NWA",
+    "item_id": "5102114",
+    "variant_id": "4444485NWA",
+    "title": "Her Eau de Parfum",
+    "description": "",
+    "product_category": "Home>Designer>Women",
+    "category_tree": [
+      {
+        "name": "Home",
+        "url": "https://www.nordstrom.com/"
+      },
+      {
+        "name": "Designer",
+        "url": "https://www.nordstrom.com/browse/designer"
+      },
+      {
+        "name": "Women",
+        "url": "https://www.nordstrom.com/browse/designer/women"
+      }
+    ],
+    "brand": "Burberry",
+    "image_url": "https://n.nordstrommedia.com/it/7031c970-087d-4a79-96ef-efedbecb0e7b.jpeg",
+    "price": null,
+    "sale_price": null,
+    "availability": "in_stock",
+    "availability_date": null,
+    "group_id": null,
+    "listing_has_variations": true,
+    "variant_attributes": [
+      {
+        "name": "color",
+        "value": "NO COLOR"
+      }
+    ],
+    "variants": [
+      {
+        "variant_type": "color",
+        "variant_options": [
+          {
+            "option_id": "4444485NWA",
+            "option_name": "NO COLOR",
+            "option_price": 150,
+            "in_stock": true,
+            "image": "https://n.nordstrommedia.com/it/7031c970-087d-4a79-96ef-efedbecb0e7b.jpeg"
+          }
+        ]
+      },
+      {
+        "variant_type": "size",
+        "variant_options": [
+          {
+            "option_id": "99446690",
+            "option_name": "1.6 Ounce",
+            "option_price": 150,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "99446120",
+            "option_name": "3.3 Ounce",
+            "option_price": 181,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "37539086",
+            "option_name": "5 Ounce",
+            "option_price": 225,
+            "in_stock": false,
+            "image": null
+          }
+        ]
+      }
+    ],
+    "store_name": "Nordstrom",
+    "seller_url": "https://www.nordstrom.com",
+    "seller_privacy_policy": "https://www.nordstrom.com/browse/customer-service/policy/privacy",
+    "seller_tos": "https://www.nordstrom.com/browse/customer-service/policy/terms-conditions",
+    "return_policy": "https://www.nordstrom.com/browse/services/return-policy",
+    "return_window": 30,
+    "target_countries": [
+      "US"
+    ],
+    "store_country": "US",
+    "category_urls": [
+      "https://www.nordstrom.com/",
+      "https://www.nordstrom.com/browse/designer",
+      "https://www.nordstrom.com/browse/designer/women"
+    ],
+    "star_rating": 4.6,
+    "review_count": 2412,
+    "reviews": [],
+    "additional_image_urls": [
+      "https://n.nordstrommedia.com/it/7031c970-087d-4a79-96ef-efedbecb0e7b.jpeg",
+      "https://n.nordstrommedia.com/it/f53a02e4-0f43-4da0-9f21-e0a45075bc4a.jpeg",
+      "https://n.nordstrommedia.com/it/cbd0f135-a582-4718-81ff-42055287f986.jpeg",
+      "https://n.nordstrommedia.com/it/1348e48f-3171-4f79-880d-5ec09b99a263.jpeg",
+      "https://n.nordstrommedia.com/it/b0b901cd-07bc-489f-8385-7fc77a84448c.jpeg",
+      "https://n.nordstrommedia.com/it/d529258a-27dc-49e9-bbf3-146bd89bb56f.jpeg",
+      "https://n.nordstrommedia.com/it/f76d2671-6407-4049-bbc2-14a7dadd0e92.jpeg",
+      "https://n.nordstrommedia.com/it/7b92b143-13dd-4c37-81b8-29486e1b65d1.jpeg"
+    ],
+    "timestamp": "2026-08-17T07:53:46.618Z",
+    "input": {
+      "url": "https://www.nordstrom.com/s/burberry-her-eau-de-parfum/5102114?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=4444485NWA"
+    }
+  },
+  {
+    "url": "https://www.nordstrom.com/s/atomic-rose-eau-de-parfum/7622698?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444444ANTS",
+    "item_id": "7622698",
+    "variant_id": "444444ANTS",
+    "title": "Atomic Rose Eau de Parfum",
+    "description": "",
+    "product_category": "Home>Beauty>Fragrance>Perfume",
+    "category_tree": [
+      {
+        "name": "Home",
+        "url": "https://www.nordstrom.com/"
+      },
+      {
+        "name": "Beauty",
+        "url": "https://www.nordstrom.com/browse/beauty"
+      },
+      {
+        "name": "Fragrance",
+        "url": "https://www.nordstrom.com/browse/beauty/fragrance"
+      },
+      {
+        "name": "Perfume",
+        "url": "https://www.nordstrom.com/browse/beauty/fragrance/perfume"
+      }
+    ],
+    "brand": "INITIO Parfums Privés",
+    "image_url": "https://n.nordstrommedia.com/it/de14b35e-91c9-46db-a9be-ccc97c7e13e3.jpeg",
+    "price": null,
+    "sale_price": null,
+    "availability": "in_stock",
+    "availability_date": null,
+    "group_id": null,
+    "listing_has_variations": true,
+    "variant_attributes": [
+      {
+        "name": "color",
+        "value": "NO COLOR"
+      }
+    ],
+    "variants": [
+      {
+        "variant_type": "color",
+        "variant_options": [
+          {
+            "option_id": "444444ANTS",
+            "option_name": "NO COLOR",
+            "option_price": 290,
+            "in_stock": true,
+            "image": "https://n.nordstrommedia.com/it/de14b35e-91c9-46db-a9be-ccc97c7e13e3.jpeg"
+          }
+        ]
+      },
+      {
+        "variant_type": "size",
+        "variant_options": [
+          {
+            "option_id": "A1452109",
+            "option_name": "1.6 Ounce",
+            "option_price": 290,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "9664984",
+            "option_name": "3.04 Ounce",
+            "option_price": 420,
+            "in_stock": true,
+            "image": null
+          }
+        ]
+      }
+    ],
+    "store_name": "Nordstrom",
+    "seller_url": "https://www.nordstrom.com",
+    "seller_privacy_policy": "https://www.nordstrom.com/browse/customer-service/policy/privacy",
+    "seller_tos": "https://www.nordstrom.com/browse/customer-service/policy/terms-conditions",
+    "return_policy": "https://www.nordstrom.com/browse/services/return-policy",
+    "return_window": 30,
+    "target_countries": [
+      "US"
+    ],
+    "store_country": "US",
+    "category_urls": [
+      "https://www.nordstrom.com/",
+      "https://www.nordstrom.com/browse/beauty",
+      "https://www.nordstrom.com/browse/beauty/fragrance",
+      "https://www.nordstrom.com/browse/beauty/fragrance/perfume"
+    ],
+    "star_rating": 4.6,
+    "review_count": 60,
+    "reviews": [],
+    "additional_image_urls": [
+      "https://n.nordstrommedia.com/it/de14b35e-91c9-46db-a9be-ccc97c7e13e3.jpeg",
+      "https://n.nordstrommedia.com/it/8e8fe1be-4f65-4ae6-87e2-11261dde7f45.jpeg",
+      "https://n.nordstrommedia.com/it/2313be92-44b8-4b46-b514-7562839101dd.jpeg"
+    ],
+    "timestamp": "2026-08-17T07:53:48.356Z",
+    "input": {
+      "url": "https://www.nordstrom.com/s/atomic-rose-eau-de-parfum/7622698?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444444ANTS"
+    }
+  },
+  {
+    "url": "https://www.nordstrom.com/s/dior-sauvage-eau-de-parfum/4897958?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444447VEPL",
+    "item_id": "4897958",
+    "variant_id": "444447VEPL",
+    "title": "Sauvage Eau de Parfum",
+    "description": "",
+    "product_category": "Home>Designer>Men",
+    "category_tree": [
+      {
+        "name": "Home",
+        "url": "https://www.nordstrom.com/"
+      },
+      {
+        "name": "Designer",
+        "url": "https://www.nordstrom.com/browse/designer"
+      },
+      {
+        "name": "Men",
+        "url": "https://www.nordstrom.com/browse/designer/men"
+      }
+    ],
+    "brand": "DIOR",
+    "image_url": "https://n.nordstrommedia.com/it/3d70deb2-d9c1-4de8-b0aa-d5d323af852e.jpeg",
+    "price": null,
+    "sale_price": null,
+    "availability": "in_stock",
+    "availability_date": null,
+    "group_id": null,
+    "listing_has_variations": true,
+    "variant_attributes": [
+      {
+        "name": "color",
+        "value": "REGULAR"
+      }
+    ],
+    "variants": [
+      {
+        "variant_type": "color",
+        "variant_options": [
+          {
+            "option_id": "444447VEPL",
+            "option_name": "REGULAR",
+            "option_price": 95,
+            "in_stock": true,
+            "image": "https://n.nordstrommedia.com/it/3d70deb2-d9c1-4de8-b0aa-d5d323af852e.jpeg"
+          },
+          {
+            "option_id": "44444G4Q53",
+            "option_name": "REFILL",
+            "option_price": 330,
+            "in_stock": false,
+            "image": "https://n.nordstrommedia.com/it/aff387b3-a289-45e3-a6b9-0d2bb6dd9de4.jpeg"
+          }
+        ]
+      },
+      {
+        "variant_type": "size",
+        "variant_options": [
+          {
+            "option_id": "4994799",
+            "option_name": "1 Ounce",
+            "option_price": 95,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "16319531",
+            "option_name": "3.4 Ounce",
+            "option_price": 173,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "16313767",
+            "option_name": "2 Ounce",
+            "option_price": 135,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "21178826",
+            "option_name": "6.8 Ounce",
+            "option_price": 232,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "4994802",
+            "option_name": "10 Ounce Refill",
+            "option_price": 330,
+            "in_stock": false,
+            "image": null
+          }
+        ]
+      }
+    ],
+    "store_name": "Nordstrom",
+    "seller_url": "https://www.nordstrom.com",
+    "seller_privacy_policy": "https://www.nordstrom.com/browse/customer-service/policy/privacy",
+    "seller_tos": "https://www.nordstrom.com/browse/customer-service/policy/terms-conditions",
+    "return_policy": "https://www.nordstrom.com/browse/services/return-policy",
+    "return_window": 30,
+    "target_countries": [
+      "US"
+    ],
+    "store_country": "US",
+    "category_urls": [
+      "https://www.nordstrom.com/",
+      "https://www.nordstrom.com/browse/designer",
+      "https://www.nordstrom.com/browse/designer/men"
+    ],
+    "star_rating": 4.7,
+    "review_count": 2515,
+    "reviews": [],
+    "additional_image_urls": [
+      "https://n.nordstrommedia.com/it/3d70deb2-d9c1-4de8-b0aa-d5d323af852e.jpeg",
+      "https://n.nordstrommedia.com/it/5547b1fe-904b-450c-9ecc-f24ca5e97500.jpeg",
+      "https://n.nordstrommedia.com/it/62b4b4eb-408f-40e2-a928-f86b82e03c65.jpeg",
+      "https://n.nordstrommedia.com/it/84335fd6-6291-45d5-806e-e1b403c9c68d.jpeg",
+      "https://n.nordstrommedia.com/it/e8a0655b-51b0-4d4c-b176-0da596a4ef45.jpeg",
+      "https://n.nordstrommedia.com/it/1a3b983d-e4dd-464b-9a77-3d0501c1d36f.jpeg",
+      "https://n.nordstrommedia.com/it/59be3318-84db-4325-8f15-875f9da1f5b6.jpeg",
+      "https://n.nordstrommedia.com/it/33830717-d999-4ef9-ae45-a6c93cc47274.jpeg",
+      "https://n.nordstrommedia.com/it/5e07b44d-17c1-40ee-896c-7996d71bd41c.jpeg",
+      "https://n.nordstrommedia.com/it/aff387b3-a289-45e3-a6b9-0d2bb6dd9de4.jpeg"
+    ],
+    "timestamp": "2026-08-17T07:53:48.659Z",
+    "input": {
+      "url": "https://www.nordstrom.com/s/dior-sauvage-eau-de-parfum/4897958?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444447VEPL"
+    }
+  },
+  {
+    "url": "https://www.nordstrom.com/s/creed-aventus-fragrance/3658281?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444446F59L",
+    "item_id": "3658281",
+    "variant_id": "444446F59L",
+    "title": "Aventus Fragrance",
+    "description": "",
+    "product_category": "Home>Men>Grooming & Cologne>Cologne",
+    "category_tree": [
+      {
+        "name": "Home",
+        "url": "https://www.nordstrom.com/"
+      },
+      {
+        "name": "Men",
+        "url": "https://www.nordstrom.com/browse/men"
+      },
+      {
+        "name": "Grooming & Cologne",
+        "url": "https://www.nordstrom.com/browse/men/grooming"
+      },
+      {
+        "name": "Cologne",
+        "url": "https://www.nordstrom.com/browse/men/grooming/cologne"
+      }
+    ],
+    "brand": "Creed",
+    "image_url": "https://n.nordstrommedia.com/it/54c321d1-8264-4fc7-9f1b-bc3a9d008687.jpeg",
+    "price": null,
+    "sale_price": null,
+    "availability": "in_stock",
+    "availability_date": null,
+    "group_id": null,
+    "listing_has_variations": true,
+    "variant_attributes": [
+      {
+        "name": "color",
+        "value": "NO COLOR"
+      }
+    ],
+    "variants": [
+      {
+        "variant_type": "color",
+        "variant_options": [
+          {
+            "option_id": "444446F59L",
+            "option_name": "NO COLOR",
+            "option_price": 510,
+            "in_stock": true,
+            "image": "https://n.nordstrommedia.com/it/54c321d1-8264-4fc7-9f1b-bc3a9d008687.jpeg"
+          }
+        ]
+      },
+      {
+        "variant_type": "size",
+        "variant_options": [
+          {
+            "option_id": "11805346",
+            "option_name": "3.3 Ounce",
+            "option_price": 510,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "7724898",
+            "option_name": "0.33 Ounce",
+            "option_price": 100,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "11804622",
+            "option_name": "1.7 Ounce",
+            "option_price": 380,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "50185782",
+            "option_name": "1 Ounce",
+            "option_price": 270,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "36252381",
+            "option_name": "0.35 Ounce",
+            "option_price": 85,
+            "in_stock": false,
+            "image": null
+          },
+          {
+            "option_id": "54341396",
+            "option_name": "One Size",
+            "option_price": 1300,
+            "in_stock": false,
+            "image": null
+          },
+          {
+            "option_id": "50185917",
+            "option_name": "8.4 Ounce",
+            "option_price": 800,
+            "in_stock": false,
+            "image": null
+          },
+          {
+            "option_id": "A2131589",
+            "option_name": "8.1 Ounce",
+            "option_price": 800,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "A2705530",
+            "option_name": "16.5 Ounce",
+            "option_price": 1300,
+            "in_stock": false,
+            "image": null
+          }
+        ]
+      }
+    ],
+    "store_name": "Nordstrom",
+    "seller_url": "https://www.nordstrom.com",
+    "seller_privacy_policy": "https://www.nordstrom.com/browse/customer-service/policy/privacy",
+    "seller_tos": "https://www.nordstrom.com/browse/customer-service/policy/terms-conditions",
+    "return_policy": "https://www.nordstrom.com/browse/services/return-policy",
+    "return_window": 30,
+    "target_countries": [
+      "US"
+    ],
+    "store_country": "US",
+    "category_urls": [
+      "https://www.nordstrom.com/",
+      "https://www.nordstrom.com/browse/men",
+      "https://www.nordstrom.com/browse/men/grooming",
+      "https://www.nordstrom.com/browse/men/grooming/cologne"
+    ],
+    "star_rating": 4.3,
+    "review_count": 1050,
+    "reviews": [],
+    "additional_image_urls": [
+      "https://n.nordstrommedia.com/it/54c321d1-8264-4fc7-9f1b-bc3a9d008687.jpeg",
+      "https://n.nordstrommedia.com/it/c65cf44b-89ba-400a-9b2d-b8cc62d8d7e9.jpeg",
+      "https://n.nordstrommedia.com/it/3f642787-5e76-4784-84ea-b871b93a5d21.jpeg",
+      "https://n.nordstrommedia.com/it/ade51aed-4477-432a-bc36-f2224f5efe9f.jpeg",
+      "https://n.nordstrommedia.com/it/cf51fbc4-5795-4cd5-b9cc-781f62957c77.jpeg",
+      "https://n.nordstrommedia.com/it/68126b82-5ac0-4842-bc8e-6cdc393402d6.jpeg",
+      "https://n.nordstrommedia.com/it/a5a3fb9a-e61b-489b-baeb-594ca184a42b.jpeg",
+      "https://n.nordstrommedia.com/it/db3f3b5b-46fd-474d-91dc-dee6c5029444.jpeg"
+    ],
+    "timestamp": "2026-08-17T07:53:50.249Z",
+    "input": {
+      "url": "https://www.nordstrom.com/s/creed-aventus-fragrance/3658281?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444446F59L"
+    }
+  },
+  {
+    "url": "https://www.nordstrom.com/s/parfums-de-marly-delina-eau-de-parfum/7423641?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=44444AZ9NG",
+    "item_id": "7423641",
+    "variant_id": "44444AZ9NG",
+    "title": "Delina Eau de Parfum",
+    "description": "",
+    "product_category": "Home>Beauty>Fragrance>Perfume",
+    "category_tree": [
+      {
+        "name": "Home",
+        "url": "https://www.nordstrom.com/"
+      },
+      {
+        "name": "Beauty",
+        "url": "https://www.nordstrom.com/browse/beauty"
+      },
+      {
+        "name": "Fragrance",
+        "url": "https://www.nordstrom.com/browse/beauty/fragrance"
+      },
+      {
+        "name": "Perfume",
+        "url": "https://www.nordstrom.com/browse/beauty/fragrance/perfume"
+      }
+    ],
+    "brand": "Parfums de Marly",
+    "image_url": "https://n.nordstrommedia.com/it/157e949c-eb8a-41f9-a710-84bf9e46e6ab.jpeg",
+    "price": null,
+    "sale_price": null,
+    "availability": "in_stock",
+    "availability_date": null,
+    "group_id": null,
+    "listing_has_variations": true,
+    "variant_attributes": [
+      {
+        "name": "color",
+        "value": "NO COLOR"
+      }
+    ],
+    "variants": [
+      {
+        "variant_type": "color",
+        "variant_options": [
+          {
+            "option_id": "44444AZ9NG",
+            "option_name": "NO COLOR",
+            "option_price": 410,
+            "in_stock": true,
+            "image": "https://n.nordstrommedia.com/it/157e949c-eb8a-41f9-a710-84bf9e46e6ab.jpeg"
+          }
+        ]
+      },
+      {
+        "variant_type": "size",
+        "variant_options": [
+          {
+            "option_id": "7941454",
+            "option_name": "2.5 Ounce",
+            "option_price": 410,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "7941438",
+            "option_name": "1 Ounce",
+            "option_price": 250,
+            "in_stock": true,
+            "image": null
+          }
+        ]
+      }
+    ],
+    "store_name": "Nordstrom",
+    "seller_url": "https://www.nordstrom.com",
+    "seller_privacy_policy": "https://www.nordstrom.com/browse/customer-service/policy/privacy",
+    "seller_tos": "https://www.nordstrom.com/browse/customer-service/policy/terms-conditions",
+    "return_policy": "https://www.nordstrom.com/browse/services/return-policy",
+    "return_window": 30,
+    "target_countries": [
+      "US"
+    ],
+    "store_country": "US",
+    "category_urls": [
+      "https://www.nordstrom.com/",
+      "https://www.nordstrom.com/browse/beauty",
+      "https://www.nordstrom.com/browse/beauty/fragrance",
+      "https://www.nordstrom.com/browse/beauty/fragrance/perfume"
+    ],
+    "star_rating": 4.6,
+    "review_count": 632,
+    "reviews": [],
+    "additional_image_urls": [
+      "https://n.nordstrommedia.com/it/157e949c-eb8a-41f9-a710-84bf9e46e6ab.jpeg",
+      "https://n.nordstrommedia.com/it/d35d2452-ccc3-48f4-84ce-267f24c3b974.jpeg",
+      "https://n.nordstrommedia.com/it/b280bcbc-0a99-4445-8688-c0d0a1cfb250.jpeg",
+      "https://n.nordstrommedia.com/it/30c93942-2382-4f98-9c42-54eaa7b9b4ed.jpeg",
+      "https://n.nordstrommedia.com/it/97504970-330e-4638-a58e-70616c2d26d1.jpeg",
+      "https://n.nordstrommedia.com/it/38a97420-b861-4e9e-af2d-d5c08f32cc43.jpeg",
+      "https://n.nordstrommedia.com/it/bb73a203-0eae-45f3-a196-71d2d1ce204b.jpeg"
+    ],
+    "timestamp": "2026-08-17T07:53:53.852Z",
+    "input": {
+      "url": "https://www.nordstrom.com/s/parfums-de-marly-delina-eau-de-parfum/7423641?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=44444AZ9NG"
+    }
+  },
+  {
+    "url": "https://www.nordstrom.com/s/donna-born-in-roma-eau-de-parfum/5345686?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444448DW9A",
+    "item_id": "5345686",
+    "variant_id": "444448DW9A",
+    "title": "Donna Born in Roma Eau de Parfum",
+    "description": "",
+    "product_category": "Home>Designer>Women",
+    "category_tree": [
+      {
+        "name": "Home",
+        "url": "https://www.nordstrom.com/"
+      },
+      {
+        "name": "Designer",
+        "url": "https://www.nordstrom.com/browse/designer"
+      },
+      {
+        "name": "Women",
+        "url": "https://www.nordstrom.com/browse/designer/women"
+      }
+    ],
+    "brand": "Valentino",
+    "image_url": "https://n.nordstrommedia.com/it/ceb3e4e7-dabd-4b3c-9041-6c93063558a9.jpeg",
+    "price": null,
+    "sale_price": null,
+    "availability": "in_stock",
+    "availability_date": null,
+    "group_id": null,
+    "listing_has_variations": true,
+    "variant_attributes": [
+      {
+        "name": "color",
+        "value": "NO COLOR"
+      }
+    ],
+    "variants": [
+      {
+        "variant_type": "color",
+        "variant_options": [
+          {
+            "option_id": "444448DW9A",
+            "option_name": "NO COLOR",
+            "option_price": 110,
+            "in_stock": true,
+            "image": "https://n.nordstrommedia.com/it/ceb3e4e7-dabd-4b3c-9041-6c93063558a9.jpeg"
+          }
+        ]
+      },
+      {
+        "variant_type": "size",
+        "variant_options": [
+          {
+            "option_id": "24350367",
+            "option_name": "1 Ounce",
+            "option_price": 110,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "24350359",
+            "option_name": "3.4 Ounce",
+            "option_price": 180,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "24350349",
+            "option_name": "1.7 Ounce",
+            "option_price": 145,
+            "in_stock": true,
+            "image": null
+          }
+        ]
+      }
+    ],
+    "store_name": "Nordstrom",
+    "seller_url": "https://www.nordstrom.com",
+    "seller_privacy_policy": "https://www.nordstrom.com/browse/customer-service/policy/privacy",
+    "seller_tos": "https://www.nordstrom.com/browse/customer-service/policy/terms-conditions",
+    "return_policy": "https://www.nordstrom.com/browse/services/return-policy",
+    "return_window": 30,
+    "target_countries": [
+      "US"
+    ],
+    "store_country": "US",
+    "category_urls": [
+      "https://www.nordstrom.com/",
+      "https://www.nordstrom.com/browse/designer",
+      "https://www.nordstrom.com/browse/designer/women"
+    ],
+    "star_rating": 4.8,
+    "review_count": 2842,
+    "reviews": [],
+    "additional_image_urls": [
+      "https://n.nordstrommedia.com/it/ceb3e4e7-dabd-4b3c-9041-6c93063558a9.jpeg",
+      "https://n.nordstrommedia.com/it/180fa54a-5f29-4d67-8f1f-044fc8e71ba8.jpeg",
+      "https://n.nordstrommedia.com/it/2ada88ed-35e5-424d-be4f-7d5c8a558a31.jpeg",
+      "https://n.nordstrommedia.com/it/880c097f-3929-4bf5-abd8-5a01a30ce8f3.jpeg",
+      "https://n.nordstrommedia.com/it/b70a9f58-7ef5-4a7b-b104-b287894d79ef.jpeg",
+      "https://n.nordstrommedia.com/it/ca04c730-615c-48d9-93f3-3b6b420a1dc8.jpeg",
+      "https://n.nordstrommedia.com/it/ac483567-f5a1-4af2-baaf-53bd3efde343.jpeg"
+    ],
+    "timestamp": "2026-08-17T07:53:53.913Z",
+    "input": {
+      "url": "https://www.nordstrom.com/s/donna-born-in-roma-eau-de-parfum/5345686?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444448DW9A"
+    }
+  },
+  {
+    "url": "https://www.nordstrom.com/s/yves-saint-laurent-libre-eau-de-parfum-spray-fragrance/5349306?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444448EHEH",
+    "item_id": "5349306",
+    "variant_id": "444448EHEH",
+    "title": "Libre Eau de Parfum Spray Fragrance",
+    "description": "",
+    "product_category": "Home>Designer>Women",
+    "category_tree": [
+      {
+        "name": "Home",
+        "url": "https://www.nordstrom.com/"
+      },
+      {
+        "name": "Designer",
+        "url": "https://www.nordstrom.com/browse/designer"
+      },
+      {
+        "name": "Women",
+        "url": "https://www.nordstrom.com/browse/designer/women"
+      }
+    ],
+    "brand": "Yves Saint Laurent",
+    "image_url": "https://n.nordstrommedia.com/it/bec7eaff-62f5-4a0c-9ddd-3928a86387ad.jpeg",
+    "price": null,
+    "sale_price": null,
+    "availability": "in_stock",
+    "availability_date": null,
+    "group_id": null,
+    "listing_has_variations": true,
+    "variant_attributes": [
+      {
+        "name": "color",
+        "value": "REGULAR"
+      }
+    ],
+    "variants": [
+      {
+        "variant_type": "color",
+        "variant_options": [
+          {
+            "option_id": "444448EHEH",
+            "option_name": "REGULAR",
+            "option_price": 225,
+            "in_stock": true,
+            "image": "https://n.nordstrommedia.com/it/bec7eaff-62f5-4a0c-9ddd-3928a86387ad.jpeg"
+          },
+          {
+            "option_id": "444448EHEJ",
+            "option_name": "REFILL",
+            "option_price": 152,
+            "in_stock": false,
+            "image": "https://n.nordstrommedia.com/it/b7fc5fed-5bf9-406e-9b4b-c0a798a4151e.jpeg"
+          }
+        ]
+      },
+      {
+        "variant_type": "size",
+        "variant_options": [
+          {
+            "option_id": "31300871",
+            "option_name": "5 Ounce",
+            "option_price": 225,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "24415317",
+            "option_name": "1 Ounce",
+            "option_price": 110,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "31614724",
+            "option_name": "0.33 Ounce",
+            "option_price": 38,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "24415327",
+            "option_name": "1.6 Ounce",
+            "option_price": 145,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "24499143",
+            "option_name": "3 Ounce",
+            "option_price": 180,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "A0988818",
+            "option_name": "3.3 Ounce Refill",
+            "option_price": 152,
+            "in_stock": false,
+            "image": null
+          }
+        ]
+      }
+    ],
+    "store_name": "Nordstrom",
+    "seller_url": "https://www.nordstrom.com",
+    "seller_privacy_policy": "https://www.nordstrom.com/browse/customer-service/policy/privacy",
+    "seller_tos": "https://www.nordstrom.com/browse/customer-service/policy/terms-conditions",
+    "return_policy": "https://www.nordstrom.com/browse/services/return-policy",
+    "return_window": 30,
+    "target_countries": [
+      "US"
+    ],
+    "store_country": "US",
+    "category_urls": [
+      "https://www.nordstrom.com/",
+      "https://www.nordstrom.com/browse/designer",
+      "https://www.nordstrom.com/browse/designer/women"
+    ],
+    "star_rating": 4.7,
+    "review_count": 6292,
+    "reviews": [],
+    "additional_image_urls": [
+      "https://n.nordstrommedia.com/it/bec7eaff-62f5-4a0c-9ddd-3928a86387ad.jpeg",
+      "https://n.nordstrommedia.com/it/a7073c45-7982-43a0-99bf-91c053e9027d.jpeg",
+      "https://n.nordstrommedia.com/it/714673d8-5682-4055-8b0d-9bc528d99cd8.jpeg",
+      "https://n.nordstrommedia.com/it/d76bc729-d395-4096-9c20-62a7dee3751b.jpeg",
+      "https://n.nordstrommedia.com/it/3522bd27-f7a9-49c5-b801-e9bd7b517086.jpeg",
+      "https://n.nordstrommedia.com/it/84b142d5-7058-483f-a95c-3b11899f6c24.jpeg",
+      "https://n.nordstrommedia.com/it/5156342d-2fbb-4a2b-a6c8-a1751a985184.jpeg",
+      "https://n.nordstrommedia.com/it/66a915dd-c1d6-4ba5-b4a6-889bd1dba780.jpeg",
+      "https://n.nordstrommedia.com/it/2b44cc00-687a-4e03-a582-1b2698e29084.jpeg",
+      "https://n.nordstrommedia.com/it/42bb4852-8dfb-420c-9e59-94fd9e8a0f3f.jpeg",
+      "https://n.nordstrommedia.com/it/1e66eee6-964e-4074-8a28-f0e84b899e29.jpeg",
+      "https://n.nordstrommedia.com/it/b7fc5fed-5bf9-406e-9b4b-c0a798a4151e.jpeg",
+      "https://n.nordstrommedia.com/it/426b2da5-f024-483c-a03a-941370307781.jpeg"
+    ],
+    "timestamp": "2026-08-17T07:54:09.990Z",
+    "input": {
+      "url": "https://www.nordstrom.com/s/yves-saint-laurent-libre-eau-de-parfum-spray-fragrance/5349306?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444448EHEH"
+    }
+  },
+  {
+    "url": "https://www.nordstrom.com/s/kilian-paris-angels-share-fragrance/5758320?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444448U69W",
+    "item_id": "5758320",
+    "variant_id": "444448U69W",
+    "title": "Angels' Share Fragrance",
+    "description": "",
+    "product_category": "Home>Beauty>Fragrance>Perfume",
+    "category_tree": [
+      {
+        "name": "Home",
+        "url": "https://www.nordstrom.com/"
+      },
+      {
+        "name": "Beauty",
+        "url": "https://www.nordstrom.com/browse/beauty"
+      },
+      {
+        "name": "Fragrance",
+        "url": "https://www.nordstrom.com/browse/beauty/fragrance"
+      },
+      {
+        "name": "Perfume",
+        "url": "https://www.nordstrom.com/browse/beauty/fragrance/perfume"
+      }
+    ],
+    "brand": "Kilian Paris",
+    "image_url": "https://n.nordstrommedia.com/it/0570ff64-0289-4bef-9f64-95f069d7d4eb.jpeg",
+    "price": null,
+    "sale_price": null,
+    "availability": "in_stock",
+    "availability_date": null,
+    "group_id": null,
+    "listing_has_variations": true,
+    "variant_attributes": [
+      {
+        "name": "color",
+        "value": "NO COLOR"
+      }
+    ],
+    "variants": [
+      {
+        "variant_type": "color",
+        "variant_options": [
+          {
+            "option_id": "444448U69W",
+            "option_name": "NO COLOR",
+            "option_price": 415,
+            "in_stock": true,
+            "image": "https://n.nordstrommedia.com/it/0570ff64-0289-4bef-9f64-95f069d7d4eb.jpeg"
+          },
+          {
+            "option_id": "44444G5SG2",
+            "option_name": "REFILL",
+            "option_price": 340,
+            "in_stock": true,
+            "image": "https://n.nordstrommedia.com/it/78398f1b-528d-40cc-9a01-e245da4d4087.jpeg"
+          }
+        ]
+      },
+      {
+        "variant_type": "size",
+        "variant_options": [
+          {
+            "option_id": "8291311",
+            "option_name": "3.4 Ounce",
+            "option_price": 415,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "32182219",
+            "option_name": "1.7 Ounce",
+            "option_price": 285,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "B0494365",
+            "option_name": "1 Ounce",
+            "option_price": 170,
+            "in_stock": true,
+            "image": null
+          },
+          {
+            "option_id": "B1292929",
+            "option_name": "8.4 Ounce",
+            "option_price": 880,
+            "in_stock": false,
+            "image": null
+          },
+          {
+            "option_id": "A2115284",
+            "option_name": "3.4 Ounce Refill",
+            "option_price": 340,
+            "in_stock": true,
+            "image": null
+          }
+        ]
+      }
+    ],
+    "store_name": "Nordstrom",
+    "seller_url": "https://www.nordstrom.com",
+    "seller_privacy_policy": "https://www.nordstrom.com/browse/customer-service/policy/privacy",
+    "seller_tos": "https://www.nordstrom.com/browse/customer-service/policy/terms-conditions",
+    "return_policy": "https://www.nordstrom.com/browse/services/return-policy",
+    "return_window": 30,
+    "target_countries": [
+      "US"
+    ],
+    "store_country": "US",
+    "category_urls": [
+      "https://www.nordstrom.com/",
+      "https://www.nordstrom.com/browse/beauty",
+      "https://www.nordstrom.com/browse/beauty/fragrance",
+      "https://www.nordstrom.com/browse/beauty/fragrance/perfume"
+    ],
+    "star_rating": 4.7,
+    "review_count": 188,
+    "reviews": [],
+    "additional_image_urls": [
+      "https://n.nordstrommedia.com/it/0570ff64-0289-4bef-9f64-95f069d7d4eb.jpeg",
+      "https://n.nordstrommedia.com/it/6a4eb944-2810-4c8c-b007-e279863fabba.jpeg",
+      "https://n.nordstrommedia.com/it/4d6b74fa-91f1-42ab-bdde-5f900d14a48a.jpeg",
+      "https://n.nordstrommedia.com/it/d620d482-3e0d-4868-85dc-7c9167f3689f.jpeg",
+      "https://n.nordstrommedia.com/it/385a3918-5f4b-421d-97b1-420b1e2f095d.jpeg",
+      "https://n.nordstrommedia.com/it/2994421a-e171-4933-a5c5-07ae7c484666.jpeg",
+      "https://n.nordstrommedia.com/it/3161b3f3-a8bc-4f27-bb92-a091e23acfdc.jpeg",
+      "https://n.nordstrommedia.com/it/b0a074e8-f9c0-4b65-8e3d-a5696d4ca6a6.jpeg",
+      "https://n.nordstrommedia.com/it/55f2cbbc-5b01-4f31-8ceb-6523d1def810.jpeg",
+      "https://n.nordstrommedia.com/it/91e04a6d-ae2d-4106-a53c-71d2f7bce324.jpeg",
+      "https://n.nordstrommedia.com/it/78398f1b-528d-40cc-9a01-e245da4d4087.jpeg",
+      "https://n.nordstrommedia.com/it/fcaa5677-1dba-4f05-9511-693969951cbf.jpeg",
+      "https://n.nordstrommedia.com/it/1577d4a9-6600-4606-ade1-63ac95946d08.jpeg"
+    ],
+    "timestamp": "2026-08-17T07:56:21.986Z",
+    "input": {
+      "url": "https://www.nordstrom.com/s/kilian-paris-angels-share-fragrance/5758320?origin=keywordsearch-personalizedsort&breadcrumb=Home%2FAll+Results&color=444448U69W"
+    }
+  }
+]
