@@ -469,6 +469,38 @@ def spent_on(ledger: Path | str, day: str) -> float:
     return total
 
 
+def spent_by(ledger: Path | str, day: str, what: str) -> float:
+    """What one labelled worker charged on one UTC date.
+
+    The ledger is the only source of truth for money, and this exists so a
+    caller can ask "what did *this* arm cost" without keeping its own
+    counter. An in-memory total is written by `on_spend` and lost the
+    moment a `BudgetExhausted` unwinds the stack mid-batch — the pair
+    experiment's two arms reported $0.0828 and $0.0988 against a real
+    $0.2078, because the batch that triggered the raise was charged to the
+    ledger and never added to the trial.
+
+    `guard` records before it raises, so every charged batch is here even
+    when the run stopped on one. A per-dollar scientific metric must read
+    this rather than a counter that can miss a batch it paid for.
+    """
+    path = Path(ledger)
+    if not path.exists():
+        return 0.0
+    total = 0.0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+            if record.get("date") == day and record.get("what") == what:
+                total += float(record["usd"])
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+    return total
+
+
 def summary(ledger: Path | str = DEFAULT_LEDGER, *, days: int = 7) -> str:
     """Recent daily totals, newest first."""
     path = Path(ledger)

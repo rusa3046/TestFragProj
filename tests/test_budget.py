@@ -14,6 +14,7 @@ from fragrance_graph.budget import (
     DAILY_CAP_USD,
     Budget,
     BudgetExhausted,
+    spent_by,
     spent_on,
     summary,
 )
@@ -556,3 +557,41 @@ class TestSmallChargesSurviveTheLedger:
 
         reloaded = Budget.load(ledger, today="2026-08-16")
         assert reloaded.spent_usd == pytest.approx(budget.spent_usd, rel=1e-6)
+
+
+class TestSpendIsReadableFromTheLedger:
+    """A per-dollar metric may not rest on an in-memory counter.
+
+    `budgeted_extractor` accumulates through `on_spend`, and a
+    `BudgetExhausted` raised inside a batch unwinds past the addition — the
+    batch that stopped the run is charged to the ledger and missing from the
+    counter. The pair experiment's arms reported $0.0828 and $0.0988 against
+    a true $0.2078 for exactly this reason.
+    """
+
+    def test_the_batch_that_raised_is_on_the_ledger(self, ledger):
+        """`guard` records before it raises, so nothing charged is lost."""
+        budget = Budget.load(ledger, cap_usd=0.10, today="2026-08-17")
+        charge = budget.guard("armA")
+        charge(0.06, 20)
+        with pytest.raises(BudgetExhausted):
+            charge(0.07, 20)
+
+        assert spent_by(ledger, "2026-08-17", "armA") == pytest.approx(0.13), (
+            "the batch that crossed the cap was paid for and must be counted"
+        )
+
+    def test_labels_separate_two_workers_on_one_ledger(self, ledger):
+        budget = Budget.load(ledger, cap_usd=1.00, today="2026-08-17")
+        budget.guard("run:armA")(0.04, 20)
+        budget.guard("run:armB")(0.02, 20)
+        budget.guard("something-else")(0.30, 20)
+
+        assert spent_by(ledger, "2026-08-17", "run:armA") == pytest.approx(0.04)
+        assert spent_by(ledger, "2026-08-17", "run:armB") == pytest.approx(0.02)
+        assert budget.spent_usd == pytest.approx(0.36), "the day still totals"
+
+    def test_an_unlabelled_day_reads_zero_rather_than_everything(self, ledger):
+        Budget.load(ledger, cap_usd=1.00, today="2026-08-17").guard("armA")(0.04, 20)
+        assert spent_by(ledger, "2026-08-17", "armB") == 0.0
+        assert spent_by(ledger, "2026-08-18", "armA") == 0.0

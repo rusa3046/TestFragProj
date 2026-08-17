@@ -920,7 +920,10 @@ def enrich_one(
 
 
 def budgeted_extractor(
-    client: Any, budget: Any, model_kwargs: dict[str, Any] | None = None
+    client: Any,
+    budget: Any,
+    model_kwargs: dict[str, Any] | None = None,
+    label: str = "frontier",
 ) -> Any:
     """An `extract_fn` that charges the daily ledger and stops at the cap.
 
@@ -944,7 +947,10 @@ def budgeted_extractor(
     """
     from fragrance_graph.extract.llm import extract
 
-    charge = budget.guard("frontier")
+    # `label` becomes the ledger's `what` for every batch this extractor
+    # charges, so a caller can attribute spend by reading the ledger back
+    # instead of trusting a counter that a mid-batch raise can truncate.
+    charge = budget.guard(label)
 
     def run(conn: psycopg.Connection, *, limit: int) -> float:
         spent = 0.0

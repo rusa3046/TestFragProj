@@ -422,7 +422,12 @@ def _real_buyer(conn: psycopg.Connection, run_id: str) -> Any:
     the design promised, and `verdict` refuses to score the run rather than
     compare a full purchase against a partial one.
     """
-    from fragrance_graph.budget import DAILY_CAP_USD, Budget, BudgetExhausted
+    from fragrance_graph.budget import (
+        DAILY_CAP_USD,
+        Budget,
+        BudgetExhausted,
+        spent_by,
+    )
     from fragrance_graph.experiments.neighbour import _llm_client
     from fragrance_graph.frontier import (
         Ceiling,
@@ -455,7 +460,11 @@ def _real_buyer(conn: psycopg.Connection, run_id: str) -> Any:
         arm_budget.cap_usd = min(
             DAILY_CAP_USD, arm_budget.spent_usd + CEILING_USD
         )
-        extract_fn = budgeted_extractor(_llm_client(), arm_budget)
+        # Every batch this arm charges is labelled with the run and the
+        # arm, so its cost can be read back out of the ledger instead of
+        # accumulated in memory. See below for why that matters.
+        label = f"pair-neighbour:{run_id}:{target}"
+        extract_fn = budgeted_extractor(_llm_client(), arm_budget, label=label)
 
         trial = Trial(
             text=match.text,
@@ -481,8 +490,21 @@ def _real_buyer(conn: psycopg.Connection, run_id: str) -> Any:
             trial.stop_reason = "arm-ceiling"
             trial.note = str(exc)[:200]
             log.warning("arm for %s hit its own ceiling: %s", target, exc)
+        # Spend comes from the ledger, not from `trial.usd`.
+        #
+        # `budgeted_extractor` accumulates a running total through its
+        # `on_spend` callback, and a `BudgetExhausted` raised inside a batch
+        # unwinds past the addition — so the batch that stopped the arm is
+        # charged to the ledger and missing from the counter. Measured on
+        # the Delina run: the arms reported $0.0828 and $0.0988 against a
+        # true $0.2078.
+        #
+        # `guard` records before it raises, so the ledger has every charged
+        # batch including the last. Under the one-paid-worker invariant this
+        # label is unique to this arm, so summing it is exact.
+        charged = spent_by(arm_budget.ledger, arm_budget.today, label)
         return (
-            trial.comments_seen, trial.usd, trial.quota_units,
+            trial.comments_seen, charged, trial.quota_units,
             trial.stop_reason, truncated,
         )
 
