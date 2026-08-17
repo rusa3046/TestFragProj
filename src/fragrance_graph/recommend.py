@@ -514,8 +514,32 @@ def recommend(
     is affordable. Nothing that reaches a sentence depends on it: wording
     is chosen by `Reason.declarable`, which excludes inferred support
     regardless of this setting.
+
+    A thin wrapper over `recommend_plan`: parse the sentence, then judge
+    the plan it produces. Split out so a caller that already has a
+    `QueryPlan` — `fragrance_graph.session.PreferenceState.to_plan()`
+    compiles one from an accumulated session rather than one sentence —
+    can be judged the identical way, by the identical code, without
+    re-parsing text that was never typed as one sentence to begin with.
     """
     plan = parse_with_corpus(conn, text)
+    return recommend_plan(conn, plan, limit=limit, attribution=attribution)
+
+
+def recommend_plan(
+    conn: psycopg.Connection,
+    plan: QueryPlan,
+    *,
+    limit: int = DEFAULT_LIMIT,
+    attribution: Attribution = Attribution.PROPOSED,
+) -> Answer:
+    """`recommend`, starting from an already-built `QueryPlan` rather than
+    a sentence. Everything below this point in `recommend` moved here
+    unchanged — same stages, same gates, same wording rules — so a plan
+    built by `PreferenceState.to_plan()` is judged by exactly the code a
+    typed sentence is judged by, not a second path that could quietly
+    drift from it.
+    """
     answer = Answer(plan=plan)
 
     if plan.refusal:

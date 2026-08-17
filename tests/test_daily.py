@@ -289,6 +289,28 @@ def _step(name: str) -> str:
     return _workflow().split(name, 1)[1].split("- name:", 1)[0]
 
 
+class TestCIInstallsWhatTheSuiteImports:
+    """fastapi lives in the [api] extra on purpose — a core install must
+    not grow it. But the suite contains the API tests, so the TEST
+    environment needs the extra. The first M1 CI run died at collection
+    (ModuleNotFoundError: fastapi) because ci.yml synced only dev.
+
+    tests/test_api.py now importorskips fastapi so a core-only install
+    skips instead of killing collection — which means a CI that quietly
+    dropped the extra would SKIP 60+ API tests and stay green. This test
+    lives here, in a module with no fastapi import, precisely so that
+    regression cannot skip its own detector."""
+
+    def test_ci_syncs_the_api_extra(self):
+        from pathlib import Path
+
+        ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+        assert "--extra api" in ci, (
+            "ci.yml no longer installs the [api] extra; the API tests "
+            "will silently skip and their coverage is gone"
+        )
+
+
 class TestThePublishedSiteIsBuiltFromACompleteDatabase:
     """`corpus import` restores everything the corpus *stores*. Two tables
     are computed from it instead, and the scheduled rebuild skipped both.

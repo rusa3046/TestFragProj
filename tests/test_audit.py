@@ -290,3 +290,43 @@ class TestTheSiteIndexIsAuditedToo:
         # silently dropping the hostile alias from it.
         assert "Evil Parfum" in page
         assert "alert(1)" in page
+
+
+class TestTheApiResponsesSurfaceIsAudited:
+    """`fragrance_graph.api` — FACET's service layer — is only reachable
+    with the optional `[api]` extra (FastAPI/uvicorn) installed; a core
+    install has neither, and must not need them just to run this audit.
+    """
+
+    def test_api_responses_is_a_registered_renderer(self):
+        from fragrance_graph.audit import RENDERERS
+
+        assert "api responses" in RENDERERS
+
+    def test_it_is_checked_with_fastapi_installed(self, corpus):
+        """FastAPI *is* installed in this environment — this repo's own
+        `.venv` carries the `[api]` extra — so the real audit must reach
+        it and find nothing to flag, the same as every other surface."""
+        report = audit(corpus)
+        assert report.checked.get("api responses"), "api responses unchecked"
+        assert not [v for v in report.violations if v.surface == "api responses"]
+        assert not any("api responses" in u for u in report.unexercised)
+
+    def test_it_is_reported_unexercised_not_crashed_without_fastapi(
+        self, conn, monkeypatch
+    ):
+        """The other half of the contract: a core install with no `[api]`
+        extra still gets a complete, non-crashing audit — "api responses"
+        just shows up as unexercised rather than checked. Simulated by
+        making `import fragrance_graph.api` raise `ImportError`, the
+        documented way to fake a missing module (`sys.modules[name] =
+        None`) without actually uninstalling FastAPI out from under the
+        rest of the suite.
+        """
+        import sys
+
+        monkeypatch.setitem(sys.modules, "fragrance_graph.api", None)
+        report = audit(conn)
+        assert "api responses" not in report.checked
+        assert any("api responses" in u for u in report.unexercised)
+        assert not [v for v in report.violations if v.surface == "api responses"]
