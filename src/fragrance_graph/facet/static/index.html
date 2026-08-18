@@ -108,6 +108,10 @@
     font-family: ui-sans-serif, system-ui, sans-serif; font-size: .78rem;
     color: var(--muted);
   }
+  .community-coverage {
+    font-family: ui-sans-serif, system-ui, sans-serif; font-size: .78rem;
+    color: var(--muted); margin: .3rem 0 0;
+  }
   .verdicts { display: flex; gap: .5rem; margin-top: .7rem; }
   .verdicts button {
     flex: 1; font-family: ui-sans-serif, system-ui, sans-serif;
@@ -941,9 +945,13 @@ function buildBudgetPicker() {
 
 /* --- result cards --------------------------------------------------------- */
 
+/* Catalog-first spec: two-axis labels (catalog fit vs community
+   confirmation) replacing the old single-axis STRONG_FIT/GOOD_FIT/
+   PARTIAL_FIT/EXPLORATORY_PICK four — see commerce_card.result_tier's
+   docstring for exactly what each now means. */
 const LABELS = {
-  STRONG_FIT: "Strong Fit", GOOD_FIT: "Good Fit",
-  PARTIAL_FIT: "Partial Fit", EXPLORATORY_PICK: "Exploratory Pick",
+  BEST_OVERALL_FIT: "Best Overall Fit", STRONG_PROFILE_FIT: "Strong Profile Fit",
+  COMMUNITY_FAVORITE: "Community Favorite", WORTH_DISCOVERING: "Worth Discovering",
 };
 
 const STATUS_WORD = {
@@ -1042,8 +1050,15 @@ function card(candidate, commerceCard) {
   const caveat = commerceSection("Worth knowing", commerceCard && commerceCard.relevant_tradeoffs);
   if (caveat) art.append(caveat);
 
-  art.append(el("p", "ev",
-    `${candidate.people} people across ${candidate.creators} channels behind everything cited`));
+  /* Catalog-first spec: the raw "N people across M channels" count is
+     debug/attribution register, not merchandising voice, and moves to
+     "the full story" (loadDetail's Evidence section) below. The card
+     itself now carries only the audited community-coverage chrome line
+     (commerce_card.community_coverage_text) — present even for a T2
+     catalog-only candidate with zero community reasons. */
+  if (commerceCard && commerceCard.community_coverage) {
+    art.append(el("p", "community-coverage", commerceCard.community_coverage));
+  }
 
   const verdicts = el("div", "verdicts");
   [["LOVE", "Love it", "love"], ["MAYBE", "Maybe", ""], ["NO", "Not for me", "no"]]
@@ -1083,6 +1098,12 @@ async function loadDetail(candidate, art, toggle) {
   ((own && own.caveats) || []).forEach((r) => evList.append(el("li", "", r.text)));
   if (evList.children.length) box.append(evList);
   else box.append(el("p", "empty", body.note || "Not enough independent voices yet."));
+  /* The raw attribution count — debug/engineering register, kept out of
+     the always-visible card (see card()'s own comment) and shown here,
+     under "the full story," exactly where a shopper who wants it can
+     find it. */
+  box.append(el("p", "ev",
+    `${candidate.people} people across ${candidate.creators} channels behind everything cited`));
 
   box.append(el("h4", "", "Your chips"));
   const statuses = candidate.preference_status || [];

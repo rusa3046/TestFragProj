@@ -283,6 +283,16 @@ def load_note_axes(
 
     An absent file logs a warning and returns `{}` -- every axis then
     resolves to "unknown", which is the same safe fallback as a typo.
+
+    `"occasion_priors"` is skipped alongside `"_comment"`: it is a rule
+    table over AXIS NAMES (`fragrance_graph.catalog_profile.
+    load_occasion_priors` reads it), not a list of literal notes, and
+    feeding its value through the per-note vocabulary check below would
+    either crash (its value is a dict of dicts, not a list of strings) or
+    -- if the shape happened to survive -- silently mis-file a curation
+    rule as an unusably-empty note axis. One name, reserved, rather than
+    a second `_`-prefixed convention for "metadata that is not the
+    comment."
     """
     if not path.exists():
         log.warning("No note-axis mapping at %s -- axis subtraction is a no-op", path)
@@ -295,8 +305,9 @@ def load_note_axes(
     axes: dict[str, frozenset[str]] = {}
     dropped = 0
     for axis, notes in raw.items():
-        if axis.startswith("_"):
-            continue  # "_comment" and any future metadata key, not an axis
+        if axis.startswith("_") or axis == "occasion_priors":
+            continue  # "_comment", the occasion-prior rule table, and any
+            # future metadata key -- not an axis of literal notes.
         kept = set()
         for note in notes:
             normalized = note.strip().lower()

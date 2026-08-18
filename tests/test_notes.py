@@ -310,6 +310,34 @@ class TestNoteAxisLoader:
 
         assert set(axes) == {"warm"}
 
+    def test_occasion_priors_is_not_read_as_an_axis(self, conn, tmp_path):
+        """`occasion_priors` (catalog-first spec) is a rule table over
+        AXIS NAMES, read whole by `catalog_profile.load_occasion_priors`
+        -- not a note -> axis mapping, and must never reach this
+        loader's per-note vocabulary check (its value is a dict of
+        dicts, not a list of strings)."""
+        axes_file = tmp_path / "note-axes.json"
+        axes_file.write_text(json.dumps({
+            "warm": [],
+            "occasion_priors": {
+                "summer": {"high_if_any_high": ["citrus"], "low_required": ["warm"]},
+            },
+        }))
+
+        axes = load_note_axes(conn, path=axes_file)
+
+        assert set(axes) == {"warm"}
+
+    def test_the_real_curated_file_carries_the_new_families_too(self, conn):
+        """The catalog-first families (`gourmand`/`citrus`/`woody`/
+        `floral`/`aquatic`) load alongside the original three, and
+        `occasion_priors` never becomes a fourth axis."""
+        axes = load_note_axes(conn)
+        for family in ("warm", "sweet", "fresh", "gourmand", "citrus",
+                       "woody", "floral", "aquatic"):
+            assert family in axes, f"{family!r} missing from the loaded axes"
+        assert "occasion_priors" not in axes
+
     def test_a_missing_file_warns_and_every_axis_resolves_as_unknown(
         self, conn, tmp_path, caplog
     ):

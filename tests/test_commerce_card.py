@@ -95,102 +95,181 @@ class TestClassify:
 
 
 # --- result_tier -------------------------------------------------------
+#
+# Catalog-first spec: `result_tier` now grades TWO axes separately —
+# CATALOG (`kind="catalog_fit"` reasons, `recommend._catalog_signal`/
+# `_catalog_occasion_signal`) and COMMUNITY (every other `FIT_SIGNAL`
+# kind) — into `BEST_OVERALL_FIT`/`STRONG_PROFILE_FIT`/
+# `COMMUNITY_FAVORITE`/`WORTH_DISCOVERING`. See `result_tier`'s own
+# docstring for the exact rule; these tests are the old single-axis
+# `STRONG_FIT`/`GOOD_FIT`/`PARTIAL_FIT`/`EXPLORATORY_PICK` suite,
+# rewritten to the new vocabulary and extended with the catalog axis.
+
+
+def catalog_reason(text="feminine"):
+    """A T2 catalog-derived `FIT_SIGNAL` reason — zero people/creators by
+    design (a catalog fact, not a headcount); see
+    `recommend._catalog_signal`."""
+    return Reason(kind="catalog_fit", text=text, strength=Strength.CANONICAL)
 
 
 class TestResultTier:
-    def test_no_positive_reasons_is_exploratory_pick(self):
+    def test_no_positive_reasons_on_either_axis_is_worth_discovering(self):
+        """The old bottom rung (`EXPLORATORY_PICK`, only graph/semantic
+        proximity) folds into the new catch-all `WORTH_DISCOVERING` — no
+        `FIT_SIGNAL` on either axis at all."""
         candidate = Recommendation(1, "X", reasons=[reason("graph")])
-        assert result_tier(candidate) == "EXPLORATORY_PICK"
+        assert result_tier(candidate) == "WORTH_DISCOVERING"
 
-    def test_a_single_source_match_is_partial_fit_never_rejected(self):
+    def test_a_single_source_community_match_is_worth_discovering_never_rejected(self):
         """Independence gates language, never eligibility for a tier at
         all — see `commerce-audit.md` §1/§4. A `SINGLE_SOURCE` fact is
-        real evidence the request was answered."""
+        real evidence the request was answered, and still earns a real
+        (if bottom-rung) tier under the new coarser two-axis system."""
         candidate = Recommendation(
             1, "X", reasons=[reason("prefer", people=1, creators=1, videos=0)]
         )
-        assert result_tier(candidate) == "PARTIAL_FIT"
+        assert result_tier(candidate) == "WORTH_DISCOVERING"
 
-    def test_two_moderate_matches_is_strong_fit(self):
+    def test_two_moderate_community_matches_is_community_favorite(self):
+        """The old `STRONG_FIT` bar (two-or-more matches, best >=
+        MODERATE), reached on the community axis alone with no catalog
+        signal at all, is now `COMMUNITY_FAVORITE` — real wearer evidence
+        backing the request, whatever the declared list says."""
         candidate = Recommendation(
             1, "X",
             reasons=[reason("prefer", people=2, creators=2, videos=0),
                      reason("concept", people=3, creators=2, videos=2)],
         )
-        assert result_tier(candidate) == "STRONG_FIT"
+        assert result_tier(candidate) == "COMMUNITY_FAVORITE"
 
-    def test_one_strong_match_alone_is_good_fit_not_strong(self):
-        """spec: "#1 can be a Good Fit" — one very well-evidenced matched
-        dimension is not enough for `STRONG_FIT` on its own."""
+    def test_one_strong_community_match_alone_is_worth_discovering(self):
+        """One very well-evidenced matched dimension is not enough for
+        `COMMUNITY_FAVORITE` on its own — the community axis needs
+        two-or-more, the identical bar the old `STRONG_FIT` used."""
         candidate = Recommendation(
             1, "X", reasons=[reason("prefer", people=6, creators=3, videos=2)]
         )
-        assert result_tier(candidate) == "GOOD_FIT"
+        assert result_tier(candidate) == "WORTH_DISCOVERING"
 
     def test_caveats_never_influence_result_tier(self):
         candidate = Recommendation(
             1, "X", reasons=[reason("graph")],
             caveats=[reason("avoid", people=9, creators=5, videos=3)],
         )
-        assert result_tier(candidate) == "EXPLORATORY_PICK"
+        assert result_tier(candidate) == "WORTH_DISCOVERING"
 
-    def test_two_strong_matches_with_no_problems_is_strong_fit(self):
+    def test_two_strong_community_matches_with_no_problems_is_community_favorite(self):
         """The uncapped baseline every F5 test below is a variation on —
         confirms the two-strong-matches shape really does reach
-        `STRONG_FIT` when nothing contradicts or contests it, so the
-        capping tests actually prove something was capped."""
+        `COMMUNITY_FAVORITE` when nothing contradicts or contests it, so
+        the capping tests actually prove something was capped."""
         candidate = Recommendation(
             1, "X",
             reasons=[reason("prefer", people=6, creators=3, videos=2),
                      reason("concept", people=6, creators=3, videos=2)],
         )
-        assert result_tier(candidate) == "STRONG_FIT"
+        assert result_tier(candidate) == "COMMUNITY_FAVORITE"
 
-    def test_a_contested_want_caps_strong_fit_at_good_fit(self):
-        """Fix-round F5: two otherwise-`STRONG_FIT`-grade matches, but one
-        of them is materially disputed (`against` set) — the real corpus's
-        Khamrah card (`commerce.json`): "strong projection" evidence was
-        7-for/3-against, and the pre-fix `_label` still returned
-        `STRONG_FIT`. A `CONTESTED` want-dimension is a genuine,
-        shopper-relevant problem this candidate has; `STRONG_FIT` must not
-        paper over it, whatever the card's *other* evidence looks like."""
+    def test_a_contested_want_caps_best_overall_fit_at_the_strong_axis(self):
+        """Fix-round F5, carried onto the new label set: two otherwise-
+        `COMMUNITY_FAVORITE`-grade matches, but one is materially
+        disputed (`against` set) — the real corpus's Khamrah card
+        (`commerce.json`): "strong projection" evidence was 7-for/
+        3-against, and the pre-fix label still overclaimed. A `CONTESTED`
+        want-dimension caps the result the same way a contradicted avoid
+        does — see the next test — never all the way to
+        `WORTH_DISCOVERING`, since a real (if capped) strength on one
+        axis is still real."""
         candidate = Recommendation(
             1, "X",
             reasons=[reason("prefer", people=7, creators=3, videos=2, against=3),
-                     reason("concept", people=6, creators=3, videos=2)],
+                     reason("concept", people=6, creators=3, videos=2),
+                     catalog_reason(), catalog_reason(text="citrus")],
         )
-        assert result_tier(candidate) == "GOOD_FIT"
+        # Community axis alone (the contested "prefer" reclassifies to
+        # DISAGREEMENT, leaving one community FIT_SIGNAL) would only be
+        # WORTH_DISCOVERING; the two catalog_fit reasons make this
+        # candidate catalog-strong too, so the capped outcome is the
+        # single strong axis, not the bottom rung.
+        assert result_tier(candidate) == "STRONG_PROFILE_FIT"
 
-    def test_a_contradicted_explicit_avoid_caps_strong_fit_at_good_fit(self):
-        """Fix-round F5: same two strong matches, but the candidate's own
+    def test_a_contradicted_explicit_avoid_caps_best_overall_fit(self):
+        """Fix-round F5: two strong catalog AND two strong community
+        matches (an uncapped `BEST_OVERALL_FIT`), but the candidate's own
         evidence contradicts an explicit `avoid` (a `kind="avoid"`
         caveat — only ever appended when the evidence actually supports
         the avoided value). The real corpus's Khamrah card had exactly
         this (an "apple pie with cinnamon" caveat against an
-        avoid-cinnamon chip) and was still labelled `STRONG_FIT` before
+        avoid-cinnamon chip) and was still labelled the top tier before
         this fix."""
         candidate = Recommendation(
             1, "X",
             reasons=[reason("prefer", people=6, creators=3, videos=2),
-                     reason("concept", people=6, creators=3, videos=2)],
+                     reason("concept", people=6, creators=3, videos=2),
+                     catalog_reason(), catalog_reason(text="citrus")],
             caveats=[reason("avoid", text="cinnamon", people=1, creators=1)],
         )
-        assert result_tier(candidate) == "GOOD_FIT"
+        assert result_tier(candidate) == "STRONG_PROFILE_FIT"
 
-    def test_a_contested_want_does_not_cap_good_fit_or_partial_fit(self):
-        """The cap only ever pulls `STRONG_FIT` down to `GOOD_FIT` — it
-        does not additionally punish a candidate that was never going to
-        reach `STRONG_FIT` in the first place (spec's fix-round: "cap at
-        GOOD_FIT," not "cap at PARTIAL_FIT")."""
+    def test_a_catalog_avoid_caveat_caps_best_overall_fit_too(self):
+        """The catalog-axis mirror of the test above: a `kind=
+        "catalog_avoid"` caveat (a declared-present note the request
+        asked to avoid, `recommend._catalog_signal`'s "penalty" branch)
+        caps a would-be `BEST_OVERALL_FIT` exactly as a community `avoid`
+        caveat does — `_has_contradicted_avoid` treats the two the same
+        way."""
+        candidate = Recommendation(
+            1, "X",
+            reasons=[reason("prefer", people=6, creators=3, videos=2),
+                     reason("concept", people=6, creators=3, videos=2),
+                     catalog_reason(), catalog_reason(text="citrus")],
+            caveats=[reason("catalog_avoid", text="Vanilla is among the "
+                             "declared notes.", people=0, creators=0)],
+        )
+        assert result_tier(candidate) == "STRONG_PROFILE_FIT"
+
+    def test_a_contested_want_does_not_cap_a_tier_that_was_never_going_to_be_top(self):
+        """The cap only ever pulls `BEST_OVERALL_FIT` down — it does not
+        additionally punish a candidate that was never going to reach it
+        in the first place."""
         candidate = Recommendation(
             1, "X",
             reasons=[reason("prefer", people=7, creators=3, videos=2, against=3)],
         )
         # One contested reason alone: no FIT_SIGNAL reasons remain at all
-        # (the only reason present was reclassified DISAGREEMENT), so this
-        # is EXPLORATORY_PICK, not a capped GOOD_FIT — a distinct, correct
-        # outcome from "matched but disputed."
-        assert result_tier(candidate) == "EXPLORATORY_PICK"
+        # (the only reason present was reclassified DISAGREEMENT), so
+        # this is WORTH_DISCOVERING, not a capped anything — a distinct,
+        # correct outcome from "matched but disputed."
+        assert result_tier(candidate) == "WORTH_DISCOVERING"
+
+    # --- the catalog axis itself --------------------------------------
+
+    def test_two_catalog_fit_reasons_alone_is_strong_profile_fit(self):
+        """The exact shape the catalog-first spec's failure case exists
+        to make possible: zero community evidence, real catalog fit —
+        `STRONG_PROFILE_FIT`, never a rejection."""
+        candidate = Recommendation(
+            1, "X", reasons=[catalog_reason(), catalog_reason(text="citrus")],
+        )
+        assert result_tier(candidate) == "STRONG_PROFILE_FIT"
+        assert candidate.people == candidate.creators == 0
+
+    def test_one_catalog_fit_reason_alone_is_worth_discovering(self):
+        """The catalog axis needs two-or-more, the same bar the
+        community axis uses — one catalog dimension answered is not yet
+        "excellent catalog match.\""""
+        candidate = Recommendation(1, "X", reasons=[catalog_reason()])
+        assert result_tier(candidate) == "WORTH_DISCOVERING"
+
+    def test_strong_catalog_and_strong_community_together_is_best_overall_fit(self):
+        candidate = Recommendation(
+            1, "X",
+            reasons=[reason("prefer", people=6, creators=3, videos=2),
+                     reason("concept", people=6, creators=3, videos=2),
+                     catalog_reason(), catalog_reason(text="citrus")],
+        )
+        assert result_tier(candidate) == "BEST_OVERALL_FIT"
 
 
 # --- fit-signal wording (tier-gated) -----------------------------------
@@ -356,6 +435,43 @@ class TestTradeoffVoice:
         ) == "Several wearers note cinnamon."
 
 
+class TestCatalogVoice:
+    """Catalog-first spec: `kind="catalog_fit"`/`"catalog_avoid"` reasons
+    carry an already-composed `catalog_profile.DerivedWording` sentence
+    and must reach the card VERBATIM — no tier ladder, no "wearers"/
+    "people" clause grafted on."""
+
+    def test_catalog_fit_text_is_returned_verbatim_no_tier_wording(self):
+        r = catalog_reason(text="Vanilla isn't among the declared notes.")
+        assert fit_signal_text(r) == "Vanilla isn't among the declared notes."
+
+    def test_catalog_avoid_text_is_returned_verbatim_no_tier_wording(self):
+        r = reason("catalog_avoid", text="Vanilla is among the declared notes.",
+                    people=0, creators=0)
+        assert tradeoff_text(r) == "Vanilla is among the declared notes."
+
+    def test_community_coverage_text_reflects_overall_people_and_creators(self):
+        from fragrance_graph.commerce_card import community_coverage_text
+
+        zero = Recommendation(1, "X")
+        assert community_coverage_text(zero) == "Community insight: limited so far"
+
+        moderate = Recommendation(1, "X")
+        moderate.people, moderate.creators = 4, 2
+        assert community_coverage_text(moderate) == "Community evidence: moderate"
+
+        single = Recommendation(1, "X")
+        single.people, single.creators = 1, 1
+        assert community_coverage_text(single) == "Community insight: limited so far"
+
+    def test_build_card_always_carries_a_community_coverage_line(self):
+        """Even a T2 catalog-only candidate with zero community reasons
+        gets an honest coverage line — never a missing/blank field."""
+        candidate = Recommendation(1, "X", reasons=[catalog_reason()])
+        card = build_card(candidate)
+        assert card.community_coverage == "Community insight: limited so far"
+
+
 # --- build_card: caps, filtering, no empty bullets ----------------------
 
 
@@ -411,7 +527,7 @@ class TestBuildCard:
             1, "X", reasons=[reason("prefer", people=6, creators=3, videos=2)]
         )
         card = build_card(candidate)
-        assert card.result_tier == result_tier(candidate) == "GOOD_FIT"
+        assert card.result_tier == result_tier(candidate) == "WORTH_DISCOVERING"
 
     def test_a_contested_fit_reason_moves_to_tradeoffs_as_mixed_wording(self):
         """Fix-round F1, at the `build_card` level: a `"prefer"` reason

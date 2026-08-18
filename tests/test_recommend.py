@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from fragrance_graph.catalog_profile import CatalogProfile
 from fragrance_graph.evidence import Strength
 from fragrance_graph.ingest.store import ingest
 from fragrance_graph.notes import DeclaredNote, store_claims
@@ -17,6 +18,7 @@ from fragrance_graph.plan import Direction, Preference, QueryPlan
 from fragrance_graph.recommend import (
     Reason,
     Recommendation,
+    _catalog_signal,
     digest,
     recommend,
     recommend_plan,
@@ -1086,7 +1088,8 @@ class TestCommerceHeadlineIntegration:
         in `recommend._score` drops a candidate merely because nobody else
         corroborated it. §35's "almost always return something" holds
         here, and `commerce_card.result_tier` still assigns a real tier
-        (`PARTIAL_FIT`, never rejection) rather than excluding it."""
+        (any of the catalog-first spec's four, never rejection) rather
+        than excluding it."""
         from fragrance_graph.commerce_card import result_tier
 
         conn, a, b = catalogue
@@ -1094,7 +1097,8 @@ class TestCommerceHeadlineIntegration:
         answer = recommend(conn, "a fragrance with raspberry")
         assert len(answer.results) == 1
         assert result_tier(answer.results[0]) in (
-            "PARTIAL_FIT", "GOOD_FIT", "STRONG_FIT",
+            "WORTH_DISCOVERING", "STRONG_PROFILE_FIT",
+            "COMMUNITY_FAVORITE", "BEST_OVERALL_FIT",
         )
 
 
@@ -1180,5 +1184,215 @@ class TestFailureCaseCompositionReturnsPositivelyFramedResults:
         for card in cards.values():
             assert card.fit_signals, f"{card.name!r} has no fit signals at all"
             assert card.result_tier in (
-                "STRONG_FIT", "GOOD_FIT", "PARTIAL_FIT", "EXPLORATORY_PICK",
+                "BEST_OVERALL_FIT", "STRONG_PROFILE_FIT",
+                "COMMUNITY_FAVORITE", "WORTH_DISCOVERING",
             )
+
+
+# --- catalog-first spec: T1/T2/T3 candidate generation --------------------
+#
+# The proven defect: "less sweet + less vanilla + summer" against a
+# 547-bottle catalogue returned two results, because candidacy required a
+# comment. These tests build the plan directly (`QueryPlan`/`Preference`,
+# fed straight to `recommend_plan` — the identical path a parsed sentence
+# takes, per that function's own docstring) rather than through the text
+# parser, because the text parser's note vocabulary requires >= 2 corpus
+# claims per word (`plan.MIN_NOTE_CLAIMS`) and these fixtures are
+# deliberately tiny — a plan carries exactly the same `Preference`
+# objects either way.
+
+
+class TestCatalogFirstCandidateGeneration:
+    """The acceptance case from the catalog-first spec, verbatim: bottle
+    A (declared citrus/woody profile, ZERO community claims) must reach
+    the results for "avoid sweet, avoid vanilla, want summer" — the exact
+    query shape the screenshot proved broken."""
+
+    def _seeded(self, conn):
+        # A: strong catalog fit, no comments at all.
+        a = add_fragrance(conn, "Catalog Only Bottle")
+        declare(conn, a, "lemon", "neroli", "white musk", "cedar")
+
+        # B: declares the very things being avoided, PLUS real community
+        # evidence for one of them (sweet) — exercises both the
+        # unchanged community-avoid path (sweet) and the new catalog
+        # ladder (vanilla, which nobody has commented on).
+        b = add_fragrance(conn, "Declared Sweet Bottle")
+        declare(conn, b, "vanilla", "caramel")
+        note(conn, 1, frag=b, value="sweet", author="b1")
+
+        # C: no catalog data at all, but real community summer evidence.
+        c = add_fragrance(conn, "No Catalog Data Bottle")
+        note(conn, 2, frag=c, value="summer", author="c1",
+             claim_type="OCCASION")
+
+        return a, b, c
+
+    def _plan(self):
+        return QueryPlan(
+            text="avoid sweet, avoid vanilla, summer",
+            soft=[
+                Preference("note", "sweet", Direction.LOW, said="sweet"),
+                Preference("note", "vanilla", Direction.LOW, said="vanilla"),
+                Preference("occasion", "summer", Direction.HIGH, said="summer"),
+            ],
+        )
+
+    def test_the_zero_comment_bottle_reaches_results(self, conn):
+        a, b, c = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan())
+        ids = {r.fragrance_id for r in answer.results}
+        assert a in ids, "bottle A (zero community claims) must not be dropped"
+
+    def test_the_zero_comment_bottle_carries_the_not_declared_vanilla_signal(
+        self, conn
+    ):
+        from fragrance_graph.commerce_card import result_tier
+
+        a, b, c = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan())
+        result_a = next(r for r in answer.results if r.fragrance_id == a)
+
+        assert result_a.people == 0 and result_a.creators == 0
+        vanilla_reasons = [
+            r for r in result_a.reasons
+            if r.kind == "catalog_fit" and "vanilla" in r.text.lower()
+        ]
+        assert vanilla_reasons, result_a.reasons
+        assert vanilla_reasons[0].text == "Vanilla isn't among the declared notes."
+        # Real catalog fit, zero community evidence -- exactly the label
+        # the catalog-first spec's failure case exists to make reachable.
+        assert result_tier(result_a) == "STRONG_PROFILE_FIT"
+
+    def test_the_zero_comment_bottle_shows_limited_community_coverage(self, conn):
+        from fragrance_graph.commerce_card import build_card
+
+        a, b, c = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan())
+        result_a = next(r for r in answer.results if r.fragrance_id == a)
+        card = build_card(result_a)
+        assert card.community_coverage == "Community insight: limited so far"
+
+    def test_the_declared_present_bottle_is_penalized_and_ranks_below(self, conn):
+        a, b, c = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan())
+        ids = [r.fragrance_id for r in answer.results]
+        assert b in ids, "a penalized candidate is still a real result, not excluded"
+        result_b = next(r for r in answer.results if r.fragrance_id == b)
+        catalog_avoid = [c for c in result_b.caveats if c.kind == "catalog_avoid"]
+        assert catalog_avoid, result_b.caveats
+        assert catalog_avoid[0].text == "Vanilla is among the declared notes."
+        # A's real catalog fit outranks B's declared-and-penalized profile.
+        assert ids.index(a) < ids.index(b)
+
+    def test_the_community_summer_bottle_is_present_via_the_community_path(self, conn):
+        a, b, c = self._seeded(conn)
+        answer = recommend_plan(conn, self._plan())
+        ids = {r.fragrance_id for r in answer.results}
+        assert c in ids
+        result_c = next(r for r in answer.results if r.fragrance_id == c)
+        assert any(
+            r.kind == "prefer" and r.attribute == "occasion"
+            for r in result_c.reasons
+        )
+
+    def test_real_corpus_more_than_two_results_with_a_zero_community_bottle(self):
+        """The literal end-to-end regression: the same query, against the
+        real, committed corpus (skipped where that database is not
+        reachable) — before this fix, `recommend()` returned candidates
+        only when a comment already existed, which on the real 547-548
+        bottle catalogue meant a handful of results at most."""
+        from fragrance_graph.db import DEFAULT_DB_URL, get_connection
+
+        try:
+            real_conn = get_connection(DEFAULT_DB_URL)
+        except Exception:  # noqa: BLE001
+            pytest.skip("no developer database; run `corpus import` first")
+        if real_conn.execute("SELECT count(*) FROM fragrances").fetchone()[0] < 100:
+            pytest.skip("developer database is too small for this probe")
+        try:
+            answer = recommend(real_conn, "less sweet, less vanilla, summer")
+            assert len(answer.results) > 2, (
+                f"only {len(answer.results)} result(s) — candidacy is still "
+                "gated by community evidence"
+            )
+            zero_community = [r for r in answer.results if r.people == 0]
+            assert zero_community, (
+                "no zero-community bottle reached results — T2 catalog "
+                "candidacy is not actually contributing"
+            )
+        finally:
+            real_conn.close()
+
+
+class TestT2CandidatesNeverShrinkInT3Scoring:
+    """"Reorders, never shrinks to comment-having bottles" — the
+    structural guarantee: `_score` appends whatever `_catalog_candidates`
+    already found a signal for directly into `reasons`/`caveats` before
+    its own "nothing to say" rejection guard runs, so a T2 candidate that
+    was included FOR having a catalog signal can never then be rejected
+    for lacking one."""
+
+    def test_a_pure_catalog_match_with_no_community_facts_is_not_rejected(self, conn):
+        # Named to avoid `evidence.name_facts`' CANONICAL_NAME_NOTES
+        # collision (a fragrance literally named "Citrus ..." would pick
+        # up a pre-existing, unrelated `from_name` fact for "citrus" that
+        # `_preference_fact` does not exclude — a real gap, but not this
+        # spec's to fix; the fixture just steers around it).
+        frag = add_fragrance(conn, "Fixture Bottle One")
+        declare(conn, frag, "lemon", "bergamot")  # citrus: HIGH
+        plan = QueryPlan(
+            text="", soft=[Preference("note", "citrus", Direction.HIGH, said="citrus")]
+        )
+        answer = recommend_plan(conn, plan)
+        assert frag in {r.fragrance_id for r in answer.results}
+        result = next(r for r in answer.results if r.fragrance_id == frag)
+        assert any(r.kind == "catalog_fit" for r in result.reasons)
+
+
+class TestTheTwoAbsencesAreDistinct:
+    """catalog-first spec: "CATALOG absence is real information; two
+    different absences, two meanings" — `NOT_DECLARED` (checked, and
+    genuinely absent from the official list) is never the same claim as
+    the pre-existing COMMUNITY absence (`kind="absence"`, "nobody in this
+    corpus's comments has mentioned it")."""
+
+    def test_not_declared_is_a_positive_catalog_signal(self):
+        profile = CatalogProfile(1, frozenset({"lemon"}), has_catalog_data=True)
+        hit = _catalog_signal(
+            profile, Preference("note", "vanilla", Direction.LOW), frozenset()
+        )
+        assert hit is not None
+        kind, reason = hit
+        assert kind == "positive"
+        assert reason.kind == "catalog_fit"
+        assert reason.text == "Vanilla isn't among the declared notes."
+
+    def test_no_catalog_data_is_silence_not_a_disguised_positive(self):
+        """The OTHER absence -- truly unknown -- must produce no signal
+        at all, never `NOT_DECLARED`'s modest-positive wording borrowed
+        for a bottle that was never actually checked."""
+        profile = CatalogProfile(1, frozenset(), has_catalog_data=False)
+        hit = _catalog_signal(
+            profile, Preference("note", "vanilla", Direction.LOW), frozenset()
+        )
+        assert hit is None
+
+    def test_the_community_absence_path_is_a_different_kind_and_sentence(self, conn):
+        """The pre-existing COMMUNITY absence (`recommend._score`'s "no
+        X evidence recorded" `kind="absence"` reason, silence in the
+        CORPUS OF COMMENTS) fires here instead, because this bottle has
+        no catalog data at all for "sweet" either -- and its wording
+        never borrows the catalog ladder's "declared notes" phrase."""
+        frag = add_fragrance(conn, "No Catalog Data At All")
+        note(conn, 1, frag=frag, value="citrus", author="p1")
+        plan = QueryPlan(
+            text="", soft=[Preference("note", "sweet", Direction.LOW, said="sweet")]
+        )
+        answer = recommend_plan(conn, plan)
+        assert len(answer.results) == 1
+        result = answer.results[0]
+        absence_reasons = [r for r in result.reasons if r.kind == "absence"]
+        assert absence_reasons, result.reasons
+        assert "no sweet evidence recorded" in absence_reasons[0].text
+        assert "declared notes" not in absence_reasons[0].text

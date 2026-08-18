@@ -143,11 +143,14 @@ _SCORE_LIKE = re.compile(r"score|match|percent", re.I)
 
 #: The only four label values `api._label` (`commerce_card.result_tier`)
 #: may ever produce. Any other string is not a category this product
-#: defines and no response may carry it. Renamed from `BEST_MATCH`/
+#: defines and no response may carry it. First renamed from `BEST_MATCH`/
 #: `STRONG_MATCH`/`WORTH_TRYING`/`ALTERNATIVE_DIRECTION` for the commerce
-#: result tiers (spec §16) — see `commerce_card.result_tier`'s docstring.
+#: result tiers (spec §16); renamed again for the catalog-first spec's
+#: two-axis label set — see `commerce_card.result_tier`'s current
+#: docstring.
 _ALLOWED_LABELS = frozenset(
-    {"STRONG_FIT", "GOOD_FIT", "PARTIAL_FIT", "EXPLORATORY_PICK"}
+    {"BEST_OVERALL_FIT", "STRONG_PROFILE_FIT", "COMMUNITY_FAVORITE",
+     "WORTH_DISCOVERING"}
 )
 
 

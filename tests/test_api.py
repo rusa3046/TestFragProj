@@ -655,13 +655,18 @@ class TestLabelDerivation:
     """Direct unit tests on `_label` (`commerce_card.result_tier`), no
     database needed — every input is a hand-built `Reason`/`Recommendation`.
 
-    Rewritten for the commerce result tiers (`STRONG_FIT`/`GOOD_FIT`/
-    `PARTIAL_FIT`/`EXPLORATORY_PICK`, spec §16, `commerce-audit.md` §7):
-    the old four-value, rank-coupled `BEST_MATCH`/`STRONG_MATCH`/
-    `WORTH_TRYING`/`ALTERNATIVE_DIRECTION` label is gone, and with it the
-    `index` parameter — `_label`/`result_tier` no longer take one at all,
-    which is what makes "never position-based" (spec) a fact about the
-    function's signature, not merely its current behaviour.
+    Rewritten twice now. First for the (then-new) commerce result tiers
+    (`STRONG_FIT`/`GOOD_FIT`/`PARTIAL_FIT`/`EXPLORATORY_PICK`, spec §16,
+    `commerce-audit.md` §7), replacing the old four-value, rank-coupled
+    `BEST_MATCH`/`STRONG_MATCH`/`WORTH_TRYING`/`ALTERNATIVE_DIRECTION`
+    label along with its `index` parameter. Rewritten again for the
+    catalog-first spec's two-axis label set (`BEST_OVERALL_FIT`/
+    `STRONG_PROFILE_FIT`/`COMMUNITY_FAVORITE`/`WORTH_DISCOVERING`) — see
+    `commerce_card.result_tier`'s current docstring for the exact rule.
+    `_label`/`result_tier` still take no `index`/rank parameter at all,
+    across both rewrites, which is what makes "never position-based"
+    (spec) a fact about the function's signature, not merely its current
+    behaviour.
     """
 
     def _strong(self, people=8, creators=4, videos=3, kind="prefer"):
@@ -684,49 +689,56 @@ class TestLabelDerivation:
             kind=kind, text="rose", strength=Strength.OBSERVED, people=1, creators=1,
         )
 
-    def test_two_moderate_matched_dimensions_is_strong_fit(self):
+    def test_two_moderate_matched_dimensions_is_community_favorite(self):
+        """The old `STRONG_FIT` bar, reached on community evidence alone
+        (no `catalog_fit` reason anywhere) — now `COMMUNITY_FAVORITE`,
+        not `BEST_OVERALL_FIT`, since only one of the two axes is strong."""
         from fragrance_graph.api import _label
 
         candidate = Recommendation(
             1, "X", reasons=[self._moderate(), self._strong()]
         )
-        assert _label(candidate) == "STRONG_FIT"
+        assert _label(candidate) == "COMMUNITY_FAVORITE"
 
-    def test_one_strong_matched_dimension_is_good_fit_not_strong(self):
-        """A single matched dimension never earns `STRONG_FIT`, however
-        well-evidenced — the spec's own "#1 can be a Good Fit" (§16):
-        `STRONG_FIT` requires *two or more* answered request dimensions,
-        not one very confident one."""
+    def test_one_strong_matched_dimension_is_worth_discovering(self):
+        """A single matched dimension never earns `COMMUNITY_FAVORITE`,
+        however well-evidenced: the community axis requires *two or
+        more* answered request dimensions, the identical bar the old
+        `STRONG_FIT` used, not one very confident one. With no second
+        axis strong either, this is the new bottom rung."""
         from fragrance_graph.api import _label
 
         candidate = Recommendation(1, "X", reasons=[self._strong()])
-        assert _label(candidate) == "GOOD_FIT"
+        assert _label(candidate) == "WORTH_DISCOVERING"
 
-    def test_two_single_source_matched_dimensions_is_good_fit(self):
+    def test_two_single_source_matched_dimensions_is_worth_discovering(self):
         from fragrance_graph.api import _label
 
         candidate = Recommendation(
             1, "X", reasons=[self._single_source(), self._single_source(kind="concept")]
         )
-        assert _label(candidate) == "GOOD_FIT"
+        assert _label(candidate) == "WORTH_DISCOVERING"
 
-    def test_one_single_source_matched_dimension_is_partial_fit(self):
+    def test_one_single_source_matched_dimension_is_worth_discovering(self):
         """A `SINGLE_SOURCE` match is real evidence the request was
-        answered — never rejected, never `EXPLORATORY_PICK` — just not
-        enough to call more than partial. Independence is not a gate on
-        eligibility for a tier at all (`commerce-audit.md` §1/§4)."""
+        answered — never rejected — just not enough to call more than
+        `WORTH_DISCOVERING`. Independence is not a gate on eligibility
+        for a tier at all (`commerce-audit.md` §1/§4)."""
         from fragrance_graph.api import _label
 
         candidate = Recommendation(1, "X", reasons=[self._single_source()])
-        assert _label(candidate) == "PARTIAL_FIT"
+        assert _label(candidate) == "WORTH_DISCOVERING"
 
-    def test_only_graph_or_semantic_reasons_is_exploratory_pick(self):
+    def test_only_graph_or_semantic_reasons_is_worth_discovering(self):
+        """No `FIT_SIGNAL` on either axis at all — the old bottom rung
+        (`EXPLORATORY_PICK`, only graph/semantic proximity) folds into
+        the new catch-all `WORTH_DISCOVERING`."""
         from fragrance_graph.api import _label
 
         candidate = Recommendation(
             1, "X", reasons=[self._strong(kind="graph")]
         )
-        assert _label(candidate) == "EXPLORATORY_PICK"
+        assert _label(candidate) == "WORTH_DISCOVERING"
 
     def test_caveats_never_influence_the_label(self):
         from fragrance_graph.api import _label
@@ -736,7 +748,26 @@ class TestLabelDerivation:
             reasons=[self._strong(kind="graph")],
             caveats=[self._strong(kind="avoid")],
         )
-        assert _label(candidate) == "EXPLORATORY_PICK"
+        assert _label(candidate) == "WORTH_DISCOVERING"
+
+    def test_two_catalog_fit_reasons_is_strong_profile_fit(self):
+        """The catalog axis's own analogue of `COMMUNITY_FAVORITE` — real
+        catalog-derived fit (`kind="catalog_fit"`, zero people/creators
+        by design), with no strong community evidence at all. This is
+        the exact shape the catalog-first spec's failure case exists to
+        make reachable: a bottle with zero comments must still be able
+        to earn a real label."""
+        from fragrance_graph.api import _label
+        from fragrance_graph.evidence import Strength
+
+        candidate = Recommendation(
+            1, "X",
+            reasons=[
+                Reason(kind="catalog_fit", text="a", strength=Strength.CANONICAL),
+                Reason(kind="catalog_fit", text="b", strength=Strength.CANONICAL),
+            ],
+        )
+        assert _label(candidate) == "STRONG_PROFILE_FIT"
 
     def test_label_takes_no_rank_parameter(self):
         """Structural, not behavioural: the old label needed `index` to
