@@ -47,19 +47,22 @@ something to get started" belongs in the UI, not this layer.
 
 `results`/`queue` are already ordered by `recommend_plan`'s own
 stage-based score — the single ranking this codebase computes. `label`
-(see `_label`, which now delegates to `commerce_card.result_tier` — spec
-§16, `commerce-audit.md` §7) answers a different question: how
-well-evidenced is *this* one candidate's fit, considered on its own,
-never its rank. The two do not have to agree, and forcing them to would
-mean quietly re-deriving a second ranking out of `label` and trusting it
-over the engine's — exactly the kind of second scoring path this whole
-layer exists to avoid. A `STRONG_FIT` ranking below several `GOOD_FIT`/
-`EXPLORATORY_PICK` entries is expected, not a bug — the engine may have
-ranked those higher on graph or semantic proximity, which `label` does
-not weigh at all — and the reverse (a `#1` result that is only a
-`GOOD_FIT`) is equally expected: `result_tier` takes no rank parameter at
-all, which is what makes this structural rather than a convention. A UI
-renders `label` as a badge and list order as order.
+(see `_label`, which now delegates to `commerce_card.result_tier` —
+catalog-first spec, formerly spec §16/`commerce-audit.md` §7) answers a
+different question: how well-evidenced is *this* one candidate's fit,
+considered on its own, never its rank, and — since the catalog-first
+rewrite — on which of TWO axes (catalog vs community; see
+`result_tier`'s own docstring) rather than one. The two never have to
+agree with rank, and forcing them to would mean quietly re-deriving a
+second ranking out of `label` and trusting it over the engine's —
+exactly the kind of second scoring path this whole layer exists to
+avoid. A `BEST_OVERALL_FIT` ranking below several `STRONG_PROFILE_FIT`/
+`COMMUNITY_FAVORITE` entries is expected, not a bug — the engine may
+have ranked those higher on graph or semantic proximity, which `label`
+does not weigh at all — and the reverse (a `#1` result that is only
+`STRONG_PROFILE_FIT`) is equally expected: `result_tier` takes no rank
+parameter at all, which is what makes this structural rather than a
+convention. A UI renders `label` as a badge and list order as order.
 
 ## Why sessions are event-sourced
 
@@ -302,15 +305,15 @@ def _reason_jsons(reasons: list[Reason]) -> list[dict]:
 
 
 def _label(candidate: Recommendation) -> str:
-    """STRONG_FIT / GOOD_FIT / PARTIAL_FIT / EXPLORATORY_PICK — delegates
-    to `commerce_card.result_tier`, which is now the one place this rule
-    lives (see that function's docstring for the exact thresholds and
-    rationale). Kept as a thin wrapper, rather than inlined at each call
-    site, only so existing imports of `fragrance_graph.api._label` keep
-    working; every call site has already dropped the old `index`
-    parameter — the whole point of the rewrite (spec §16) is that no rank
-    can enter this decision at all, so there is no parameter here for one
-    to sneak back in through.
+    """BEST_OVERALL_FIT / STRONG_PROFILE_FIT / COMMUNITY_FAVORITE /
+    WORTH_DISCOVERING — delegates to `commerce_card.result_tier`, which
+    is the one place this rule lives (see that function's docstring for
+    the exact two-axis thresholds and rationale). Kept as a thin wrapper,
+    rather than inlined at each call site, only so existing imports of
+    `fragrance_graph.api._label` keep working; every call site has
+    already dropped the old `index` parameter — no rank can enter this
+    decision at all, so there is no parameter here for one to sneak back
+    in through.
     """
     return result_tier(candidate)
 
@@ -1371,6 +1374,10 @@ def audited_probe_text(conn: psycopg.Connection) -> str:
         for card in commerce["cards"]:
             lines += card["fit_signals"]
             lines += card["relevant_tradeoffs"]
+            # `community_coverage` (catalog-first spec) is the one other
+            # customer-visible sentence `build_card` composes beyond the
+            # two lists above — swept here for the same reason those are.
+            lines.append(card["community_coverage"])
     return "\n".join(lines)
 
 

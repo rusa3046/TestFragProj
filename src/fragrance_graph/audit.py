@@ -211,6 +211,31 @@ def _check_reason(report: AuditReport, surface: str, reason: Reason) -> None:
             )
         )
 
+    if reason.kind in ("catalog_fit", "catalog_avoid"):
+        _check_derived_voice(report, surface, sentence)
+
+
+#: Words that would make the CATALOG-DERIVED voice
+#: (`catalog_profile.DerivedWording`) read as the COMMUNITY voice
+#: instead — see `catalog_profile.py`'s module docstring, "the third
+#: provenance voice." A catalog-derived sentence is about the declared
+#: note list read through a curated family/occasion mapping; it must
+#: never claim a person said or wore anything.
+COMMUNITY_CLAIM_WORDS = ("wearers", "people")
+
+
+def _check_derived_voice(report: AuditReport, surface: str, text: str) -> None:
+    lowered = text.lower()
+    for word in COMMUNITY_CLAIM_WORDS:
+        if word in lowered:
+            report.violations.append(
+                Violation(
+                    surface,
+                    "derived voice claims a perception",
+                    f"{word!r} in catalog-derived sentence {text!r}",
+                )
+            )
+
 
 #: Queries chosen to reach every surface, not to look good. Each exists to
 #: exercise a specific path: an anchor comparative, a hard constraint on
@@ -518,12 +543,22 @@ def _audit_commerce(conn: psycopg.Connection, report: AuditReport) -> None:
        that test for why baking adversarial input into `main()`'s own exit
        code would make the gate permanently red rather than provably
        working.
+       Extended by the same shape for `catalog_profile.DerivedWording`
+       (the third, CATALOG-DERIVED voice) — its own templates, called
+       directly, checked for FORBIDDEN/INTERNAL_TERMS exactly like
+       `TierWording`'s AND for the one rule that voice alone must hold:
+       never "wearers," never "people" (`_check_derived_voice`) — a
+       catalog fact must never read as a thing a person said.
     2. **Real** — every `PROBES` query's actual headline and every
        returned candidate's actual `fit_signals`/`relevant_tradeoffs`,
        exactly as a real customer response would render them — the same
        "exercised against the real corpus" discipline every other surface
-       in this module holds to.
+       in this module holds to. `catalog_fit`/`catalog_avoid` reasons
+       reached through a real candidate's `reasons`/`caveats` are already
+       covered by `_check_reason`'s own `_check_derived_voice` call, in
+       `audit()`'s main loop above — not repeated here.
     """
+    from fragrance_graph.catalog_profile import DerivedWording
     from fragrance_graph.commerce_card import TierWording, build_card, headline
 
     surface = "commerce card"
@@ -531,6 +566,10 @@ def _audit_commerce(conn: psycopg.Connection, report: AuditReport) -> None:
     def check(text: str) -> None:
         report.checked[surface] = report.checked.get(surface, 0) + 1
         _check_commerce_text(report, surface, text)
+
+    def check_derived(text: str) -> None:
+        check(text)
+        _check_derived_voice(report, surface, text)
 
     benign = "feminine"
     # Every confidence-tier ladder this module writes — note/vibe
@@ -553,6 +592,17 @@ def _audit_commerce(conn: psycopg.Connection, report: AuditReport) -> None:
         check(template(benign))
     check(TierWording.headline_with_results([benign], [benign]))
     check(TierWording.headline_no_results([benign]))
+    check(TierWording.community_coverage_moderate())
+    check(TierWording.community_coverage_limited())
+
+    # The CATALOG-DERIVED voice's own templates — `check_derived`, not
+    # `check`, so every one of these is also proven to never say
+    # "wearers"/"people", the one rule unique to this voice.
+    check_derived(DerivedWording.note_present(benign))
+    check_derived(DerivedWording.note_absent(benign))
+    check_derived(DerivedWording.family_present(benign))
+    check_derived(DerivedWording.family_absent(benign))
+    check_derived(DerivedWording.occasion_fit("summer", [benign, "citrus"]))
 
     for _, query in PROBES:
         answer = recommend(conn, query)
@@ -561,6 +611,7 @@ def _audit_commerce(conn: psycopg.Connection, report: AuditReport) -> None:
             card = build_card(candidate)
             for sentence in card.fit_signals + card.relevant_tradeoffs:
                 check(sentence)
+            check(card.community_coverage)
 
 
 def main(argv: list[str] | None = None) -> int:

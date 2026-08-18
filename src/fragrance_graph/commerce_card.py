@@ -85,6 +85,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from fragrance_graph.evidence import SENTIMENT_AXES, ConfidenceTier, Support, tier_of
+from fragrance_graph.gate import MIN_SOURCES
 from fragrance_graph.plan import Direction, QueryPlan
 from fragrance_graph.recommend import Reason, Recommendation, _join_and
 
@@ -95,7 +96,17 @@ from fragrance_graph.recommend import Reason, Recommendation, _join_and
 #: its own copy; it now imports this one, so the two can never drift about
 #: which kinds count as "answered the request."
 POSITIVE_MATCH_KINDS = frozenset(
-    {"constraint", "prefer", "concept", "comparative", "declared_overlap"}
+    {
+        "constraint", "prefer", "concept", "comparative", "declared_overlap",
+        # `catalog_fit` (`recommend._catalog_signal`/`_catalog_occasion_
+        # signal`): the T2 CATALOG-DERIVED positive signal (a declared
+        # note absent for an avoider, a family/occasion tendency match) —
+        # answers a requested dimension exactly as `prefer`/`constraint`
+        # do, on catalog rather than community evidence. See
+        # `result_tier`'s docstring for why it is graded on its own axis
+        # rather than folded into the community count.
+        "catalog_fit",
+    }
 )
 
 #: `fit_signals`/`relevant_tradeoffs` caps — spec §17-27: "3-5 fit signals,
@@ -304,6 +315,31 @@ class TierWording:
             lead += f"{joiner} {_join_and(deprioritized)} evidence"
         return lead + "."
 
+    # --- community-coverage chrome (catalog-first spec) — a small,
+    # always-present line distinct from any fit signal or tradeoff: "how
+    # much wearer evidence stands behind this card at all," independent
+    # of whether that evidence happened to match anything asked for.
+    # Fixed strings keyed only off `evidence.ConfidenceTier`, audited like
+    # every other customer sentence in this class. Exists because, once a
+    # card can carry zero community reasons at all (a T2 catalog-only
+    # candidate), the L1 surface needs an honest, non-alarming way to say
+    # "here is what wearers have said, if anything" without inventing a
+    # sentence out of an empty list. ------------------------------------
+
+    @staticmethod
+    def community_coverage_moderate() -> str:
+        return "Community evidence: moderate"
+
+    @staticmethod
+    def community_coverage_limited() -> str:
+        # Deliberately the one wording for LIMITED, SINGLE_SOURCE, and
+        # UNKNOWN (zero community reasons) alike — the same three-tiers-
+        # collapse-to-one-cautious-phrase shape `tradeoff_limited`
+        # already uses, and for the same reason: a shopper has no use for
+        # the difference between "one remark" and "nothing at all" here,
+        # only for "not much to go on yet."
+        return "Community insight: limited so far"
+
     @staticmethod
     def headline_no_results(hard_constraints: list[str]) -> str:
         """Spec §35: only hard-constraint exhaustion is a true empty
@@ -371,6 +407,29 @@ def _reason_tier(reason: Reason) -> ConfidenceTier:
                             videos=reason.videos))
 
 
+def community_coverage_text(candidate: Recommendation) -> str:
+    """The card's community-coverage chrome line — `TierWording.
+    community_coverage_*`, graded from the candidate's own overall
+    `people`/`creators` (`Recommendation.people`/`.creators`, already the
+    max across every reason/caveat `recommend._score` produced — the
+    same counts the card's own "N people across M channels" line uses).
+    Never reads a single reason's tier: this is a whole-card summary,
+    not a per-fact one.
+
+    Two tiers, not `ConfidenceTier`'s four: `Recommendation` carries no
+    whole-candidate video count for `STRONG`'s multi-video requirement to
+    read (only individual `Reason`s do), and a shopper-facing coverage
+    line has no use for `LIMITED`/`SINGLE_SOURCE`/`UNKNOWN` as three
+    different sentences — the same "several tiers collapse to one
+    cautious phrase" shape `TierWording.tradeoff_limited` already uses.
+    `creators >= gate.MIN_SOURCES` (independent corroboration — the same
+    bar `ConfidenceTier.MODERATE` reads) is what separates the two.
+    """
+    if candidate.creators >= MIN_SOURCES and candidate.people >= 2:
+        return TierWording.community_coverage_moderate()
+    return TierWording.community_coverage_limited()
+
+
 #: `_fact_reason` (`recommend.py`) writes a sentiment-axis reason's `text`
 #: as `"{attribute} {value}"` — "projection strong", "longevity long
 #: lasting" — which reads fine as the tail of an engineering sentence
@@ -417,11 +476,20 @@ def fit_signal_text(reason: Reason) -> str:
     "consistently"/"several" branch here that could overclaim a contested
     fact; see `build_card` and `mixed_text` for where a contested reason's
     text actually comes from.
+
+    `catalog_fit` (catalog-first spec) is a third case alongside
+    `constraint`/`declared_overlap`: its `text` is already a fully-
+    composed `catalog_profile.DerivedWording` sentence carrying zero
+    people by design (a catalog fact, not a headcount) — routing it
+    through `_tier_sentence` would grade an ungraded fact `UNKNOWN` ->
+    `SINGLE_SOURCE` and print "One commenter said it is ..." for
+    something no commenter said anything about.
     """
-    subject = _subject(reason)
     if reason.kind in ("constraint", "declared_overlap"):
-        return TierWording.preference_matched(subject)
-    return _tier_sentence(_reason_tier(reason), subject, _attribute_type(reason))
+        return TierWording.preference_matched(_subject(reason))
+    if reason.kind == "catalog_fit":
+        return reason.text
+    return _tier_sentence(_reason_tier(reason), _subject(reason), _attribute_type(reason))
 
 
 def _topic_for_mixed(reason: Reason) -> str:
@@ -456,7 +524,16 @@ def tradeoff_text(reason: Reason) -> str:
     `MODERATE` get their own wording; `LIMITED` and `SINGLE_SOURCE`
     collapse into one cautious phrase — see `TierWording.tradeoff_limited`
     for why. Never called on a `DISAGREEMENT` item — those use
-    `mixed_text` instead, via `build_card`'s dispatch."""
+    `mixed_text` instead, via `build_card`'s dispatch.
+
+    `catalog_avoid` (catalog-first spec) bypasses the tier ladder
+    entirely, for the identical reason `fit_signal_text`'s `catalog_fit`
+    branch does: its `text` is already the complete, audited
+    `DerivedWording` sentence ("Vanilla is among the declared notes."),
+    carrying no people/creators for a tier to grade.
+    """
+    if reason.kind == "catalog_avoid":
+        return reason.text
     subject = _subject(reason)
     tier = _reason_tier(reason)
     if tier is ConfidenceTier.STRONG:
@@ -501,6 +578,11 @@ class Card:
     matched: list[str]
     uncertain: list[str]
     contradicted: list[str]
+    #: The community-coverage chrome line (catalog-first spec) —
+    #: `community_coverage_text`'s output, always present (never empty):
+    #: even a T2 catalog-only candidate with zero community reasons gets
+    #: an honest "limited so far" rather than no line at all.
+    community_coverage: str = ""
 
 
 def _has_contested_want(candidate: Recommendation) -> bool:
@@ -524,64 +606,106 @@ def _has_contradicted_avoid(candidate: Recommendation) -> bool:
     `recommend._score`'s Stage 3 (a soft avoid) or the anchor-profile
     fallback, and only when the candidate's own evidence supports the
     avoided value; see `result_tier`'s F5 rule for why this caps the top
-    tier rather than only showing up as a tradeoff line."""
-    return any(c.kind == "avoid" for c in candidate.caveats)
+    tier rather than only showing up as a tradeoff line.
+
+    `kind == "catalog_avoid"` (`recommend._catalog_signal`) is the
+    identical shape on catalog evidence instead of community evidence —
+    an avoided note the OFFICIAL list declares, or an avoided family the
+    declared profile leans toward — and caps the same way: a candidate
+    whose declared list carries the very thing asked to avoid has a real
+    problem, whether a comment said so or the brand's own listing did.
+    """
+    return any(c.kind in ("avoid", "catalog_avoid") for c in candidate.caveats)
 
 
 def result_tier(candidate: Recommendation) -> str:
-    """STRONG_FIT / GOOD_FIT / PARTIAL_FIT / EXPLORATORY_PICK — replaces
-    `api._label`'s old four-value, rank-coupled label (spec §16, audit
-    Q7). Computed *only* from the count and confidence tier of this
-    candidate's own `FIT_SIGNAL` reasons, plus whether anything on the
-    card contradicts what was explicitly asked for: no `index`/rank
-    parameter exists for this function to take, which is what makes
-    "never position-based" a structural fact rather than a convention a
-    future edit could break.
+    """BEST_OVERALL_FIT / STRONG_PROFILE_FIT / COMMUNITY_FAVORITE /
+    WORTH_DISCOVERING — replaces the single-axis `STRONG_FIT`/`GOOD_FIT`/
+    `PARTIAL_FIT`/`EXPLORATORY_PICK` label (spec §16's predecessor) with
+    one built from TWO separately-graded axes, per the catalog-first
+    spec: how well the CATALOG (declared notes + the curated family/
+    occasion mapping — `kind="catalog_fit"` reasons, never community
+    evidence) answers the request, and how well the COMMUNITY (every
+    other `FIT_SIGNAL` reason kind) does. The two are never averaged or
+    summed into one number — a candidate can be excellent on one axis and
+    silent on the other, and the label says which. No `index`/rank
+    parameter exists for this function to take, exactly as before:
+    "never position-based" stays a fact about the signature, not a
+    convention.
 
     The rule, stated once so a test can pin it precisely:
 
-    - **STRONG_FIT** — at least two matched request dimensions, the best
-      of them at least `MODERATE` confidence, **and** neither a
-      contradicted explicit preference (`_has_contradicted_avoid`) nor a
-      `CONTESTED`/mixed want-dimension (`_has_contested_want`) anywhere on
-      the card. A candidate whose "strong projection" evidence is
-      genuinely disputed, or whose avoided note the evidence says it has
-      anyway, has a real, shopper-relevant problem — `STRONG_FIT` would
-      overclaim it regardless of how good everything else on the card
-      looks (spec's fix-round F5). Independence still gates the *stronger*
-      CLAIM language inside each sentence via `TierWording`, never
-      whether this tier can be reached at all.
-    - **GOOD_FIT** — either two-or-more matched dimensions on thinner
-      evidence, or one matched dimension at `MODERATE`-or-better
-      confidence — **or** a card that would otherwise qualify for
-      `STRONG_FIT` but is capped here by a contradicted preference or a
-      contested want. A #1-ranked result that only clears this bar is
-      genuinely a `GOOD_FIT`, not a forced `STRONG_FIT` — see the spec's
-      "#1 can be a Good Fit."
-    - **PARTIAL_FIT** — at least one matched dimension, any confidence
-      down to a single commenter. A `SINGLE_SOURCE` match is real evidence
-      the request was answered; it is just not enough to call it more than
-      partial.
-    - **EXPLORATORY_PICK** — no reason directly answers anything the plan
-      asked for (only anchor proximity / retrieval got this candidate
-      here) — the honest "different direction to consider" the previous
-      `ALTERNATIVE_DIRECTION` label already named; kept as the bottom tier
-      under new wording.
+    - **catalog axis** — `strong` when the candidate carries two-or-more
+      `catalog_fit` `FIT_SIGNAL` reasons (a declared-note or family/
+      occasion match is a binary catalog fact, never confidence-graded
+      by a headcount, so "strong" here means *several independent
+      catalog dimensions answered*, the direct analogue of the community
+      axis's own two-or-more bar).
+    - **community axis** — `strong` under the *identical* bar the old
+      `STRONG_FIT` used: two-or-more non-catalog `FIT_SIGNAL` reasons,
+      the best of them at least `MODERATE` confidence.
+    - **BEST_OVERALL_FIT** — both axes `strong`, and nothing capped (see
+      below). Requires real confirmation from both L1 catalog data and
+      L2 community evidence at once — the top of the label set for
+      exactly the reason the spec's example target bottle (declared
+      profile fits, zero comments) is `STRONG_PROFILE_FIT`, not this.
+    - **STRONG_PROFILE_FIT** — catalog axis `strong`, community axis not.
+      The label a T2 catalog-only candidate with real declared-note fit
+      and zero (or thin) community evidence reaches — the exact shape
+      the catalog-first spec's failure case exists to make possible: "a
+      bottle with zero community claims but strong profile fit MUST be
+      able to reach the spray queue."
+    - **COMMUNITY_FAVORITE** — community axis `strong`, catalog axis not
+      — a candidate real wearer evidence backs strongly, whatever (or
+      however little) the declared list itself suggests.
+    - **WORTH_DISCOVERING** — everything else that still has at least one
+      `FIT_SIGNAL` on some axis, plus the honest "nothing directly
+      answered the request" case (only graph/semantic proximity got this
+      candidate here — the old `EXPLORATORY_PICK`) and every one-match/
+      thin-evidence case that used to be `GOOD_FIT`/`PARTIAL_FIT`. The
+      catch-all bottom rung under the new, coarser two-axis system —
+      "good profile match, limited data" per the spec's own description,
+      which covers both "limited catalog signal" and "limited community
+      signal" honestly rather than pretending a single weak match is a
+      confirmed fit on either axis.
+
+    **Caps** (unchanged in shape from the §16-era rule, just carried onto
+    the new top label): a contradicted explicit avoid
+    (`_has_contradicted_avoid` — now also catching `catalog_avoid`
+    caveats, a declared-present note or family the request asked to
+    avoid) or a `CONTESTED`/mixed want-dimension (`_has_contested_want`)
+    pulls a candidate that would otherwise be `BEST_OVERALL_FIT` down one
+    step to `STRONG_PROFILE_FIT` — never all the way to the bottom rung.
+    When both axes are strong the catalog axis is the one kept
+    (a fixed, documented tie-break, not a per-cause judgement of which
+    axis the contradiction actually came from): a `STRONG_PROFILE_FIT`
+    label never overclaims either way, since a catalog-strong candidate
+    really is one whatever the community evidence turns out to say.
     """
-    positive = [
+    catalog_positive = [
         r for r in candidate.reasons
-        if classify(r, in_caveats=False) is EvidenceClass.FIT_SIGNAL
+        if r.kind == "catalog_fit"
+        and classify(r, in_caveats=False) is EvidenceClass.FIT_SIGNAL
     ]
-    if not positive:
-        return "EXPLORATORY_PICK"
-    best = max(_reason_tier(r) for r in positive)
-    count = len(positive)
+    community_positive = [
+        r for r in candidate.reasons
+        if r.kind != "catalog_fit"
+        and classify(r, in_caveats=False) is EvidenceClass.FIT_SIGNAL
+    ]
+    strong_catalog = len(catalog_positive) >= 2
+    strong_community = bool(community_positive) and (
+        len(community_positive) >= 2
+        and max(_reason_tier(r) for r in community_positive) >= ConfidenceTier.MODERATE
+    )
     capped = _has_contradicted_avoid(candidate) or _has_contested_want(candidate)
-    if count >= 2 and best >= ConfidenceTier.MODERATE and not capped:
-        return "STRONG_FIT"
-    if count >= 2 or best >= ConfidenceTier.MODERATE:
-        return "GOOD_FIT"
-    return "PARTIAL_FIT"
+
+    if strong_catalog and strong_community:
+        return "STRONG_PROFILE_FIT" if capped else "BEST_OVERALL_FIT"
+    if strong_catalog:
+        return "STRONG_PROFILE_FIT"
+    if strong_community:
+        return "COMMUNITY_FAVORITE"
+    return "WORTH_DISCOVERING"
 
 
 def build_card(
@@ -681,6 +805,7 @@ def build_card(
         matched=matched,
         uncertain=uncertain,
         contradicted=contradicted,
+        community_coverage=community_coverage_text(candidate),
     )
 
 

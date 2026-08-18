@@ -52,6 +52,18 @@ from dataclasses import dataclass, field
 
 import psycopg
 
+from fragrance_graph.catalog_profile import (
+    CatalogProfile,
+    DerivedWording,
+    NoteStatus,
+    Tendency,
+    load_occasion_priors,
+    note_status,
+    occasion_prior,
+)
+from fragrance_graph.catalog_profile import (
+    catalog_profile as build_catalog_profiles,
+)
 from fragrance_graph.evidence import (
     AttributeFact,
     Attribution,
@@ -158,7 +170,16 @@ class Reason:
         never sees a `Strength`; they see "8 people across 4 channels say"
         or "one commenter said", and those must not be interchangeable.
         """
-        if self.kind in ("graph", "semantic", "absence", "declared_overlap"):
+        if self.kind in (
+            "graph", "semantic", "absence", "declared_overlap",
+            # `catalog_fit`/`catalog_avoid` are the T2 catalog-derived
+            # reasons/caveats (`_catalog_signal`/`_catalog_occasion_signal`)
+            # -- their text is already a fully-composed
+            # `catalog_profile.DerivedWording` sentence, carrying zero
+            # people by design (a catalog fact is not a headcount), for
+            # the identical reason `declared_overlap` is in this branch.
+            "catalog_fit", "catalog_avoid",
+        ):
             # `declared_overlap`'s text is already fully composed by
             # `_declared_overlap_text` -- "official notes share iris and
             # musk with X" -- and returned verbatim for the same reason
@@ -660,13 +681,29 @@ def recommend_plan(
     }
     neighbours = _anchor_neighbours(conn, plan)
 
+    # T1/T2 (catalog-first spec): every catalogue bottle's declared-note
+    # profile, and the subset a pure catalog read of this plan calls
+    # plausible. Computed unconditionally (cheap: one grouped query over
+    # `fragrance_note_claim`, no per-bottle round trip) so `_score` can
+    # consult a candidate's profile whether or not that candidate reached
+    # `considered` through the catalog path or a community one.
+    profiles = build_catalog_profiles(conn)
+    axis_names = frozenset(load_note_axes(conn))
+    occasion_priors_table = load_occasion_priors()
+    catalog_plausible = _catalog_candidates(
+        profiles, plan, axis_names, occasion_priors_table,
+        {plan.anchor_id} if plan.anchor_id is not None else set(),
+    )
+
     candidates: list[Recommendation] = []
     rejected_by_hard = 0
     # A bottle the comparison graph connects to the anchor is a candidate
     # even when nobody has described it, because that connection is itself
     # the best-evidenced thing in the corpus. Iterating only over bottles
-    # with attribute facts dropped them entirely.
-    considered = set(grouped) | set(neighbours) | set(semantic)
+    # with attribute facts dropped them entirely. `catalog_plausible` is
+    # the T2 fix: without it, candidacy required a comment, whatever the
+    # catalogue actually held — see `_catalog_candidates`'s docstring.
+    considered = set(grouped) | set(neighbours) | set(semantic) | catalog_plausible
     for frag_id in considered:
         facts = grouped.get(frag_id, [])
         if frag_id == plan.anchor_id:
@@ -675,11 +712,13 @@ def recommend_plan(
             len(facts) < MIN_FACTS_TO_RECOMMEND
             and frag_id not in neighbours
             and frag_id not in semantic
+            and frag_id not in catalog_plausible
         ):
             continue
         result = _score(
             frag_id, names.get(frag_id, "?"), facts, plan, neighbours,
             semantic.get(frag_id), grouped.get(plan.anchor_id or -1, []),
+            profiles.get(frag_id), axis_names, occasion_priors_table,
         )
         if result is None:
             rejected_by_hard += 1
@@ -845,6 +884,203 @@ def _semantic_candidates(conn: psycopg.Connection, plan: QueryPlan) -> dict:
     return found
 
 
+#: --- T2: catalog-profile relevance (catalog-first spec) ----------------
+#:
+#: Before this, `recommend_plan`'s candidate pool (`considered`, below)
+#: was built entirely from community evidence: `grouped` (attribute
+#: claims), `neighbours` (the comparison graph), `semantic` (vector
+#: retrieval). A 547-bottle catalogue with community claims on a few
+#: dozen of them meant candidacy itself required a comment — the proven
+#: defect ("less sweet + less vanilla + summer" -> 2 results out of 547).
+#: `_catalog_candidates` is T2: it reads ONLY `catalog_profile.py`'s L1
+#: data (declared notes, family tendencies, occasion priors) against the
+#: plan's soft preferences, with no comment in scope at all, and returns
+#: every catalogue bottle the catalog alone finds plausible — capped, so
+#: "plausible" does not silently become "everything." `_score` (T3) then
+#: runs on the union of this set and the community sets exactly as it
+#: always ran on the community sets alone: nothing about the STAGE
+#: structure changes, only what is allowed to reach it.
+
+#: Top-N by catalog relevance let into `considered`. Sensible rather than
+#: tuned: a handful of catalog-matched dimensions on a 547-bottle
+#: catalogue routinely leaves more than this many bottles tied at the
+#: same hit count, and this is what keeps "plausible" from being "every
+#: bottle that matches at least one preference" on a broad request —
+#: `_score`'s own staged ranking (real evidence, family/occasion matches,
+#: independence) still decides final order and `limit` within whatever
+#: this admits.
+CATALOG_CANDIDATE_CAP = 40
+
+
+def _catalog_signal(
+    profile: CatalogProfile | None,
+    preference: Preference,
+    axis_names: frozenset[str],
+) -> tuple[str, Reason] | None:
+    """The T2/T3 catalog-derived reason or caveat for one note/vibe
+    preference the COMMUNITY evidence is silent on — only ever consulted
+    by `_score` when `_preference_fact` already returned `None` for this
+    (candidate, preference) pair, so a person's actual claim always
+    outranks what the catalog says (see `catalog_profile.note_status`'s
+    docstring). Returns `("penalty", reason)` for a caveat, `("positive",
+    reason)` for a reason, or `None` when the catalog itself has nothing
+    to say — `NO_CATALOG_DATA`, a `MEDIUM` family tendency (deliberately
+    silent rather than a weak claim either way), or a wanted-but-absent
+    dimension (absence is not evidence the request is unanswered, only
+    that the catalog cannot confirm it — the identical MISSING DATA rule
+    every community path already holds to).
+
+    Two shapes, dispatched on whether `preference.value` names a curated
+    FAMILY (`axis_names`, `notes.load_note_axes`'s keys — "sweet",
+    "citrus", ...) or a literal NOTE ("vanilla"): a family question is
+    answered by `CatalogProfile.tendencies`, a note question by
+    `catalog_profile.note_status`. The two are genuinely different
+    claims — "isn't sweet-leaning" is a curated-mapping read of several
+    notes at once, "vanilla isn't declared" is one literal fact — and
+    `DerivedWording` keeps them in separate sentences for exactly that
+    reason.
+    """
+    if preference.attribute not in ("note", "vibe") or profile is None:
+        return None
+    value = preference.value
+    wants_less = preference.direction in (Direction.LOW, Direction.LESS_THAN_ANCHOR)
+    wants_more = preference.direction in (Direction.HIGH, Direction.MORE_THAN_ANCHOR)
+    if not wants_less and not wants_more:
+        return None
+
+    if value in axis_names:
+        tendency = profile.tendencies.get(value, Tendency.LOW)
+        if tendency is Tendency.MEDIUM:
+            return None
+        if wants_less:
+            if tendency is Tendency.HIGH:
+                return "penalty", Reason(
+                    kind="catalog_avoid",
+                    text=DerivedWording.family_present(value),
+                    strength=Strength.CANONICAL,
+                    attribute=preference.attribute,
+                )
+            if tendency is Tendency.LOW and profile.has_catalog_data:
+                return "positive", Reason(
+                    kind="catalog_fit",
+                    text=DerivedWording.family_absent(value),
+                    strength=Strength.CANONICAL,
+                    attribute=preference.attribute,
+                )
+            return None
+        # wants_more
+        if tendency is Tendency.HIGH:
+            return "positive", Reason(
+                kind="catalog_fit",
+                text=DerivedWording.family_present(value),
+                strength=Strength.CANONICAL,
+                attribute=preference.attribute,
+            )
+        return None
+
+    # A literal note, not a family: the note status ladder.
+    # `community_present` is always False here -- this function is only
+    # ever called once `_preference_fact` has already established that no
+    # community fact answers this preference for this candidate.
+    status = note_status(profile, value)
+    if wants_less:
+        if status is NoteStatus.DECLARED_PRESENT:
+            return "penalty", Reason(
+                kind="catalog_avoid",
+                text=DerivedWording.note_present(value),
+                strength=Strength.CANONICAL,
+                attribute=preference.attribute,
+            )
+        if status is NoteStatus.NOT_DECLARED:
+            return "positive", Reason(
+                kind="catalog_fit",
+                text=DerivedWording.note_absent(value),
+                strength=Strength.CANONICAL,
+                attribute=preference.attribute,
+            )
+        return None  # NO_CATALOG_DATA: truly unknown, no credit, no penalty
+    # wants_more
+    if status is NoteStatus.DECLARED_PRESENT:
+        return "positive", Reason(
+            kind="catalog_fit",
+            text=DerivedWording.note_present(value),
+            strength=Strength.CANONICAL,
+            attribute=preference.attribute,
+        )
+    return None
+
+
+def _catalog_occasion_signal(
+    profile: CatalogProfile | None,
+    preference: Preference,
+    priors: dict[str, dict],
+) -> Reason | None:
+    """The T2/T3 catalog-derived occasion reason, or `None` — the
+    occasion-prior half of `_catalog_signal` (kept separate because an
+    occasion preference is never a family/note question: it is answered
+    by `catalog_profile.occasion_prior`, which reads several tendencies
+    against the curated `occasion_priors` rule table at once). Only ever
+    a positive signal: the rule table names what a catalog profile
+    SUPPORTS about an occasion, never what rules one out, so there is no
+    `"penalty"` branch here to mirror `_catalog_signal`'s.
+    """
+    if preference.attribute != "occasion":
+        return None
+    if preference.direction not in (Direction.HIGH, Direction.MORE_THAN_ANCHOR):
+        return None
+    families = occasion_prior(profile, preference.value, priors)
+    if not families:
+        return None
+    return Reason(
+        kind="catalog_fit",
+        text=DerivedWording.occasion_fit(preference.value, families),
+        strength=Strength.CANONICAL,
+        attribute="occasion",
+    )
+
+
+def _catalog_candidates(
+    profiles: dict[int, CatalogProfile],
+    plan: QueryPlan,
+    axis_names: frozenset[str],
+    occasion_priors_table: dict[str, dict],
+    exclude: set[int],
+) -> set[int]:
+    """T2 itself: every catalogue bottle a pure catalog read of `plan`
+    calls plausible, capped to `CATALOG_CANDIDATE_CAP` by how many soft
+    dimensions the catalog alone answers — union'd into `considered` in
+    `recommend_plan`, alongside (never instead of) the community sets.
+
+    Empty when `plan.soft` is empty: a plan carrying only hard
+    constraints and/or an anchor has nothing catalog data can be scored
+    against here (hard-constraint candidacy is unchanged by this spec —
+    see `recommend_plan`'s own "deferred" note), and widening every
+    catalogue bottle into consideration for a request that names no
+    preference at all would not be "plausible," it would be everything.
+    """
+    if not plan.soft:
+        return set()
+    scored: list[tuple[int, int]] = []
+    for frag_id, profile in profiles.items():
+        if frag_id in exclude:
+            continue
+        hits = 0
+        for preference in plan.soft:
+            if preference.relative_to_anchor or preference.attribute == "concept":
+                continue
+            if preference.attribute == "occasion":
+                if _catalog_occasion_signal(
+                    profile, preference, occasion_priors_table
+                ) is not None:
+                    hits += 1
+            elif _catalog_signal(profile, preference, axis_names) is not None:
+                hits += 1
+        if hits:
+            scored.append((hits, frag_id))
+    scored.sort(key=lambda pair: (-pair[0], pair[1]))
+    return {frag_id for _, frag_id in scored[:CATALOG_CANDIDATE_CAP]}
+
+
 def _score(
     frag_id: int,
     name: str,
@@ -853,6 +1089,9 @@ def _score(
     neighbours: dict[int, int],
     semantic=None,
     anchor_facts: list[AttributeFact] | None = None,
+    profile: CatalogProfile | None = None,
+    axis_names: frozenset[str] = frozenset(),
+    occasion_priors_table: dict[str, dict] | None = None,
 ) -> Recommendation | None:
     result = Recommendation(fragrance_id=frag_id, name=name)
 
@@ -889,6 +1128,39 @@ def _score(
             continue
         fact = _preference_fact(facts, preference)
         if fact is None:
+            # T2/T3: the community has nothing to say about this
+            # dimension for this candidate -- consult the catalog before
+            # falling back to `unmatched`. A person's own claim always
+            # wins (this branch is only reached when one does not exist);
+            # see `_catalog_signal`/`_catalog_occasion_signal`'s
+            # docstrings for the exact ladder each consults.
+            catalog_hit: tuple[str, Reason] | None = None
+            if preference.attribute == "occasion":
+                occasion_reason = _catalog_occasion_signal(
+                    profile, preference, occasion_priors_table or {}
+                )
+                if occasion_reason is not None:
+                    catalog_hit = ("positive", occasion_reason)
+            else:
+                catalog_hit = _catalog_signal(profile, preference, axis_names)
+            if catalog_hit is not None:
+                kind, reason = catalog_hit
+                if kind == "penalty":
+                    result.caveats.append(reason)
+                    # Real, but deliberately lighter than a community
+                    # avoid's `-3.0 - weight`: a curated family/note
+                    # mapping is a coarser signal than a person's own
+                    # word, and this must never be able to outweigh real
+                    # community evidence when both exist for the same
+                    # dimension on the same candidate -- they cannot,
+                    # structurally, since this branch only runs when the
+                    # community fact IS `None`, but the score itself
+                    # should still read as "meaningful, not maximal."
+                    result.score -= 1.5
+                else:
+                    result.reasons.append(reason)
+                    result.score += 0.5
+                continue
             result.unmatched.append(f"{preference.attribute}={preference.value}")
             continue
         if preference.direction in (Direction.LOW, Direction.LESS_THAN_ANCHOR):

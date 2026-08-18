@@ -200,8 +200,12 @@ class TestThePageAndTheApiCannotDrift:
         assert 'emptyNote.textContent = body.note' in body
 
     def test_labels_in_js_match_the_apis_four(self):
-        for label in ("STRONG_FIT", "GOOD_FIT", "PARTIAL_FIT",
-                      "EXPLORATORY_PICK"):
+        """Catalog-first spec: the two-axis label vocabulary
+        (`commerce_card.result_tier`'s docstring) replaces the old
+        single-axis `STRONG_FIT`/`GOOD_FIT`/`PARTIAL_FIT`/
+        `EXPLORATORY_PICK` four."""
+        for label in ("BEST_OVERALL_FIT", "STRONG_PROFILE_FIT",
+                      "COMMUNITY_FAVORITE", "WORTH_DISCOVERING"):
             assert label in HTML
 
     def test_no_innerhtml_anywhere(self):
