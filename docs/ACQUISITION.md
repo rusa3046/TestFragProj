@@ -7,6 +7,19 @@ committed corpus unless marked **estimated**, **projected** or
 strategy an earlier version of this document recommended first has still
 never been run.
 
+> **Amendment, 2026-08-18 — catalog-first changed the denominator, not
+> the analysis.** Everything below measures what the *evidence graph* can
+> declare, and all of it still holds. What changed is that declarability
+> stopped being the gate on whether FACET can answer: candidates now come
+> from the retail catalogue, so "less sweet, for summer" is answerable
+> across 548 bottles on declared notes even where no bottle clears an
+> evidence bar. The numbers here are now a measure of **how much community
+> texture an answer can carry**, not of whether an answer exists. The
+> ranking of the seven strategies is unaffected — buying comments about
+> thin anchors is still the only lever that moved a product question, and
+> a catalog fit with nothing said about it is still a weaker card than one
+> wearers confirm.
+
 ## The constraint, restated
 
 ```

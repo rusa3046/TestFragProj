@@ -111,11 +111,22 @@ jobs:
         # measured on this corpus, two of the eight curated questions on
         # /ask rendered "no candidates met the evidence bar" for no reason
         # other than this step stopping one line too early.
+        # The curation imports below are the same lesson a second time:
+        # houses, retailer listings and declared notes live under
+        # data/curation/ rather than in the corpus, so `corpus import`
+        # never restores them. The recommender's catalog-first candidacy
+        # reads `retailer_listings` and the declared-note map directly —
+        # a rebuild without these three lines builds every ask page
+        # against an empty catalogue and silently degrades to
+        # community-only candidacy, with nothing failing.
         run: |
           uv run python -m fragrance_graph.db init
           uv run python -m fragrance_graph.corpus import
           uv run python -m fragrance_graph.attributes infer
           uv run python -m fragrance_graph.semantic backfill
+          uv run python -m fragrance_graph.houses import
+          uv run python -m fragrance_graph.retail import
+          uv run python -m fragrance_graph.notes import
 
       - name: Check the rebuild actually landed
         # An import into the wrong database reports success just as
@@ -137,10 +148,16 @@ jobs:
               sys.exit(f'Rebuild did not land ({exc}). '
                        'The import step wrote somewhere else — check '
                        'FRAGRANCE_DB_URL is set for every step.')
-          print(f'{n} fragrances, {labels} eval labels')
+          listings = c.execute('select count(*) from retailer_listings').fetchone()[0]
+          print(f'{n} fragrances, {labels} eval labels, {listings} retailer listings')
           if not n:
               sys.exit('Rebuild did not land: no fragrances. Refusing to run '
                        'the loop against an empty database.')
+          if not listings:
+              sys.exit('Rebuild did not land: no retailer listings. The '
+                       'catalogue import stopped one line too early, and '
+                       'every ask page would quietly lose catalog-first '
+                       'candidacy.')
           # The derived tables are the half of the rebuild that fails
           # quietly: nothing errors, the site still builds, and the missing
           # answers look like a corpus that simply has less to say. The

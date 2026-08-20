@@ -14,6 +14,8 @@ formats invented to pass.
 
 import json
 
+import pytest
+
 from fragrance_graph.notes import (
     DeclaredNote,
     canonical,
@@ -363,3 +365,64 @@ class TestNoteAxisLoader:
         assert axes.get("warm") == frozenset()
         assert axes.get("sweet") == frozenset()
         assert axes.get("fresh") == frozenset()
+
+
+class TestCLI:
+    """The rebuild sequence in the README runs these commands with no
+    `--db-url`, taking the DSN from the environment like every other
+    module. That path was unreachable: `main` defaulted the flag to None
+    and handed it to `get_connection`, whose own default never applied
+    because an explicit None is still an argument. It surfaced as
+    `AttributeError: 'NoneType' object has no attribute 'encode'` from
+    inside psycopg -- an error that reads as a driver fault rather than
+    a missing DSN, on the one command a person runs immediately after
+    cloning.
+    """
+
+    def test_import_without_an_explicit_db_url_passes_a_real_dsn(self, monkeypatch):
+        """Asserted on the DSN `main` hands the connector, rather than by
+        reloading `fragrance_graph.db` to move its module-level default:
+        a reload mid-suite swaps a module every other test already holds
+        references into, which is its own source of hangs. What broke was
+        only ever the argparse default, so that is what is checked."""
+        from fragrance_graph import notes
+
+        seen = {}
+
+        def fake_get_connection(db_url):
+            seen["db_url"] = db_url
+            raise RuntimeError("stop here; the DSN is the whole assertion")
+
+        monkeypatch.setattr("fragrance_graph.db.get_connection", fake_get_connection)
+
+        with pytest.raises(RuntimeError):
+            notes.main(["import"])
+
+        assert isinstance(seen["db_url"], str) and seen["db_url"]
+
+    def test_import_still_honours_an_explicit_db_url(self, conn, db_url, capsys):
+        conn.close()
+        from fragrance_graph.notes import main
+
+        assert main(["--db-url", db_url, "import"]) == 0
+        assert "brand-declared note row(s) written" in capsys.readouterr().out
+
+    def test_import_leaves_no_connection_holding_a_transaction(self, conn, db_url):
+        """`main` used to leak its connection, which is invisible until
+        something else wants an ACCESS EXCLUSIVE lock on `fragrances` --
+        the suite's between-test TRUNCATE -- and then waits on it
+        forever. The symptom is the next test file hanging with no
+        failure, so it is asserted here rather than left to be
+        rediscovered as a stuck run.
+        """
+        from fragrance_graph.notes import main
+
+        assert main(["--db-url", db_url, "import"]) == 0
+
+        leaked = conn.execute(
+            "SELECT count(*) AS n FROM pg_stat_activity "
+            "WHERE datname = current_database() "
+            "AND pid <> pg_backend_pid() "
+            "AND state = 'idle in transaction'"
+        ).fetchone()["n"]
+        assert leaked == 0

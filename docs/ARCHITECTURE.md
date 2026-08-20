@@ -1,29 +1,44 @@
 # How the pieces fit together
 
-Written because the project has two separate systems that look like one, and
-the commands for both get run from the same terminal in the same session.
-Confusing them is the default state, not a lapse.
+Written because the project has separate systems that look like one, and
+the commands for all of them get run from the same terminal in the same
+session. Confusing them is the default state, not a lapse.
 
-## There are two systems
+## There are three systems
 
-**System 1 builds the product.** Comments in, ranked answers out.
+**System 1 builds the evidence graph.** Comments in, ranked answers out.
 
 ```
 YouTube comments  →  claims  →  fragrance dictionary  →  ranked answers
-     3,155            1,409         0 curated                 0
+    11,219           4,861        548 catalogued          118 pairs
     (ingest)        (extract)       (resolve)               (query)
 ```
 
 **System 2 asks whether System 1 is any good.** It never touches the product.
 
 ```
-50 sampled comments  →  drafted labels  →  15 checked by hand  →  a score
-                          (autolabel)         (blind)             (score)
+sampled comments  →  drafted labels  →  checked by hand  →  a score
+                       (autolabel)        (blind)           (score)
+```
+
+**System 3 is FACET, the retail product.** It reads System 1's output and
+a retail catalogue, and sells from both.
+
+```
+retail catalogue  →  candidates  →  community rerank  →  commerce cards
+   773 listings      (catalog fit)    (System 1)         (audited wording)
 ```
 
 You can have a perfect System 2 and no product. You can have a product built
 on garbage and a System 2 that tells you so. They are measured separately
 because they answer different questions.
+
+The load-bearing rule between 1 and 3: **System 1 decides what can be
+claimed; System 3 decides what is worth recommending.** System 1's evidence
+bars are strict and stay strict. System 3 never inherits them as
+eligibility gates — a bottle nobody has discussed is still recommendable
+on catalogue facts, described in language that says exactly how little is
+known. [FACET.md](./FACET.md) carries that argument in full.
 
 ## System 1, piece by piece
 
@@ -80,6 +95,15 @@ Given a fragrance, the fragrances people said smell like it — ranked by how
 many **distinct people** said so, each with up to three verbatim quotes and
 links. Fully automatic once the dictionary exists.
 
+### Declared notes (`fragrance_note_claim`, `retailer_listings`)
+
+What an official source *says* is in the bottle, imported from licensed
+retailer listing data (`data/curation/retailer-listings.jsonl` — 773
+listings, 2,778 note rows across 411 bottles). Deliberately separate from claims,
+because a brand listing "rose" is a fact about the listing, not evidence
+the bottle smells rose-forward. Nothing here ever enters an evidence
+count, and the two are worded differently everywhere they meet.
+
 ## System 2, piece by piece
 
 ### Why it exists
@@ -120,14 +144,31 @@ comments, one claim moves F1 by 0.13, so a change smaller than one claim
 cannot be measured. SPEC.md records a threshold that misfired for exactly
 this reason.
 
+## System 3, piece by piece
+
+FACET is a FastAPI service (`api.py`) plus a single static kiosk file. Its
+four moving parts, each documented in [FACET.md](./FACET.md):
+
+| piece | module | what it does |
+|---|---|---|
+| Preference composer | `session.py` | three buckets of typed `PreferenceItem`s, event-sourced, compiled to a `QueryPlan` |
+| Catalog profiles | `catalog_profile.py` | declared notes → note-family tendencies and occasion priors, the note-status ladder |
+| Recommender | `recommend.py` | three-tier generation: catalogue → plausible set → community rerank |
+| Commerce cards | `commerce_card.py` | tier-gated wording, fit signals, tradeoffs, result labels |
+
+**It adds no new source of truth.** Sessions are the only thing FACET
+writes, and nothing in the pipeline reads them. Delete the service and the
+graph is unchanged — which is the property that lets the product move fast
+without risking the corpus.
+
 ## What needs a human, and how much
 
 Automatic, every time: ingest, extraction, evidence verification, denial
-detection, ranking, scoring.
+detection, ranking, scoring, catalog profiling, card wording.
 
 Human, and **bounded**:
 
-**Curating the dictionary.** Measured on this corpus — 603 distinct
+**Curating the dictionary.** Measured when the corpus held 603 distinct
 fragrance names across 1,123 mention slots in comparison claims:
 
 | curate top N | coverage | est. resolvable claims |
@@ -137,15 +178,22 @@ fragrance names across 1,123 mention slots in comparison claims:
 | 100 | 51% | ~152 |
 | 200 | 64% | ~243 |
 
-The curve flattens because **452 of the 603 names are mentioned exactly
-once** — 75% of the list is a tail that can never clear a 3-commenter bar.
-Fifty entries is most of the value; a few hundred is the whole job, ever.
-A new corpus needs only a top-up, since existing aliases keep resolving.
+The curve flattens because **452 of the 603 names were mentioned exactly
+once** — three quarters of the list is a tail that can never clear a
+3-commenter bar. Fifty entries is most of the value; a few hundred is the
+whole job, ever. A new corpus needs only a top-up, since existing aliases
+keep resolving.
 
-**Labelling.** Fifty comments is a working eval; the project has 15
-verified. This does not scale with corpus size — you label a sample, not
-the corpus. Growing past ~50 only matters if the taxonomy changes or a
-defect appears that the current sample cannot see.
+**Most of that job got done by import rather than by hand.** The catalogue
+holds 548 bottles because `retail seed-from-listings` catalogues an
+unresolved retailer listing when its house is already known and the row is
+not a gift set — a mechanical case with no judgement in it. Hand curation
+is now the exception-handling path, not the main one.
+
+**Labelling.** Fifty comments is a working eval; the project has 86 with
+labels, fewer hand-verified. This does not scale with corpus size — you
+label a sample, not the corpus. Growing past ~50 only matters if the
+taxonomy changes or a defect appears that the current sample cannot see.
 
 Neither is a treadmill. Both are front-loaded.
 
