@@ -81,10 +81,11 @@ does the remembering.
 
 `--quick` skips the audit and benchmark for work that cannot affect them.
 
-## A rebuilt database needs two more commands
+## A rebuilt database needs five more commands
 
-`corpus import` restores everything the corpus holds. Two tables are
-computed from it rather than stored in it, and neither survives:
+`corpus import` restores everything the corpus holds, and nothing else.
+Two tables are computed from it rather than stored in it, and neither
+survives:
 
 ```
 uv run python -m fragrance_graph.attributes infer      # claim_attributions
@@ -101,6 +102,22 @@ a claim that no longer exists. Counting rows says that table is fine.
 Skipping them costs 22/22 on the recommendation benchmark, which
 `checkpoint.sh` gates commits on — so a fresh clone cannot commit, for a
 reason unrelated to whatever it changed.
+
+Three more tables are *curated input* under `data/curation/`, which
+`corpus import` never reads:
+
+```
+uv run python -m fragrance_graph.houses import         # houses
+uv run python -m fragrance_graph.retail import         # retailer_listings + declared notes
+uv run python -m fragrance_graph.notes import          # brand-declared notes
+```
+
+**The retail import is the one that fails quietly.** Catalog-first
+candidate generation reads `retailer_listings` and the declared-note map
+directly, so a database without them still answers every query — from
+community evidence alone, which is precisely the failure catalog-first
+generation exists to prevent. Nothing errors. The answers just get small
+again.
 
 ## Never merge Codex work
 

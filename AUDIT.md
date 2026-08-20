@@ -1,5 +1,14 @@
 # Project audit — fragrance-graph
 
+> **This is a historical snapshot, deliberately not updated.** It records
+> what was true on 2026-08-10, and it is kept because an audit rewritten
+> to match the present stops being evidence of anything. Its data-layer
+> findings are long superseded — there is a corpus, a catalogue, a
+> similarity engine and a retail product now; see the README, SPEC.md and
+> [docs/FACET.md](./docs/FACET.md) for current state. Its **architectural**
+> findings, and the failure shapes it names, are still live: several of the
+> guards in the codebase exist because of this document.
+
 Read-only audit performed 2026-08-10 against commit `a28c53a` on branch
 `claude/fragrance-similarity-engine-13kmjd` (working tree clean, 0 commits
 ahead/behind origin). Every claim below was verified by running code, not by

@@ -1,23 +1,37 @@
-# fragrance-graph
+# fragrance-graph / FACET
 
-**Given a fragrance, return the fragrances the community says are dupes or
-smell similar — ranked, and backed by verbatim quotes linking to the comments
-people actually wrote.**
+Two things live here, one built on the other:
 
-Similarity here is *asserted*, never computed. Nothing in this system models
-what a fragrance smells like. It reads what people said about it, extracts
-structured claims, resolves the names to real bottles, and counts how many
-distinct people made the same claim.
+**The evidence graph.** Given a fragrance, what the community actually says
+about it — dupes, similarity, notes, performance — extracted from YouTube
+comments as typed claims, each backed by a verbatim quote linking to the
+comment a real person wrote.
 
-That is the product, not a limitation of it. A buyer deciding whether to spend
-£120 is not served by a cosine distance of 0.87. They are served by *"31 people
-called this a dupe of Baccarat Rouge 540, and here is what nine of them said."*
-The evidence is the feature; the ranking is just how the evidence is sorted.
+**FACET**, the retail product on top: a structured preference composer
+("I like / I avoid / I want"), a deterministic recommender that candidates
+from a 548-bottle retail catalogue and reranks with community evidence, and
+a commerce presentation layer with audited, tier-gated wording. See
+[docs/FACET.md](./docs/FACET.md) for the product decisions and
+[FACET — the demo that answers back](#facet--the-demo-that-answers-back)
+below to run it.
 
-Structured note data (top/mid/base pyramids) is deliberately not used. It lives
-behind sites whose terms forbid scraping — see Constraints in
-[SPEC.md](./SPEC.md) — and note overlap answers a question buyers were not
-asking.
+Similarity and perception here are *asserted*, never computed. Nothing in
+this system models what a fragrance smells like. It reads what people said,
+extracts structured claims, resolves the names to real bottles, and counts
+how many distinct people made the same claim.
+
+A buyer deciding whether to spend £120 is not served by a cosine distance
+of 0.87. They are served by *"31 people called this a dupe of Baccarat
+Rouge 540, and here is what nine of them said."* The evidence is the
+feature; the ranking is just how the evidence is sorted.
+
+The system now also holds **declared notes** — what a brand or retailer
+lists as being in the bottle — imported from licensed retailer listing
+data, never scraped (Fragrantica-style pyramids remain off limits; see
+Constraints in [SPEC.md](./SPEC.md)). Declared and perceived are kept in
+separate tables and separate wording on purpose: a brand listing "rose" is
+a fact about the listing; nine wearers calling it rose-forward is evidence.
+The contrast between the two is part of the product.
 
 ## How it works
 
@@ -27,6 +41,9 @@ YouTube comments → claim extraction → entity resolution → ranked answers
                                               ↑
                                      offline curation
                                   (a person, no network)
+
+retail catalogue (declared notes, families, priors) → candidates
+                    community evidence  →  rerank + annotate   → FACET
 ```
 
 1. **Ingest.** Official platform APIs only. Comments land in PostgreSQL,
@@ -45,13 +62,19 @@ YouTube comments → claim extraction → entity resolution → ranked answers
    do this and was removed on 2026-08-14: 60 lookups, $3.00, 5 names, 0
    pages. It does not carry the small houses this corpus discusses.
 4. **Answer.** Ranked by distinct commenters, with quotes and permalinks.
+5. **Sell.** FACET generates candidates from the retail catalogue, reranks
+   them with whatever the graph knows, and words each card to match how
+   much that is. A bottle nobody has discussed is still recommendable —
+   on its declared chemistry, and saying so.
 
 ### Which sources are live
 
 | source | status |
 |---|---|
-| **YouTube Data API v3** | **live** — the entire corpus |
+| **YouTube Data API v3** | **live** — the entire comment corpus |
 | **Anthropic API** | **live** — extraction, and eval-label drafting |
+| **Nordstrom retailer listings (via Bright Data)** | **live** — 773 listings collected 2026-08-16 under an API licence, curated to facts-only JSONL (`data/curation/retailer-listings.jsonl`); raw scraped prose never merges |
+| Wikidata | **live** — house registry and release seeding (`data/curation/`) |
 | Fragella | **removed 2026-08-14.** 60 lookups produced 5 names and 0 pages |
 | Reddit | **not used.** API access was refused to this project |
 | Affiliate feeds (Rakuten, ShareASale) | built, no account yet — Phase C |
@@ -69,91 +92,82 @@ option.
 
 ## Status
 
-**All four steps are built and have run on real data**, and Phase D renders
-pages from them. The corpus, the claims, the eval labels, the 56 curated
-fragrances and the retrieval provenance are committed, so a clean clone
-reproduces every number on this page.
+**The whole stack is built and has run on real data**: the pipeline, the
+static pages, and the FACET service with its composer, commerce cards and
+catalog-first recommender. The corpus, the claims, the eval labels, the
+catalogue, the retailer listings and the retrieval provenance are all
+committed, so a clean clone reproduces every number on this page.
 
-**Curation is still the binding constraint on the graph** — 56 entries
-yield 37 pairs, of which **8 clear the publishing gate** of 3+ commenters
-across 2+ creators (distinct uploading channels, not distinct videos).
+**The catalogue no longer gates on curation.** 548 bottles are candidates
+for every FACET answer; community evidence — currently covering 129 of
+them — reranks and annotates, but a bottle nobody has commented on can
+still be recommended on its declared chemistry. Comparison *pages* still
+gate hard, by design: 22 of 118 resolved pairs clear the 3-commenter /
+2-creator bar.
 
-**But the query surface is now the binding constraint on the product.**
-57% of the corpus is extracted, paid for, stored, and reachable by no
-query — see [What's next](#whats-next).
-
-Corpus as of 2026-08-11 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
+Corpus as of 2026-08-18 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
 
 | | |
 |---|---|
-| Comments | 4,866 across 39 videos / 29 channels |
-| Claims | 2,118 |
+| Comments | 11,219 across 975 videos / 370 channels |
+| Claims | 4,861 |
 | Extraction cost | $0.3656-$0.4410 per 1k comments, and it moves with the query |
-| Fragrances curated | 56 — 41 of them answer a query |
-| Labelled comments | **65 verified by hand** (46 in train), plus 50 drafted |
-| Extractor score | `SIMILARITY EDGES` F1 **0.57** (P 0.60, R 0.55); OVERALL F1 0.40 |
+| Catalogue | 548 bottles; 129 with community evidence |
+| Retailer listings | 773 (Nordstrom); 475 resolve to a catalogue bottle |
+| Declared notes | 2,778 rows covering 411 of 548 bottles |
+| Labelled comments | 86 distinct comments labelled (165 label rows across labelers) |
+| Extractor score | `SIMILARITY EDGES` F1 **0.57** (P 0.60, R 0.55); OVERALL F1 0.40 — measured 2026-08-11 |
 | Denials caught | 35 of 38 flagged (92%), plus 32 the pattern missed |
-| Spent to date | $3.11 — [a $1/day cap that leaked, since fixed](./SPEC.md) |
+| Spent to date | $5.85 — under a $1/day cap enforced from a committed ledger |
 
 ### The edge funnel — where the graph actually is
 
+Counted on the corpus above, 2026-08-18:
+
 ```
-2,118  all claims
-  902  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
-  809  FRAGRANCE -> FRAGRANCE
-  717  ASSERTED              (-92 denials)
-  711  evidence verified     (-6)
-  109  both ends resolved    <- 56 fragrances curated
-   37  distinct pairs
-    8  pages published       <- 3+ commenters AND 2+ creators
+4,861  all claims
+1,692  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
+1,501  FRAGRANCE -> FRAGRANCE
+1,349  ASSERTED              (-152 denials)
+1,341  evidence verified     (-8)
+  304  both ends resolved    <- the dictionary is the constraint here
+  118  distinct pairs
+   22  pages published       <- 3+ commenters AND 2+ creators
 ```
 
-**An edge needs *both* its subject and its object to be a curated bottle**,
-which is why 711 verified claims produce 109. Every filter above works; the
-graph is small because the dictionary is. At 17 curated entries this line
-read 18, and nothing but curation changed to move it.
+**An edge needs *both* its subject and its object to be a resolved bottle**,
+which is why 1,341 verified claims produce 304. Every filter above works;
+the graph grows exactly as fast as resolution does. (At 17 curated entries
+the both-ends line read 18; at 56 it read 109.) Note the funnel is the
+*pages* product — FACET's recommender candidates from the catalogue and is
+not bounded by it.
 
-**The last step is the publishing gate, and it is meant to be lossy.** 37
-pairs become 8 pages because a pair backed by two people, or by three people
-under one creator, cannot honestly be headed "people say this". See
+**The last step is the publishing gate, and it is meant to be lossy.** 118
+pairs become 22 pages because a pair backed by two people, or by three
+people under one creator, cannot honestly be headed "people say this". See
 `pages.py` for why both bars are measured on the pair rather than on a
 single claim type.
 
-**How far curation has to go**, measured on the 467 edge-eligible claims
-whose two ends are both nameable — not modelled, counted:
+Resolution yield is superlinear because both ends must land — an early
+table counting it on a 4,866-comment corpus showed the top 60–80 curated
+names resolving 3–4× what the first 16 did, and the shape has held as the
+corpus doubled. Most of the catalogue's 548 entries came from the retailer
+import (`retail seed-from-listings`) rather than hand curation, which is
+why the both-ends line grew from 109 to 304 without a proportional hour
+count.
 
-| curate top N | claims resolved | distinct pairs |
-|---|---|---|
-| 16 (`scripts/seed_fragrances.py`) | 10 | 4 |
-| 25 | 29 | 14 |
-| 40 | 46 | 26 |
-| 60 | 74 | 45 |
-| 80 | 97 | 61 |
-| 120 | 148 | 97 |
-| 200 | 217 | 161 |
+What the numbers above do **not** yet establish:
 
-Both ends must land, so the yield is superlinear and the first entries are
-worth the least. **16 sits at the bottom of a steep curve** — it exists to
-make the pipeline demonstrable end to end, not to be a result. Sixty to
-eighty is where this becomes a product.
-
-An earlier version of this table estimated the yield as coverage squared
-and overshot by roughly 3x, because mentions cluster by video rather than
-pairing independently. The numbers above are counted.
-
-What that does **not** yet establish:
-
-- **Extraction accuracy is measured, but on 13 comments.** Every similarity
-  edge in that sample was found and none invented — three times running.
-  But OVERALL F1 has moved 0.50 → 0.62 → 0.75 across code states whose
-  differences account for about one claim each, so the eval currently
-  cannot resolve a change smaller than itself. SPEC.md says which
-  conclusions survive that and which do not.
-- **Most of the corpus is still unresolved.** 56 fragrances are curated
-  against many hundreds of distinct names in comparison claims, and 15 of
-  those 56 answer nothing yet. The head of that list is short and
-  repetitive, so the first hour of curation is worth far more than the
-  last — but 8 pages is a demo, not a product.
+- **Extraction accuracy is measured on a small sample and is dated.** The
+  published F1 comes from 46 hand-verified train comments, measured
+  2026-08-11 — before the corpus doubled. OVERALL F1 once moved 0.50 →
+  0.62 → 0.75 across code states whose differences account for about one
+  claim each, so the eval cannot resolve a change smaller than itself.
+  SPEC.md says which conclusions survive that and which do not.
+- **Most comparison mentions are still unresolved.** 304 of 1,341 verified
+  fragrance-to-fragrance claims have both ends resolved. The head of the
+  unresolved-name list is short and repetitive, so the first hour of
+  curation is worth far more than the last.
 - **One curated entry was wrong and shipped.** `Perseus` is made by two
   houses; the bare alias pointed at the wrong one, producing an edge that
   misquoted three commenters. Found by research, fixed, recorded in SPEC.
@@ -163,16 +177,23 @@ What that does **not** yet establish:
   moved from `SIMILAR_TO`, and only 14 carry dupe language. Both are edges
   so the graph is unaffected, but "dupe" is a stronger claim than "similar"
   and page copy will repeat it. Unmeasured — the eval scores `DUPE_OF`
-  precision 1.00 on 13 comments and cannot see this.
-- **No real product, price, or retailer data has been imported.** The
-  tables, the feed importer and the link builder exist and are tested, but
-  the only feeds they have ever read are the invented fixtures under
-  `tests/fixtures/feeds/`, which import at a 65% match rate against the 16
-  seeded fragrances. No affiliate account has been opened.
+  precision 1.00 on its small sample and cannot see this.
+- **Retailer data is real; affiliate links are not.** 773 Nordstrom
+  listings with prices and declared notes are imported and drive
+  catalog-first candidacy. The affiliate link builder still exists and is
+  tested, but no affiliate account has been opened, so no page carries a
+  live buying link.
+- **Declared-note coverage is partial.** 411 of 548 catalogue bottles have
+  declared notes; the gap is partly listings without a notes list and
+  partly the 298 listings that resolve to no catalogued bottle. Bottles
+  without notes fall to `NO_CATALOG_DATA` in the note-status ladder and
+  say so, rather than being treated as note-free — which is the whole
+  point of having four states instead of two.
 
 New to the project? [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) explains
-the two systems — the pipeline that builds the product, and the eval that
-measures it — and which parts need a human.
+the systems — the pipeline that builds the graph, the eval that measures
+it, and the FACET service that sells from it — and which parts need a
+human. [docs/FACET.md](./docs/FACET.md) records the product decisions.
 
 [AUDIT.md](./AUDIT.md) is a read-only assessment of what is real, what is
 stubbed, and what has never been measured. It predates this corpus, so its
@@ -296,20 +317,26 @@ uv run python -m fragrance_graph.attributes infer      # claim_attributions
 uv run python -m fragrance_graph.semantic backfill     # evidence_embeddings
 ```
 
-A third table isn't computed from the corpus at all — it is *curated
-input*, committed separately under `data/curation/`, the same category as
-the corpus JSONL but not part of it. `corpus import` never reads it, so a
-rebuild leaves it empty too, for a different reason than the two above:
+Three more tables aren't computed from the corpus at all — they are
+*curated input*, committed separately under `data/curation/`, the same
+category as the corpus JSONL but not part of it. `corpus import` never
+reads them, so a rebuild leaves them empty too, for a different reason
+than the two above:
 
 ```bash
 uv run python -m fragrance_graph.houses import         # houses
+uv run python -m fragrance_graph.retail import         # retailer_listings + declared notes
+uv run python -m fragrance_graph.notes import          # brand-declared notes, if curated
 ```
 
-All three are free and take seconds. `corpus import` prints a notice
-naming whichever of them still need running, right after the import
-summary — see `fragrance_graph.houses`'s module docstring for why houses
-gets a separate, simpler check than `claim_attributions` and
-`evidence_embeddings` do.
+All five commands are free and take seconds. `corpus import` prints a
+notice naming whichever still need running, right after the import summary.
+Skipping the retail import is the quiet failure worth naming: FACET's
+recommender candidates from the catalogue, so a database without
+`retailer_listings` still answers every query — from community evidence
+alone, which is exactly the failure mode catalog-first generation was
+built to remove. The scheduled workflow runs all five and refuses to
+proceed if the listings did not land.
 
 Ingest YouTube comments:
 
@@ -503,13 +530,17 @@ uv run python -m fragrance_graph.pages build --out site/
 ```
 
 ```
-    7 people  4 sources  Al Haramain Detour Noir vs Parfums de Marly Layton
-    7 people  3 sources  Parfums de Marly Layton vs The Woods Collection Dusk
-    7 people  2 sources  Kilian Angels' Share vs Lattafa Khamrah
-    5 people  3 sources  Armaf Club de Nuit Intense Man vs Creed Aventus
-    4 people  2 sources  Orientica Luxury Collection Royal Bleu vs Parfums de Marly Layton
-    3 people  2 sources  Armaf Club de Nuit Imperiale vs Parfums de Marly Delina Exclusif
+   19 people  7 creators  11 queries  Al Haramain Detour Noir vs Parfums de Marly Layton
+   12 people  6 creators   7 queries  Kilian Angels' Share vs Lattafa Khamrah
+   11 people  6 creators   7 queries  Lattafa Khamrah vs Lattafa Khamrah Qahwa
+   11 people  4 creators   4 queries  Creed Aventus vs Creed Aventus Cologne
+   10 people  6 creators  11 queries  Armaf Club de Nuit Intense Man vs Creed Aventus
+   10 people  4 creators   6 queries  Parfums de Marly Layton vs The Woods Collection Dusk
 ```
+
+Twenty-two pairs clear the gate today. Each line also reports videos with
+no retrieval record, so a query count is always a lower bound rather than
+a claim.
 
 **A page is generated only at 3+ distinct commenters *and* 2+ distinct
 videos.** Both bars are measured on the pair across every claim type, not on
@@ -534,28 +565,29 @@ uncomfortable:
 3 people  2 creators  1 query  Lalique White in Black vs Parfums de Marly Layton   (+1 video(s) with no retrieval record, so this is a lower bound)
 ```
 
-**The clean measurement is on the first 24 videos, where provenance is
-complete: six of the eight pairs publishing now rest on a single search
-query.** Three different `parfums de marly layton dupe` videos are three
-separate comment sections, so the creator bar passes them — but they are
-three rooms in which the same question was put to an audience assembled for
-that question. The guard against one comment section does not guard against
-one *query*.
+**When this was first measured, six of the eight publishing pairs rested
+on a single search query.** Three different `parfums de marly layton dupe`
+videos are three separate comment sections, so the creator bar passes them
+— but they are three rooms in which the same question was put to an
+audience assembled for that question. The guard against one comment
+section does not guard against one *query*.
 
-**On today's larger corpus the number is a lower bound, and says so.**
-15 of 39 videos were ingested before discovery tracking existed and their
-queries cannot be reconstructed — inventing a plausible one would be the
-fabrication this project refuses everywhere else. So only 1 of 8 pairs is
-*confirmed* single-query; the other 7 are unknown, not innocent. The counts
-converge on the truth as undocumented videos are re-found by recorded
-searches.
+**Broader seeding fixed most of it, and the counts show the work.** Of the
+22 pairs publishing today, 3 rest on a single recorded query, 2 have no
+retrieval record at all, and the other 17 are backed by two or more
+distinct searches — the top pair by 11. Only 4 of 975 videos now predate
+discovery tracking, down from 15 of 39, so the "lower bound" caveat has
+nearly stopped mattering. Undocumented videos are never given an invented
+query; they converge on the truth as recorded searches re-find them.
 
-`--min-queries 2` defaults to **1 — off** —
-because the number cannot yet distinguish "these edges are weak" from "the
-eight seed queries were too narrow", and those want opposite fixes. Six of
-the eight seeds contain the word "dupe" (see
-[PROVENANCE](./data/corpus/PROVENANCE.md)), so narrow seeding is the live
-hypothesis. Broaden discovery first, then raise the bar.
+`--min-queries 2` still defaults to **1 — off**. The original reason was
+that the number could not distinguish "these edges are weak" from "the
+eight seed queries were too narrow", and those want opposite fixes: six of
+those eight seeds contained the word "dupe" (see
+[PROVENANCE](./data/corpus/PROVENANCE.md)). `daily.SEED_QUERIES` now
+carries ten, only one of which is a bare "dupe" query, and the diversity
+counts above moved accordingly — so raising the bar has become defensible
+and is simply not yet done. Turning it on would unpublish 5 of 22 pairs.
 
 A pair with `0` queries means *no retrieval record*, not *narrow*. Gating
 treats 0 as unknown and lets it through, so raising the bar cannot silently
@@ -822,6 +854,42 @@ corpus, all covered by the provenance audit:
 No server: the recommender parses without a model, so an answer page costs
 nothing to serve and nothing to rebuild.
 
+## FACET — the demo that answers back
+
+The static pages answer curated questions; FACET answers *yours*. It is
+the same deterministic recommender behind a FastAPI service and a
+single-file kiosk UI:
+
+```bash
+uv sync --extra api
+uv run uvicorn fragrance_graph.api:app --host 0.0.0.0
+# then open http://localhost:8000/
+```
+
+What you get, and where each piece is documented in
+[docs/FACET.md](./docs/FACET.md):
+
+- **A structured preference composer** — three buckets ("I like / I avoid
+  / I want") filled with chips, plus a free-text box that compiles into
+  the same preferences. A live rail shows how FACET read what you said,
+  and every refused or unparsed utterance is visible rather than silent.
+- **Catalog-first recommendations** — every one of the 548 catalogue
+  bottles is a candidate; declared notes, derived note families and
+  occasion priors generate the plausible set, and community evidence
+  reranks within it. A bottle with zero comments can be recommended, and
+  says so honestly ("Community insight: limited so far").
+- **Commerce cards with audited wording** — tier-gated language
+  ("Wearers consistently…" only above the strong-evidence bar), at most
+  two shopper-relevant tradeoffs, counts and source attribution behind
+  the full-story view, never on the card. A contradiction of something
+  you explicitly avoided always surfaces as a caveat.
+- **Event-sourced sessions** — every preference change is validated, then
+  recorded; a session rebuilds from its log, and refining a preference
+  re-runs the same state instead of starting over.
+
+Sessions live in the same PostgreSQL database and nothing about them is
+required by the pipeline — drop the service and the graph is untouched.
+
 ## Trust rules
 
 These are product requirements, enforced in code and tests — not guidelines.
@@ -871,49 +939,65 @@ argument for each; this is the short form.
    the catalogue lookups instead of before — 48 lookups, 0 approved, $2.40
    for nothing. Fixed, and pinned by tests.
 
-2. **Finish the eval set.** 15 comments verified by hand. One claim moves
-   F1 by ~0.13, so the instrument cannot resolve a change smaller than
-   itself, and two thresholds have already fired on noise. Target 200-500,
-   stratified across denials, pronouns, flankers and multi-fragrance
-   comments. **Do not tune the extraction prompt before this.**
+2. ~~**Give the rest of the corpus a query.**~~ **Done, as FACET.**
+   `NOTE_DESCRIPTOR`, `LONGEVITY`, `PROJECTION`, `AESTHETIC` and
+   `OCCASION` are all reachable through the composer and the free-text
+   parser, with denials excluded from every count and low-value negatives
+   kept off customer surfaces by the wording audit.
 
-3. **Broaden the discovery seeds.** Six of eight seed queries contain
-   "dupe". That is why query diversity is low and why `--min-queries` is
-   not enforced — raising the bar would punish edges for a bias in our own
-   sampling. The loop is automated; choosing seeds that don't inherit our
-   search bias is the part that isn't.
+3. **First-party feedback as a fourth evidence voice.** FACET already
+   records "Love it / Maybe / Not for me" as session events. The plan of
+   record (see [docs/FACET.md](./docs/FACET.md)): aggregate those into
+   FACET's own evidence source with its own tier gating — silent until
+   volume justifies speech, never blended into YouTube counts. YouTube
+   bootstraps the cold start; the weighting shifts as first-party data
+   accumulates.
 
-4. **Give the other 57% of the corpus a query.** `NOTE_DESCRIPTOR` is the
-   largest claim type in the corpus and nothing can ask for it. Same for
-   `LONGEVITY`, `PROJECTION`, `AESTHETIC`, `OCCASION`, and for 79 stored
-   denials. `sentiment_rollup` is built and wired to no CLI. No new data,
-   no API key. Note that a page built from `AESTHETIC` is a different
-   editorial proposition from one built from `DUPE_OF` — real rows include
-   *"smells like a prostitute"*.
+4. **Finish the eval set.** 86 comments carry labels, fewer are
+   hand-verified, and the published score predates the corpus doubling.
+   One claim moves F1 by ~0.13, so the instrument cannot resolve a change
+   smaller than itself, and two thresholds have already fired on noise.
+   Target 200-500, stratified across denials, pronouns, flankers and
+   multi-fragrance comments. **Do not tune the extraction prompt before
+   this.**
 
-5. **Semantic retrieval over community language.** 35 claims compare
-   fragrances to everyday things — *"walking through a forest"*, *"a
-   grandma cologne"* — which is the on-ramp for someone who has never
-   smelled a fragrance and has no "I love X" to start from. The rule that
-   keeps this honest: **embeddings retrieve; people's evidence decides.**
-   Nothing computed from proximity is ever stated as similarity.
+5. **Broaden the discovery seeds.** Six of eight original seed queries
+   contained "dupe". That is why query diversity is low and why
+   `--min-queries` is not enforced — raising the bar would punish edges
+   for a bias in our own sampling. The loop is automated; choosing seeds
+   that don't inherit our search bias is the part that isn't.
 
 6. **Context-aware entity resolution.** Video titles are now stored, so
    "Perseus" under *"Maison Alhambra Perseus Review"* can resolve
    correctly — turning curation from human decisions with automation help
    into automatic resolution with human exception handling.
 
+7. **Open an affiliate account.** The link builder, the disclosure
+   fields and the feed importer are all tested against fixtures; nothing
+   has ever carried a live buying link. Needs a public site first, which
+   exists now.
+
 Deliberately not planned: Neo4j (the graph is not the constraint; curation
 is), a new-release crawler (a bottle launched yesterday has no
 discussion), video transcripts (owner-gated, and every workaround is the
-scraping this project refuses), and computed similarity from notes.
+scraping this project refuses), and computed similarity from notes —
+declared notes generate *candidates* and are worded as catalog facts;
+they are never converted into a similarity score.
 
 ## Running it without you
 
 `.github/workflows/daily.yml` runs the loop on GitHub, Mondays and
 Thursdays at 06:00 UTC, and on a button (`workflow_dispatch`). It rebuilds
-the database from the committed corpus, collects, extracts, resolves,
-rebuilds pages, and commits the corpus back.
+the database from the committed corpus *and the curated inputs*, collects,
+extracts, resolves, rebuilds pages, and commits the corpus back. It then
+asserts the rebuild landed — fragrances present, retailer listings
+present, derived tables fresh — and refuses to run on anything less,
+because every one of those has failed silently at least once and a
+scheduled run has nobody to read a warning.
+
+The `collect` input splits publishing from spending: `collect: false`
+rebuilds and republishes the site without making a single paid call,
+which is what a deploy of a code change should cost.
 
 Two things it deliberately does not do:
 

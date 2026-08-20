@@ -339,19 +339,32 @@ def load_note_axes(
 
 
 def main(argv: list[str] | None = None) -> int:
+    from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
+
     parser = argparse.ArgumentParser(prog="python -m fragrance_graph.notes")
-    parser.add_argument("--db-url", default=None)
+    # Defaulted here rather than left as None: `get_connection` has its own
+    # default, but an explicit None sails past it into psycopg and dies as
+    # `AttributeError: 'NoneType' has no attribute 'encode'` -- which reads
+    # as a driver bug rather than "you did not say which database".
+    parser.add_argument("--db-url", default=DEFAULT_DB_URL)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("import", help="import brand-declared notes from curation")
     args = parser.parse_args(argv)
 
-    from fragrance_graph.db import get_connection, migrate
-
     conn = get_connection(args.db_url)
     migrate(conn)
-    written, skipped = import_brand_declared(conn)
-    print(f"{written} brand-declared note row(s) written, "
-          f"{skipped} skipped (unknown fragrance).")
+    # Closed in a `finally`, as `retail.main` does. Leaving it open holds
+    # the transaction that read `fragrances`, and anything that later
+    # wants an ACCESS EXCLUSIVE lock on that table -- the test suite's
+    # between-test TRUNCATE, a migration -- waits on it forever rather
+    # than failing. A leaked connection does not look like a bug; it
+    # looks like the next thing hanging.
+    try:
+        written, skipped = import_brand_declared(conn)
+        print(f"{written} brand-declared note row(s) written, "
+              f"{skipped} skipped (unknown fragrance).")
+    finally:
+        conn.close()
     return 0
 
 

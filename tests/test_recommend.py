@@ -1308,9 +1308,17 @@ class TestCatalogFirstCandidateGeneration:
             real_conn = get_connection(DEFAULT_DB_URL)
         except Exception:  # noqa: BLE001
             pytest.skip("no developer database; run `corpus import` first")
-        if real_conn.execute("SELECT count(*) FROM fragrances").fetchone()[0] < 100:
-            pytest.skip("developer database is too small for this probe")
+        # Every exit path closes, the size check included. `pytest.skip`
+        # raises, so checking the count OUTSIDE this try leaked a
+        # connection holding an open read transaction on `fragrances` --
+        # and the suite's next between-test TRUNCATE then waited on that
+        # lock forever. A hang at a fixed percentage with no failing test
+        # is what that looks like from the outside.
         try:
+            if real_conn.execute(
+                "SELECT count(*) FROM fragrances"
+            ).fetchone()[0] < 100:
+                pytest.skip("developer database is too small for this probe")
             answer = recommend(real_conn, "less sweet, less vanilla, summer")
             assert len(answer.results) > 2, (
                 f"only {len(answer.results)} result(s) — candidacy is still "

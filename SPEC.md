@@ -32,12 +32,14 @@ few distinct commenters is not a weak result — it is not a result.
 
 - Python 3.11+
 - `uv` for dependency management
-- SQLite (single file, no server)
+- PostgreSQL 16 via psycopg3 (was SQLite through 2026-08-13; the port is
+  recorded in the decision log below)
 - Pydantic for schemas
 - Anthropic SDK for extraction
-- No web framework yet
+- FastAPI, in the `[api]` extra — the pipeline must stay installable
+  without it
 
-## Where this actually is (2026-08-11)
+## Where this actually is (2026-08-18)
 
 Every phase below is built and has run on real data. The sections after
 them are decision records, written as each decision was made and kept even
@@ -45,33 +47,45 @@ where the decision was later reversed — the reasoning is the point.
 
 | | |
 |---|---|
-| Comments | 4,866 across 39 videos / 29 channels |
-| Claims | 2,118 |
-| Fragrances curated | 56 (41 answer a query) |
-| Distinct pairs | 37 |
-| **Published pages** | **8** — 3+ commenters across 2+ creators |
-| Eval labels | 50 comments drafted, 15 verified by hand |
-| Spent to date | $3.11 |
+| Comments | 11,219 across 975 videos / 370 channels |
+| Claims | 4,861 |
+| Catalogue | 548 bottles; 129 carry community evidence |
+| Retailer listings | 773; 475 resolve to a catalogue bottle |
+| Declared notes | 2,778 rows covering 411 of 548 bottles |
+| Distinct resolved pairs | 118 |
+| **Published pages** | **22** — 3+ commenters across 2+ creators |
+| Eval labels | 86 comments labelled |
+| Spent to date | $5.85 |
 
-The funnel, measured rather than modelled:
+The funnel, measured rather than modelled (2026-08-18):
 
 ```
-2,118  all claims
-  902  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
-  809  FRAGRANCE -> FRAGRANCE
-  717  ASSERTED              (-92 denials)
-  711  evidence verified     (-6)
-  109  both ends resolved    <- 56 fragrances curated
-   37  distinct pairs
-    8  published             <- the gate, and it is meant to be lossy
+4,861  all claims
+1,692  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
+1,501  FRAGRANCE -> FRAGRANCE
+1,349  ASSERTED              (-152 denials)
+1,341  evidence verified     (-8)
+  304  both ends resolved
+  118  distinct pairs
+   22  published             <- the gate, and it is meant to be lossy
 ```
 
-**Curation remains the binding constraint on the graph; the query surface
-is now the binding constraint on the product.** 57% of the corpus —
-`NOTE_DESCRIPTOR`, `LONGEVITY`, `PROJECTION`, `AESTHETIC`, `OCCASION` and
-the rest — is extracted, paid for, stored, and reachable by no query.
-`sentiment_rollup` is implemented and tested and wired to no CLI. See
-*Direction* at the end of this document.
+**Both binding constraints named in the 2026-08-11 version of this section
+have been addressed, and the product moved past them.** The query surface
+opened up: `NOTE_DESCRIPTOR`, `LONGEVITY`, `PROJECTION`, `AESTHETIC` and
+`OCCASION` are all reachable through FACET's composer and free-text
+parser. And curation stopped being the ceiling on what can be recommended
+— FACET candidates from a retail catalogue, so a bottle the corpus has
+never discussed is still recommendable on declared chemistry.
+
+**Curation still binds the comparison *pages*,** which is correct: a pair
+page is a claim about what people said, and it may only exist where enough
+people said it.
+
+The new binding constraint is **evidence coverage per bottle**: 129 of 548
+catalogue entries have any community evidence at all. That is a data
+problem with a known shape — more collection, and eventually first-party
+feedback — rather than an architectural one.
 
 ## Phases
 
@@ -1431,8 +1445,51 @@ frequency, so effort goes where the corpus actually is. Workflow:
   gated at 3+ distinct commenters across 2+ creators.
 - **The daily loop.** Built (`daily.py`), demand-driven, under a spend cap
   whose enforcement has a known hole — see below.
-- Not built: any web UI, TikTok or other social sources, semantic
-  retrieval, comparative claim types.
+- **Semantic retrieval.** Built (`semantic.py`, `evidence_embeddings`),
+  under the rule that keeps it honest: embeddings retrieve, people's
+  evidence decides. Nothing computed from proximity is ever stated as
+  similarity.
+- **FACET, the retail product.** Built — see the phase below.
+- Not built: TikTok or other social sources, comparative claim types,
+  first-party feedback as an evidence source.
+
+### Phase E — FACET, the retail product (2026-08-17 → 2026-08-18)
+
+Full argument in [docs/FACET.md](./docs/FACET.md); recorded here because
+it changed a rule this document had asserted since Phase A.
+
+**The rule that changed.** Evidence independence used to gate what could
+be recommended. It now gates only what can be *claimed*. A bottle with
+sparse evidence is recommendable and described in language matching how
+little is known ("There is some evidence that…"), rather than withheld.
+The failure that forced this: a shopper's composed request returned the
+sentence *"No match below clears the independence bar"* — a selling tool
+refusing to sell, on a corpus that had plenty to say.
+
+**The second rule that changed.** Candidate generation used to start from
+claims, which made the comment corpus the universe of recommendable
+products. Measured: "less sweet + less vanilla + summer" against a
+548-bottle catalogue returned **two** bottles. Generation now starts from
+the catalogue and community evidence reranks within the plausible set —
+the same query returns five, four of which have no comments at all.
+
+Three components, each with the property that makes it auditable:
+
+- **Composer** (`session.py`) — typed preferences in three buckets,
+  event-sourced with validate-before-record, compiled deterministically
+  into the existing `QueryPlan`. No second engine.
+- **Catalog profiles** (`catalog_profile.py`) — declared notes into
+  note-family tendencies and occasion priors, from a curated committed
+  mapping (`data/curation/note-axes.json`), never a learned one. Adds a
+  third provenance voice: catalog-derived, which the audit forbids from
+  borrowing community language.
+- **Commerce cards** (`commerce_card.py`) — every customer-visible
+  sentence from a registered wording function, tier-gated, swept by
+  `audit.py` alongside the static pages.
+
+**What did not change:** no fabricated rows, no claim without a counted
+human behind it, declared and perceived notes stored and worded
+separately, and ranking still blind to commercial relationships.
 
 **Trust requirements, enforced in code:** ranking never considers
 affiliate status or commission — there is a test asserting result order is
@@ -1467,11 +1524,13 @@ was disabled while they landed and can be re-armed.
 
 ### 2. Finish the eval set
 
-50 comments drafted, **15 verified by hand**. Every conclusion about
-extraction quality currently rests on 13 train comments, where one claim
+86 comments carry labels, fewer are hand-verified, and the published score
+was measured on 46 train comments before the corpus doubled. One claim
 moves F1 by ~0.13 — the instrument cannot resolve a change smaller than
 itself, and the project has already recorded two cases where a threshold
-fired on noise.
+fired on noise. It is now also **stale**, which is a second problem: the
+score describes an extractor running over half the comments it runs over
+today.
 
 Target 200-500 verified, stratified across the failure shapes the corpus
 actually contains: implicit similarity, denials, multiple fragrances in one
@@ -1481,12 +1540,14 @@ comments. This gates everything in §5 and §6.
 **Do not tune the extraction prompt before this.** Recorded three times
 now, each with measurements.
 
-### 3. Broaden the discovery seeds
+### 3. Broaden the discovery seeds — largely done, bar not yet raised
 
-Six of the eight original seed queries contain the word "dupe", and the
-2026-08-11 runs narrowed further to named bottles. That is why query
-diversity is low, and it is the reason `MIN_QUERIES` is not yet enforced:
-raising the bar would punish the edges for a bias in our own sampling.
+Six of the eight original seed queries contained the word "dupe", and the
+2026-08-11 runs narrowed further to named bottles. `SEED_QUERIES` now
+carries ten, only one a bare dupe query, and the diversity counts moved
+with it: of 22 publishing pairs, 17 rest on two or more distinct searches
+and only 3 on a single one. `MIN_QUERIES` is still not enforced — turning
+it on would unpublish 5 of 22 pairs, and that trade has not been taken.
 
 The remaining discovery problem is *not* "automate the loop" — that is
 built. It is **choosing seeds broad enough that the loop stops inheriting
@@ -1497,17 +1558,16 @@ nobody has made a dupe video about.
 
 Then, and only then, raise `MIN_QUERIES` to 2 and accept the page loss.
 
-### 4. A query surface for the 57% of the corpus nothing can reach
+### 4. ~~A query surface for the rest of the corpus~~ — done as FACET
 
 `NOTE_DESCRIPTOR` (the single largest claim type), `LONGEVITY`,
-`PROJECTION`, `AESTHETIC`, `OCCASION`, `DEVELOPMENT`, `REFORMULATION`,
-`UNMET_PRODUCT_REQUEST` — all extracted, paid for, stored, queryable by
-nothing. `sentiment_rollup` is built and reachable from no CLI. 79 denials
-are retained deliberately and surfaced nowhere, though *"nine people say
-Khamrah is nothing like Angels' Share"* is a fact a buyer wants.
+`PROJECTION`, `AESTHETIC` and `OCCASION` are all reachable now, through
+the composer's chips and the free-text parser. Denials remain excluded
+from every count, by the rule that has always governed them.
 
-This is the largest gap between what has been bought and what can be
-asked. It needs no new data and no API key.
+The cautions below were written before that surface existed and they held
+up — they are why the wording audit exists and why low-value negatives
+never reach a card. Kept for the next surface.
 
 **Two cautions.** A page built from `AESTHETIC` is not the same product as
 a page built from `DUPE_OF`: "31 people called this a dupe" carries itself,
@@ -1548,9 +1608,12 @@ by measurement, not by reading the prompt. It needs §2 finished first.
 
 ### Not on the roadmap, and why
 
-- **Postgres, Neo4j.** 4,866 comments and 2,118 claims. SQLite is nowhere
-  near the constraint, and the graph is logically a graph without needing
-  to live in one.
+- **Neo4j.** ~~Postgres~~ — the SQLite-to-PostgreSQL port landed
+  2026-08-13, driven by concurrent access from the FACET service rather
+  than by data volume; the reasoning here about *scale* was right and
+  stopped being the deciding factor. Neo4j stays off: the graph is
+  logically a graph without needing to live in one, and curation, not
+  traversal, was always the constraint.
 - **A release feed / "what is new" crawler.** Rejected with reasoning
   above: a bottle launched yesterday has no discussion, so a feed delivers
   fragrances that cannot yet produce an edge. The corpus is the detector.
