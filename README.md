@@ -102,15 +102,15 @@ committed, so a clean clone reproduces every number on this page.
 for every FACET answer; community evidence — currently covering 129 of
 them — reranks and annotates, but a bottle nobody has commented on can
 still be recommended on its declared chemistry. Comparison *pages* still
-gate hard, by design: 22 of 118 resolved pairs clear the 3-commenter /
+gate hard, by design: 23 of 120 resolved pairs clear the 3-commenter /
 2-creator bar.
 
-Corpus as of 2026-08-18 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
+Corpus as of 2026-08-20 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
 
 | | |
 |---|---|
-| Comments | 11,219 across 975 videos / 370 channels |
-| Claims | 4,861 |
+| Comments | 11,632 across 978 videos / 370 channels |
+| Claims | 4,964 |
 | Extraction cost | $0.3656-$0.4410 per 1k comments, and it moves with the query |
 | Catalogue | 548 bottles; 129 with community evidence |
 | Retailer listings | 773 (Nordstrom); 475 resolve to a catalogue bottle |
@@ -118,32 +118,32 @@ Corpus as of 2026-08-18 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANC
 | Labelled comments | 86 distinct comments labelled (165 label rows across labelers) |
 | Extractor score | `SIMILARITY EDGES` F1 **0.57** (P 0.60, R 0.55); OVERALL F1 0.40 — measured 2026-08-11 |
 | Denials caught | 35 of 38 flagged (92%), plus 32 the pattern missed |
-| Spent to date | $5.85 — under a $1/day cap enforced from a committed ledger |
+| Spent to date | $5.99 — under a $1/day cap enforced from a committed ledger |
 
 ### The edge funnel — where the graph actually is
 
-Counted on the corpus above, 2026-08-18:
+Counted on the corpus above, 2026-08-20:
 
 ```
-4,861  all claims
-1,692  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
-1,501  FRAGRANCE -> FRAGRANCE
-1,349  ASSERTED              (-152 denials)
-1,341  evidence verified     (-8)
-  304  both ends resolved    <- the dictionary is the constraint here
-  118  distinct pairs
-   22  pages published       <- 3+ commenters AND 2+ creators
+4,964  all claims
+1,734  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
+1,540  FRAGRANCE -> FRAGRANCE
+1,387  ASSERTED              (-153 denials)
+1,379  evidence verified     (-8)
+  319  both ends resolved    <- the dictionary is the constraint here
+  120  distinct pairs
+   23  pages published       <- 3+ commenters AND 2+ creators
 ```
 
 **An edge needs *both* its subject and its object to be a resolved bottle**,
-which is why 1,341 verified claims produce 304. Every filter above works;
+which is why 1,379 verified claims produce 319. Every filter above works;
 the graph grows exactly as fast as resolution does. (At 17 curated entries
 the both-ends line read 18; at 56 it read 109.) Note the funnel is the
 *pages* product — FACET's recommender candidates from the catalogue and is
 not bounded by it.
 
-**The last step is the publishing gate, and it is meant to be lossy.** 118
-pairs become 22 pages because a pair backed by two people, or by three
+**The last step is the publishing gate, and it is meant to be lossy.** 120
+pairs become 23 pages because a pair backed by two people, or by three
 people under one creator, cannot honestly be headed "people say this". See
 `pages.py` for why both bars are measured on the pair rather than on a
 single claim type.
@@ -164,7 +164,7 @@ What the numbers above do **not** yet establish:
   0.62 → 0.75 across code states whose differences account for about one
   claim each, so the eval cannot resolve a change smaller than itself.
   SPEC.md says which conclusions survive that and which do not.
-- **Most comparison mentions are still unresolved.** 304 of 1,341 verified
+- **Most comparison mentions are still unresolved.** 319 of 1,379 verified
   fragrance-to-fragrance claims have both ends resolved. The head of the
   unresolved-name list is short and repetitive, so the first hour of
   curation is worth far more than the last.
@@ -207,6 +207,28 @@ cp .env.example .env         # fill in the keys below
 ```
 
 ### PostgreSQL
+
+#### Why Postgres, when SQLite ran this fine
+
+It *was* SQLite, until 2026-08-13. The move was not about size, and
+saying otherwise would be the easiest number here to disprove: 11,632
+comments and 4,964 claims is nowhere near SQLite's limits, and it would
+still be comfortable a thousandfold up.
+
+**What changed was the access pattern, not the row count.** Putting a web
+service in front of the graph (FACET) means a shopper's session is being
+written at the same moment a recommendation query is reading. SQLite
+serializes writes at the level of the whole database file, so concurrent
+readers and one writer is the shape it handles worst; Postgres is built
+for exactly that shape. The migration happened when the second process
+appeared, not when a table got big.
+
+The cost of starting on SQLite and moving later was one afternoon of
+porting and a migration set — cheaper than running a server for the
+months when nothing was contending for the data. `docs/POSTGRES.md`
+records the operational exercises run afterwards against a copy of this
+schema at 3,000,000 comments and 1,200,198 claims, which is where the
+scale questions actually got answered.
 
 Every command needs a running server. Either path works; **the connection
 string differs between them**, which is the one thing to get right.
@@ -530,15 +552,15 @@ uv run python -m fragrance_graph.pages build --out site/
 ```
 
 ```
-   19 people  7 creators  11 queries  Al Haramain Detour Noir vs Parfums de Marly Layton
+   19 people  7 creators  12 queries  Al Haramain Detour Noir vs Parfums de Marly Layton
    12 people  6 creators   7 queries  Kilian Angels' Share vs Lattafa Khamrah
+   11 people  7 creators  11 queries  Armaf Club de Nuit Intense Man vs Creed Aventus
    11 people  6 creators   7 queries  Lattafa Khamrah vs Lattafa Khamrah Qahwa
    11 people  4 creators   4 queries  Creed Aventus vs Creed Aventus Cologne
-   10 people  6 creators  11 queries  Armaf Club de Nuit Intense Man vs Creed Aventus
    10 people  4 creators   6 queries  Parfums de Marly Layton vs The Woods Collection Dusk
 ```
 
-Twenty-two pairs clear the gate today. Each line also reports videos with
+Twenty-three pairs clear the gate today. Each line also reports videos with
 no retrieval record, so a query count is always a lower bound rather than
 a claim.
 
@@ -573,9 +595,9 @@ audience assembled for that question. The guard against one comment
 section does not guard against one *query*.
 
 **Broader seeding fixed most of it, and the counts show the work.** Of the
-22 pairs publishing today, 3 rest on a single recorded query, 2 have no
+23 pairs publishing today, 4 rest on a single recorded query, 2 have no
 retrieval record at all, and the other 17 are backed by two or more
-distinct searches — the top pair by 11. Only 4 of 975 videos now predate
+distinct searches — the top pair by 12. Only 4 of 978 videos now predate
 discovery tracking, down from 15 of 39, so the "lower bound" caveat has
 nearly stopped mattering. Undocumented videos are never given an invented
 query; they converge on the truth as recorded searches re-find them.
@@ -587,7 +609,9 @@ those eight seeds contained the word "dupe" (see
 [PROVENANCE](./data/corpus/PROVENANCE.md)). `daily.SEED_QUERIES` now
 carries ten, only one of which is a bare "dupe" query, and the diversity
 counts above moved accordingly — so raising the bar has become defensible
-and is simply not yet done. Turning it on would unpublish 5 of 22 pairs.
+and is simply not yet done. Turning it on would unpublish the 4 pairs
+resting on a single query; the 2 with no record at all pass through as
+unknown, by the rule below.
 
 A pair with `0` queries means *no retrieval record*, not *narrow*. Gating
 treats 0 as unknown and lets it through, so raising the bar cannot silently

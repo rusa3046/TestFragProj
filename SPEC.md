@@ -39,7 +39,7 @@ few distinct commenters is not a weak result — it is not a result.
 - FastAPI, in the `[api]` extra — the pipeline must stay installable
   without it
 
-## Where this actually is (2026-08-18)
+## Where this actually is (2026-08-20)
 
 Every phase below is built and has run on real data. The sections after
 them are decision records, written as each decision was made and kept even
@@ -47,27 +47,27 @@ where the decision was later reversed — the reasoning is the point.
 
 | | |
 |---|---|
-| Comments | 11,219 across 975 videos / 370 channels |
-| Claims | 4,861 |
+| Comments | 11,632 across 978 videos / 370 channels |
+| Claims | 4,964 |
 | Catalogue | 548 bottles; 129 carry community evidence |
 | Retailer listings | 773; 475 resolve to a catalogue bottle |
 | Declared notes | 2,778 rows covering 411 of 548 bottles |
-| Distinct resolved pairs | 118 |
-| **Published pages** | **22** — 3+ commenters across 2+ creators |
+| Distinct resolved pairs | 120 |
+| **Published pages** | **23** — 3+ commenters across 2+ creators |
 | Eval labels | 86 comments labelled |
-| Spent to date | $5.85 |
+| Spent to date | $5.99 |
 
-The funnel, measured rather than modelled (2026-08-18):
+The funnel, measured rather than modelled (2026-08-20):
 
 ```
-4,861  all claims
-1,692  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
-1,501  FRAGRANCE -> FRAGRANCE
-1,349  ASSERTED              (-152 denials)
-1,341  evidence verified     (-8)
-  304  both ends resolved
-  118  distinct pairs
-   22  published             <- the gate, and it is meant to be lossy
+4,964  all claims
+1,734  comparison types      (SIMILAR_TO / DUPE_OF / BETTER_THAN)
+1,540  FRAGRANCE -> FRAGRANCE
+1,387  ASSERTED              (-153 denials)
+1,379  evidence verified     (-8)
+  319  both ends resolved
+  120  distinct pairs
+   23  published             <- the gate, and it is meant to be lossy
 ```
 
 **Both binding constraints named in the 2026-08-11 version of this section
@@ -1545,9 +1545,9 @@ now, each with measurements.
 Six of the eight original seed queries contained the word "dupe", and the
 2026-08-11 runs narrowed further to named bottles. `SEED_QUERIES` now
 carries ten, only one a bare dupe query, and the diversity counts moved
-with it: of 22 publishing pairs, 17 rest on two or more distinct searches
-and only 3 on a single one. `MIN_QUERIES` is still not enforced — turning
-it on would unpublish 5 of 22 pairs, and that trade has not been taken.
+with it: of 23 publishing pairs, 17 rest on two or more distinct searches
+and only 4 on a single one. `MIN_QUERIES` is still not enforced — turning
+it on would unpublish those 4, and that trade has not been taken.
 
 The remaining discovery problem is *not* "automate the loop" — that is
 built. It is **choosing seeds broad enough that the loop stops inheriting

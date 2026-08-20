@@ -10,7 +10,7 @@ session. Confusing them is the default state, not a lapse.
 
 ```
 YouTube comments  →  claims  →  fragrance dictionary  →  ranked answers
-    11,219           4,861        548 catalogued          118 pairs
+    11,632           4,964        548 catalogued          120 pairs
     (ingest)        (extract)       (resolve)               (query)
 ```
 
