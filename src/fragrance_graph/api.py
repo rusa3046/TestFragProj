@@ -101,15 +101,20 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from fragrance_graph.catalog_profile import CatalogProfile
+from fragrance_graph.catalog_profile import catalog_profile as build_catalog_profiles
 from fragrance_graph.commerce_card import build_card, headline, result_tier
 from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
 from fragrance_graph.evidence import Attribution, Support, attribute_facts, tier_of
-from fragrance_graph.notes import declared_note_map
+from fragrance_graph.notes import declared_note_map, load_note_axes
+from fragrance_graph.plan import Direction as PlanDirection
+from fragrance_graph.plan import Preference as PlanPreference
 from fragrance_graph.plan import parse_with_corpus
 from fragrance_graph.recommend import (
     Answer,
     Reason,
     Recommendation,
+    _catalog_signal,
     _fact_reason,
     digest,
     fact_matches,
@@ -418,11 +423,66 @@ _MATCH_KIND_TO_LEGACY_STATUS = {
 }
 
 
+def _catalog_matrix_cell(
+    item: PreferenceItem,
+    attribute: str,
+    value: str,
+    profile: CatalogProfile | None,
+    axis_names: frozenset[str],
+) -> tuple[str, str] | None:
+    """What the CATALOG says for a matrix cell the community left
+    `unknown` — `(match_kind, tier)` or `None` when the catalog is silent
+    too.
+
+    This is the preference matrix catching up with the engine. `_score`
+    already consults `_catalog_signal` when `_preference_fact` finds no
+    community claim, so a bottle declaring the requested note earns a
+    catalog reason and real score — and then this matrix reported the
+    same preference as `unknown`, because it read only community facts.
+    Two consequences, both observed live on "like sandalwood + long
+    lasting + strong": the chip showed an empty circle for sandalwood on
+    a bottle whose brand declares it, and — the ranking half —
+    `_tiebreak_by_composer_matches` counts `matched` cells, so its
+    reorder ran on the community-only matrix and put one commenter's
+    "strong" above 97 declared-sandalwood bottles, exactly inverting the
+    catalog-aware order `_score` had just produced. The tiebreak was
+    overriding the engine with a subset of the engine's own information.
+
+    Delegates to `_catalog_signal` itself rather than re-reading the
+    ladder, so a cell and a card can never disagree about what the
+    catalog says: `positive` is a `match` ("sandalwood is declared" for a
+    like/want; "vanilla isn't declared" — the spec's modest positive —
+    for an avoid), `penalty` is a `contradiction` (the avoided note IS
+    declared; `_score` has already costed it and carries the caveat).
+
+    The tier is always `"UNKNOWN"`: `ConfidenceTier` grades independent
+    humans, and a brand's declaration has none behind it. A `matched`
+    cell at tier `UNKNOWN` is the honest reading — present, per the
+    declared list, with no wearer yet agreeing — and the tier-gated
+    wording layer already speaks about declared notes in the declared
+    voice, never "wearers say".
+    """
+    if profile is None or item.bucket not in ("like", "want", "avoid"):
+        return None
+    direction = (
+        PlanDirection.LOW if item.bucket == "avoid" else PlanDirection.HIGH
+    )
+    hit = _catalog_signal(
+        profile, PlanPreference(attribute, value, direction, said=value), axis_names
+    )
+    if hit is None:
+        return None
+    kind, _reason, _weight = hit
+    return ("contradiction" if kind == "penalty" else "match", "UNKNOWN")
+
+
 def _item_status(
     item: PreferenceItem,
     candidate: Recommendation,
     facts: list,
     price_floor_by_id: dict[int, float],
+    profile: CatalogProfile | None = None,
+    axis_names: frozenset[str] = frozenset(),
 ) -> dict:
     """The full preference-matrix cell for one active `PreferenceItem`
     against one candidate: `{"status", "match_kind", "contested", "tier",
@@ -522,6 +582,14 @@ def _item_status(
         None,
     )
     if fact is None:
+        # The community is silent -- the same moment `_score` consults
+        # the catalog ladder, and for the same reason: catalog absence
+        # of an answer and community absence of an answer are different
+        # silences. See `_catalog_matrix_cell`.
+        catalog = _catalog_matrix_cell(item, attribute, value, profile, axis_names)
+        if catalog is not None:
+            match_kind, tier = catalog
+            return cell(match_kind, tier=tier)
         return cell("unknown")
     tier_name = fact.tier.name
     people, creators = fact.supporting.people, fact.supporting.creators
@@ -569,6 +637,11 @@ def _preference_statuses(
     prices = (
         price_floor(conn, [c.fragrance_id for c in candidates]) if needs_price else {}
     )
+    # The same catalog read the engine ranks with, so a cell can consult
+    # the note-status ladder when the community is silent — see
+    # `_catalog_matrix_cell` for the live inversion this closed.
+    profiles = build_catalog_profiles(conn)
+    axis_names = frozenset(load_note_axes(conn))
     statuses: dict[int, list[dict]] = {}
     for candidate in candidates:
         facts = attribute_facts(
@@ -576,7 +649,10 @@ def _preference_statuses(
         )
         rows = []
         for item in active:
-            cell = _item_status(item, candidate, facts, prices)
+            cell = _item_status(
+                item, candidate, facts, prices,
+                profiles.get(candidate.fragrance_id), axis_names,
+            )
             rows.append(
                 {
                     "bucket": item.bucket,
