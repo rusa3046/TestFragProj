@@ -911,12 +911,75 @@ def _semantic_candidates(conn: psycopg.Connection, plan: QueryPlan) -> dict:
 #: this admits.
 CATALOG_CANDIDATE_CAP = 40
 
+#: What each catalog-derived signal is worth, on the scale community
+#: evidence already scores on: a community match is `1.0 + _weight(fact)`
+#: — 1.2 for one stray commenter (OBSERVED), 1.6 for a repeated claim,
+#: 2.0 for independent agreement (SUPPORTED). These are orderings, not
+#: tuned constants, same discipline as `_weight` itself.
+#:
+#: The old value was a flat 0.5 for all four signals, and that flatness
+#: was the bug FACET's owner caught from the UI: "like sandalwood + long
+#: lasting + strong" ranked Parfums de Marly Layton — no sandalwood
+#: anywhere in its declared notes, one commenter's word for "strong" —
+#: above all 97 bottles whose brand actually declares sandalwood, because
+#: one community match outweighed a declared note four to one. Catalog-
+#: first candidacy had fixed who gets CONSIDERED and left what a catalog
+#: fact is WORTH untouched.
+#:
+#: A brand declaring the requested note beats one stray commenter's word
+#: on some other dimension (1.5 > 1.2) and loses to independent community
+#: agreement (1.5 < 2.0) — declared is a strong claim about what is in
+#: the bottle and a weak one about what dominates it. Note-absence for an
+#: avoider stays at the spec's own "modest positive". A family tendency
+#: is a curated mapping over several notes, coarser than a literal
+#: declaration, so it sits between. Occasion priors stay conservative.
+CATALOG_NOTE_DECLARED_WEIGHT = 1.5
+CATALOG_NOTE_ABSENT_WEIGHT = 0.5
+CATALOG_FAMILY_WEIGHT = 0.75
+CATALOG_OCCASION_WEIGHT = 0.5
+#: The penalty for carrying a declared note (or leaning a family) the
+#: shopper asked to avoid — unchanged from the first catalog-first cut:
+#: "meaningful, not maximal", and a community avoid (-3.0 - weight) must
+#: always dominate it.
+CATALOG_PENALTY_WEIGHT = 1.5
+#: Ceiling of the prominence tie-break on DECLARED_PRESENT. Kept below
+#: every gap between the named weights so prominence reorders bottles
+#: within a signal class and can never promote a bottle across classes.
+CATALOG_PROMINENCE_BONUS_MAX = 0.25
+
+
+def _declared_prominence_bonus(profile: CatalogProfile) -> float:
+    """Tie-break within DECLARED_PRESENT: how much of the declared
+    profile the matched note is.
+
+    97 bottles on this catalogue declare sandalwood, and a flat weight
+    left all 97 tied — ordered, in practice, by database id, which is how
+    a query for sandalwood opened with five alphabetical Amouages. The
+    only prominence signal the catalog layer actually holds is profile
+    size: a bottle declaring five notes is making a stronger statement
+    about each of them than one declaring twenty-six (this catalogue runs
+    1 to 26, averaging ~7). Stage data (top/heart/base) exists in
+    `fragrance_note_claim` but not in `CatalogProfile`, and which stage
+    counts as "prominent" is a perfumery argument this function has no
+    business settling; profile size is the claim we can actually stand
+    behind.
+
+    Linear from the max bonus at 1 declared note to zero at 25+. Worth at
+    most `CATALOG_PROMINENCE_BONUS_MAX`, deliberately smaller than any
+    gap between the named weights above.
+    """
+    if not profile.declared_notes:
+        return 0.0
+    return CATALOG_PROMINENCE_BONUS_MAX * max(
+        0.0, 1.0 - (len(profile.declared_notes) - 1) / 24.0
+    )
+
 
 def _catalog_signal(
     profile: CatalogProfile | None,
     preference: Preference,
     axis_names: frozenset[str],
-) -> tuple[str, Reason] | None:
+) -> tuple[str, Reason, float] | None:
     """The T2/T3 catalog-derived reason or caveat for one note/vibe
     preference the COMMUNITY evidence is silent on — only ever consulted
     by `_score` when `_preference_fact` already returned `None` for this
@@ -959,14 +1022,14 @@ def _catalog_signal(
                     text=DerivedWording.family_present(value),
                     strength=Strength.CANONICAL,
                     attribute=preference.attribute,
-                )
+                ), CATALOG_PENALTY_WEIGHT
             if tendency is Tendency.LOW and profile.has_catalog_data:
                 return "positive", Reason(
                     kind="catalog_fit",
                     text=DerivedWording.family_absent(value),
                     strength=Strength.CANONICAL,
                     attribute=preference.attribute,
-                )
+                ), CATALOG_FAMILY_WEIGHT
             return None
         # wants_more
         if tendency is Tendency.HIGH:
@@ -975,7 +1038,7 @@ def _catalog_signal(
                 text=DerivedWording.family_present(value),
                 strength=Strength.CANONICAL,
                 attribute=preference.attribute,
-            )
+            ), CATALOG_FAMILY_WEIGHT
         return None
 
     # A literal note, not a family: the note status ladder.
@@ -990,23 +1053,25 @@ def _catalog_signal(
                 text=DerivedWording.note_present(value),
                 strength=Strength.CANONICAL,
                 attribute=preference.attribute,
-            )
+            ), CATALOG_PENALTY_WEIGHT
         if status is NoteStatus.NOT_DECLARED:
             return "positive", Reason(
                 kind="catalog_fit",
                 text=DerivedWording.note_absent(value),
                 strength=Strength.CANONICAL,
                 attribute=preference.attribute,
-            )
+            ), CATALOG_NOTE_ABSENT_WEIGHT
         return None  # NO_CATALOG_DATA: truly unknown, no credit, no penalty
     # wants_more
     if status is NoteStatus.DECLARED_PRESENT:
+        # The one place the prominence tie-break applies: 97 bottles on
+        # this catalogue declare sandalwood, and without it they all tie.
         return "positive", Reason(
             kind="catalog_fit",
             text=DerivedWording.note_present(value),
             strength=Strength.CANONICAL,
             attribute=preference.attribute,
-        )
+        ), CATALOG_NOTE_DECLARED_WEIGHT + _declared_prominence_bonus(profile)
     return None
 
 
@@ -1134,17 +1199,19 @@ def _score(
             # wins (this branch is only reached when one does not exist);
             # see `_catalog_signal`/`_catalog_occasion_signal`'s
             # docstrings for the exact ladder each consults.
-            catalog_hit: tuple[str, Reason] | None = None
+            catalog_hit: tuple[str, Reason, float] | None = None
             if preference.attribute == "occasion":
                 occasion_reason = _catalog_occasion_signal(
                     profile, preference, occasion_priors_table or {}
                 )
                 if occasion_reason is not None:
-                    catalog_hit = ("positive", occasion_reason)
+                    catalog_hit = (
+                        "positive", occasion_reason, CATALOG_OCCASION_WEIGHT
+                    )
             else:
                 catalog_hit = _catalog_signal(profile, preference, axis_names)
             if catalog_hit is not None:
-                kind, reason = catalog_hit
+                kind, reason, weight = catalog_hit
                 if kind == "penalty":
                     result.caveats.append(reason)
                     # Real, but deliberately lighter than a community
@@ -1156,10 +1223,10 @@ def _score(
                     # structurally, since this branch only runs when the
                     # community fact IS `None`, but the score itself
                     # should still read as "meaningful, not maximal."
-                    result.score -= 1.5
+                    result.score -= weight
                 else:
                     result.reasons.append(reason)
-                    result.score += 0.5
+                    result.score += weight
                 continue
             result.unmatched.append(f"{preference.attribute}={preference.value}")
             continue
@@ -1516,6 +1583,19 @@ def _preference_fact(
         found = _concept_evidence(facts, preference.value)
         return found[0] if found else None
     for fact in facts:
+        # Never a `from_name` fact: a bottle named "Vanilla Sex" is not
+        # evidence that it smells of vanilla, and crediting it as a
+        # `prefer` match (worth 1.0 at INSUFFICIENT strength — more than
+        # a family tendency) let a bottle outscore real catalog signals
+        # on the strength of its own marketing name. The API's preference
+        # matrix (`api._item_status`) has excluded these from day one;
+        # the engine skipping them too means the catalog ladder
+        # (`_catalog_signal`) now answers instead, in declared voice,
+        # from the declared list — which is what a name actually is
+        # evidence of, when the brand also declares the note, and
+        # nothing, when it does not.
+        if fact.from_name:
+            continue
         if _matches(fact, preference.attribute, preference.value):
             return fact
     return None

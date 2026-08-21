@@ -16,9 +16,14 @@ from fragrance_graph.ingest.store import ingest
 from fragrance_graph.notes import DeclaredNote, store_claims
 from fragrance_graph.plan import Direction, Preference, QueryPlan
 from fragrance_graph.recommend import (
+    CATALOG_FAMILY_WEIGHT,
+    CATALOG_NOTE_ABSENT_WEIGHT,
+    CATALOG_NOTE_DECLARED_WEIGHT,
+    CATALOG_PROMINENCE_BONUS_MAX,
     Reason,
     Recommendation,
     _catalog_signal,
+    _declared_prominence_bonus,
     digest,
     recommend,
     recommend_plan,
@@ -1371,10 +1376,11 @@ class TestTheTwoAbsencesAreDistinct:
             profile, Preference("note", "vanilla", Direction.LOW), frozenset()
         )
         assert hit is not None
-        kind, reason = hit
+        kind, reason, weight = hit
         assert kind == "positive"
         assert reason.kind == "catalog_fit"
         assert reason.text == "Vanilla isn't among the declared notes."
+        assert weight == CATALOG_NOTE_ABSENT_WEIGHT
 
     def test_no_catalog_data_is_silence_not_a_disguised_positive(self):
         """The OTHER absence -- truly unknown -- must produce no signal
@@ -1404,3 +1410,117 @@ class TestTheTwoAbsencesAreDistinct:
         assert absence_reasons, result.reasons
         assert "no sweet evidence recorded" in absence_reasons[0].text
         assert "declared notes" not in absence_reasons[0].text
+
+
+class TestCatalogWeights:
+    """The flat +0.5 was the bug FACET's owner caught from the UI.
+
+    "like sandalwood + long lasting + strong" ranked a bottle with no
+    sandalwood anywhere in its declared notes — one commenter's word for
+    "strong" — above all 97 bottles whose brand declares sandalwood,
+    because a community match scored `1.0 + _weight` (1.2 at worst)
+    while every catalog signal scored 0.5. Catalog-first candidacy had
+    fixed who gets CONSIDERED and left what a catalog fact is WORTH
+    untouched. These pin the orderings, not the constants: the spacing
+    is not tuned and nothing should depend on its precise values.
+    """
+
+    def test_a_declared_note_beats_one_stray_commenters_word(self, conn):
+        """The Layton case, minimally: the bottle declaring the requested
+        note must outrank the bottle whose only claim to the request is a
+        single commenter on a different dimension."""
+        declares = add_fragrance(conn, "Declares Sandalwood")
+        declare(conn, declares, "sandalwood", "cedar")
+        commented = add_fragrance(conn, "One Stray Comment")
+        note(conn, 1, frag=commented, value="strong",
+             author="p1", claim_type="PROJECTION")
+        plan = QueryPlan(text="", soft=[
+            Preference("note", "sandalwood", Direction.HIGH, said="sandalwood"),
+            Preference("projection", "strong", Direction.HIGH, said="strong"),
+        ])
+        answer = recommend_plan(conn, plan)
+        names = [r.name for r in answer.results]
+        assert names.index("Declares Sandalwood") < names.index("One Stray Comment")
+
+    def test_but_independent_community_agreement_still_beats_it(self, conn):
+        """Declared is a strong claim about what is in the bottle and a
+        weak one about what dominates it: multi-person, multi-creator
+        agreement on the same request must still win."""
+        declares = add_fragrance(conn, "Declares Sandalwood")
+        declare(conn, declares, "sandalwood", "cedar")
+        agreed = add_fragrance(conn, "Community Agreed")
+        for i, (author, channel) in enumerate(
+            [("p1", "chan_a"), ("p2", "chan_b"), ("p3", "chan_c")]
+        ):
+            note(conn, 10 + i, frag=agreed, value="sandalwood",
+                 author=author, channel=channel)
+        plan = QueryPlan(text="", soft=[
+            Preference("note", "sandalwood", Direction.HIGH, said="sandalwood"),
+        ])
+        answer = recommend_plan(conn, plan)
+        names = [r.name for r in answer.results]
+        assert names.index("Community Agreed") < names.index("Declares Sandalwood")
+
+    def test_the_ordering_the_constants_must_keep(self):
+        """1.0 + _weight(OBSERVED)=1.2 < declared < 1.0 + _weight(SUPPORTED)
+        =2.0 — the two community scores the declared weight is defined
+        against. The family weight stays below the literal-note weight
+        (a curated mapping over several notes is a coarser claim), and
+        absence stays the spec's own "modest positive"."""
+        assert 1.0 + 0.2 < CATALOG_NOTE_DECLARED_WEIGHT < 1.0 + 1.0
+        assert CATALOG_FAMILY_WEIGHT < CATALOG_NOTE_DECLARED_WEIGHT
+        assert CATALOG_NOTE_ABSENT_WEIGHT < CATALOG_FAMILY_WEIGHT
+
+    def test_a_bottles_own_name_is_not_evidence_it_matches(self, conn):
+        """Found while pinning the weights: a bottle named "Declares
+        Sandalwood" was earning a `prefer` reason worth 1.0 from its own
+        NAME (`from_name` fact at INSUFFICIENT strength) — more than a
+        family tendency — while the API's matrix has excluded `from_name`
+        facts from day one. A name is marketing; the declared list is the
+        claim. With the name skipped, the catalog ladder answers instead,
+        so the reason on such a bottle must be catalog-voiced, never a
+        community `prefer`."""
+        named = add_fragrance(conn, "Pure Sandalwood Elixir")
+        declare(conn, named, "sandalwood", "cedar")
+        plan = QueryPlan(text="", soft=[
+            Preference("note", "sandalwood", Direction.HIGH, said="sandalwood"),
+        ])
+        answer = recommend_plan(conn, plan)
+        assert len(answer.results) == 1
+        kinds = {r.kind for r in answer.results[0].reasons}
+        assert "catalog_fit" in kinds
+        assert "prefer" not in kinds
+
+    def test_prominence_orders_within_declared_present(self, conn):
+        """97 bottles declare sandalwood on the live catalogue; a flat
+        weight left all 97 tied and ordered by database id, which is how
+        a sandalwood query opened with five alphabetical Amouages. A
+        five-note bottle is making a stronger statement about each note
+        than a twenty-note one."""
+        focused = add_fragrance(conn, "Focused Profile")
+        declare(conn, focused, "sandalwood", "cedar", "musk")
+        sprawling = add_fragrance(conn, "Sprawling Profile")
+        declare(conn, sprawling, *(["sandalwood"] + [f"note{i}" for i in range(19)]))
+        plan = QueryPlan(text="", soft=[
+            Preference("note", "sandalwood", Direction.HIGH, said="sandalwood"),
+        ])
+        answer = recommend_plan(conn, plan)
+        names = [r.name for r in answer.results]
+        assert names.index("Focused Profile") < names.index("Sprawling Profile")
+
+    def test_prominence_can_reorder_within_declared_present_but_never_above_agreement(self):
+        """The bonus applies only to DECLARED_PRESENT, so the one
+        promotion it could ever buy is past independent community
+        agreement (1.0 + _weight(SUPPORTED) = 2.0) — the ceiling must
+        keep even a single-note profile below that."""
+        from fragrance_graph.catalog_profile import CatalogProfile
+
+        small = CatalogProfile(1, frozenset({"a", "b", "c"}), has_catalog_data=True)
+        large = CatalogProfile(
+            2, frozenset(f"n{i}" for i in range(25)), has_catalog_data=True
+        )
+        assert _declared_prominence_bonus(small) > _declared_prominence_bonus(large)
+        assert _declared_prominence_bonus(large) == 0.0
+        assert (
+            CATALOG_NOTE_DECLARED_WEIGHT + CATALOG_PROMINENCE_BONUS_MAX < 1.0 + 1.0
+        )

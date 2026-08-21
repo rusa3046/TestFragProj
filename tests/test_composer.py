@@ -605,6 +605,74 @@ class TestComposerTiebreakByMatchedWant:
         assert_honest(body)
 
 
+class TestTheMatrixReadsTheCatalogLadder:
+    """The preference matrix read only community facts, and the composer
+    tiebreak reorders by matched cells — so the tiebreak was overriding
+    the engine's catalog-aware order with a subset of the engine's own
+    information. Observed live: "like sandalwood + long lasting + strong"
+    put one commenter's "strong" above every bottle whose brand declares
+    sandalwood, with the declarers' chips showing an empty circle for
+    the note they declare."""
+
+    def _seeded(self, conn):
+        from tests.test_recommend import declare
+
+        declarer = add_fragrance(conn, "Ladder Declarer")
+        declare(conn, declarer, "sandalwood", "cedar")
+        stray = add_fragrance(conn, "Ladder Stray Comment")
+        _claim(conn, 900, frag=stray, claim_type="PROJECTION",
+               value="strong", author="lp1")
+        return declarer, stray
+
+    def test_a_declared_note_is_a_matched_cell_not_an_empty_circle(
+        self, client, conn
+    ):
+        declarer, _ = self._seeded(conn)
+        session_id = _create(client)
+        body = _compose(client, session_id, [
+            {"bucket": "like", "entity_type": "note", "value": "sandalwood"},
+        ]).json()
+        row = next(
+            r for r in body["results"] if r["fragrance_id"] == declarer
+        )
+        assert _status_by_value(row)["sandalwood"] == "matched"
+        # No wearer stands behind a declaration: the tier must stay
+        # UNKNOWN so tier-gated community language can never fire off it.
+        cell = next(
+            s for s in row["preference_status"] if s["value"] == "sandalwood"
+        )
+        assert cell["tier"] == "UNKNOWN"
+        assert_honest(body)
+
+    def test_the_tiebreak_no_longer_buries_the_declarer(self, client, conn):
+        declarer, stray = self._seeded(conn)
+        session_id = _create(client)
+        body = _compose(client, session_id, [
+            {"bucket": "like", "entity_type": "note", "value": "sandalwood"},
+            {"bucket": "like", "entity_type": "performance", "value": "strong"},
+        ]).json()
+        ids = [r["fragrance_id"] for r in body["results"]]
+        assert declarer in ids and stray in ids
+        assert ids.index(declarer) < ids.index(stray)
+        assert_honest(body)
+
+    def test_an_avoided_declared_note_is_a_contradiction_cell(
+        self, client, conn
+    ):
+        declarer, _ = self._seeded(conn)
+        session_id = _create(client)
+        body = _compose(client, session_id, [
+            {"bucket": "avoid", "entity_type": "note", "value": "cedar",
+             "mode": "reduce"},
+        ]).json()
+        row = next(
+            (r for r in body["results"] if r["fragrance_id"] == declarer), None
+        )
+        if row is not None:
+            assert _status_by_value(row)["cedar"] == "contradicted"
+        assert_honest(body)
+
+
 # --- vocabulary endpoint --------------------------------------------------
 
 

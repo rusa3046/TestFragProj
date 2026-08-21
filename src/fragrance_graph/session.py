@@ -469,7 +469,27 @@ def item_plan_attribute(item: PreferenceItem) -> tuple[str, str] | None:
     if entity_type is EntityType.OCCASION:
         return "occasion", item.value.strip().lower()
     if entity_type in (EntityType.SCENT_CHARACTERISTIC, EntityType.PERFORMANCE):
-        return classify_attribute(item.value)
+        attribute, value = classify_attribute(item.value)
+        if (
+            entity_type is EntityType.PERFORMANCE
+            and attribute not in ("longevity", "projection")
+        ):
+            # A chip in the PERFORMANCE picker is a performance claim by
+            # declaration — the shopper has already answered the question
+            # `classify_attribute`'s note-fallback exists for. Found live:
+            # the picker offers a bare "strong", the phrase table only
+            # knows "strong projection", so the chip compiled to
+            # `("note", "strong")` and real PROJECTION evidence could
+            # never match it — the shopper's most explicit signal, worth
+            # nothing. Retry the word as its own performance phrase
+            # before accepting a non-performance reading; the phrase's
+            # canonical value ("strong") is kept, and `_matches`' split
+            # rule means it reaches both "strong" and "strong projection"
+            # facts.
+            phrase = _PERFORMANCE_PHRASES.get(f"{value} projection")
+            if phrase is not None:
+                attribute, value, _direction = phrase
+        return attribute, value
     return None
 
 
