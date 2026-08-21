@@ -513,19 +513,40 @@ It is **demand-driven**, and that is a decision rather than an
 implementation detail:
 
 ```
-1. YouTube: search fragrance discussion, on the seeds in SEED_QUERIES
+1. YouTube: search on seeds the catalogue chooses — the popular,
+   note-carrying bottles the corpus cannot speak about yet
 2. ingest -> extract
 3. backfill: resolve everything the curated dictionary already covers
 4. export -> pages -> report
 ```
 
-Asking a catalogue what is new and *then* looking for discussion of it
+Asking a catalogue what is **new** and *then* looking for discussion of it
 answers the wrong question: a bottle launched yesterday has no YouTube
 comments, so a release feed delivers fragrances that cannot produce an edge.
-The corpus is already the detector — a new release climbs the
-unresolved-mention report exactly when people start discussing it. SPEC
-records the full argument. It also makes the catalogue cheap, since lookups
-go only to names the corpus has proved people are writing.
+That argument stands, and SPEC records it in full.
+
+**What changed on 2026-08-21 is which end of the catalogue gets asked.**
+The seeds used to be ten bottles named by hand when the catalogue held 56.
+It now holds 548, and a fixed list has no way to learn that — every run
+poured more evidence onto Aventus and Layton while 419 bottles stayed
+unrecommendable for want of a single claim. `daily.catalogue_seeds` picks
+the seeds instead: catalogued bottles that carry declared notes, have no
+community evidence, have never been searched before, and — the condition
+that makes it work — carry a large **retailer review count**.
+
+That last one is what keeps this demand-driven rather than a release feed.
+A bottle with 15,227 Nordstrom reviews is not a bottle nobody discusses; it
+is one *this corpus* has never asked about, which is a different thing.
+Retail popularity is the only signal available that predicts YouTube
+coverage without already being YouTube coverage. One bottle per brand, so
+three flankers of the same scent cannot take three of ten slots, and the
+shapes cycle through review / honest thoughts / worth it / smells like / vs
+— no dupe shape, since the corpus is already saturated with it.
+
+Rotation falls out of the same query: a bottle whose name appears in a past
+`retrieval_query` is not asked again, so the corpus grows into the
+catalogue rather than circling. `daily seeds` prints what the next run will
+ask, beside what the corpus was actually built from.
 
 **Spending is capped at $1/day, hard.** `data/spend.jsonl` is an
 append-only committed ledger; every scheduled run gets a fresh container, so
@@ -985,11 +1006,14 @@ argument for each; this is the short form.
    multi-fragrance comments. **Do not tune the extraction prompt before
    this.**
 
-5. **Broaden the discovery seeds.** Six of eight original seed queries
-   contained "dupe". That is why query diversity is low and why
-   `--min-queries` is not enforced — raising the bar would punish edges
-   for a bias in our own sampling. The loop is automated; choosing seeds
-   that don't inherit our search bias is the part that isn't.
+5. ~~**Broaden the discovery seeds.**~~ **Done twice.** First by hand —
+   ten mixed shapes replacing eight of which six said "dupe" — and then
+   by removing the hand: the seeds now come from the catalogue
+   (`catalogue_seeds`), which is the only version that keeps working as
+   the catalogue grows. What is *not* done is the consequence:
+   `--min-queries` is still off, because the diversity it would gate on
+   has only just started improving. Raise it after a few runs of
+   catalogue-seeded collection, not before.
 
 6. **Context-aware entity resolution.** Video titles are now stored, so
    "Perseus" under *"Maison Alhambra Perseus Review"* can resolve
