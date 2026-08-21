@@ -3,7 +3,9 @@
     python -m fragrance_graph.daily run
     python -m fragrance_graph.daily run --dry-run     # no key, no spend
 
-    1. YouTube: search fragrance discussion, on the seeds in SEED_QUERIES
+    1. YouTube: search fragrance discussion, on seeds the catalogue
+       chooses (`catalogue_seeds`) — the popular, note-carrying bottles
+       the corpus cannot speak about yet
     2. ingest -> extract
     3. backfill: resolve every mention the curated dictionary already covers
     4. export -> pages -> report
@@ -121,10 +123,167 @@ SEED_QUERIES = (
 #: can pay for, which would otherwise just be re-read as pending each run.
 DEFAULT_INGEST_LIMIT = 400
 
+#: How many catalogue-derived seeds a run asks for by default. Matches the
+#: length of `SEED_QUERIES` so the quota cost of a run is unchanged: this
+#: replaces the fixed list rather than adding to it.
+DEFAULT_CATALOGUE_SEEDS = 10
+
+#: Question shapes applied to a catalogue bottle, cycled in this order so
+#: a run's seeds are not ten of the same question.
+#:
+#: "review" leads because it is the shape most likely to *exist* for a
+#: bottle nobody has compared yet — the failure mode of a comparison
+#: search against an undiscussed bottle is zero results, and a seed that
+#: returns nothing costs a quota unit and teaches nothing. The dupe shape
+#: is deliberately absent: `SEED_QUERIES`' docstring records why the
+#: corpus is already saturated with it, and nothing about seeding from the
+#: catalogue changes that argument.
+CATALOGUE_SHAPES = (
+    "{name} review",
+    "{name} honest thoughts",
+    "is {name} worth it",
+    "smells like {name}",
+    "{name} vs",
+)
+
 
 def shape_mix(queries) -> Counter:
     """How many queries of each shape, most common first."""
     return Counter(query_shape(q) for q in queries)
+
+
+#: SQL behind `catalogue_seeds`. Kept beside it rather than inline so the
+#: four conditions can be read as the argument they are.
+_CATALOGUE_SEED_SQL = """
+WITH pool AS (
+    SELECT f.id,
+           f.canonical_name,
+           MAX(rl.review_count) AS retail_reviews,
+           ROW_NUMBER() OVER (
+               PARTITION BY lower(f.brand)
+               ORDER BY MAX(rl.review_count) DESC, f.canonical_name
+           ) AS rank_in_brand
+      FROM fragrances f
+      JOIN retailer_listings rl ON rl.fragrance_id = f.id
+     WHERE rl.review_count IS NOT NULL
+       AND EXISTS (SELECT 1 FROM fragrance_note_claim n
+                    WHERE n.fragrance_id = f.id)
+       AND NOT EXISTS (SELECT 1 FROM claims c
+                        WHERE c.subject_frag_id = f.id
+                           OR c.object_frag_id = f.id)
+       -- strpos, not a LIKE with wildcard concatenation: psycopg scans
+       -- the whole statement for placeholders -- comments included, which
+       -- is how an explanatory note here caused the very error it was
+       -- describing -- so a literal percent sign anywhere in a
+       -- parameterised statement is rejected outright. See
+       -- catalogue_seeds' own comment for the full story.
+       AND NOT EXISTS (SELECT 1 FROM video_discoveries d
+                        WHERE strpos(lower(d.retrieval_query),
+                                     lower(f.canonical_name)) > 0)
+     GROUP BY f.id, f.canonical_name, f.brand
+)
+SELECT canonical_name, retail_reviews
+  FROM pool
+ WHERE rank_in_brand = 1
+ ORDER BY retail_reviews DESC, canonical_name
+ LIMIT %s
+"""
+
+
+def catalogue_seeds(conn, limit: int = DEFAULT_CATALOGUE_SEEDS) -> list[str]:
+    """Searches aimed at catalogued bottles the corpus cannot speak about.
+
+    `SEED_QUERIES` names ten bottles chosen when the catalogue held 56.
+    The catalogue now holds 548, and the fixed list has no way to learn
+    that: every run pours more evidence onto Aventus and Layton while 419
+    bottles stay unrecommendable for want of a single claim. This asks the
+    catalogue what is missing instead.
+
+    Four conditions, each doing a specific job:
+
+    - **A retailer listing with a review count.** The count is a proxy
+      for "would YouTube bother", and it is the condition that makes this
+      work at all. `SEED_QUERIES`' docstring already records the trap —
+      *a broader question about a bottle nobody discusses returns nothing
+      either way* — and seeding straight from the catalogue would walk
+      into it, since most of a 548-bottle retail catalogue is obscure. A
+      bottle with 15,227 Nordstrom reviews is not obscure. Retail
+      popularity is the only signal here that predicts YouTube coverage
+      without already having YouTube coverage.
+    - **Declared notes.** A bottle whose notes we hold can be recommended
+      the moment it has any perceptual evidence, so collecting for it
+      converts directly. One with neither notes nor comments needs two
+      things and is a worse buy for the same quota unit.
+    - **No community claims.** The point. A bottle with evidence is not
+      what this is for, however popular it is.
+    - **Never searched before.** Rotation, and honest about its own
+      limits: it matches the bottle's name against past
+      `retrieval_query` rows, so a run that searched a bottle and found
+      nothing does not search it again next Thursday. The corpus grows
+      into the catalogue instead of circling.
+
+    One bottle per brand, because three La Vie est Belle flankers would
+    otherwise take three of ten slots and return overlapping videos —
+    measured on this catalogue, the unpartitioned top ten held three of
+    that family and two MYSLF variants.
+
+    Deterministic: same database, same seeds. The tie-break on name
+    exists so a run is reproducible rather than dependent on how Postgres
+    felt about equal review counts.
+
+    Returns query strings, not names — `_collect` searches text, and the
+    shape a bottle is asked about matters as much as which bottle it is
+    (see `CATALOGUE_SHAPES`).
+    """
+    try:
+        rows = list(conn.execute(_CATALOGUE_SEED_SQL, (limit,)))
+    except psycopg.errors.UndefinedTable:
+        # Only this one. A database without the retail tables — a fresh
+        # clone that ran `corpus import` and not `retail import` — is an
+        # ordinary state, and the caller falls back to SEED_QUERIES.
+        #
+        # Deliberately not `except Exception`: the first version caught
+        # everything and turned a real bug (a literal % in a
+        # parameterised statement, see the SQL) into a warning and a
+        # silent fallback to the very list this function exists to
+        # replace. The loop would have gone on collecting Aventus
+        # comments forever, reporting success. A broken query is not an
+        # ordinary state and must be loud.
+        conn.rollback()
+        log.warning("no retail tables; falling back to SEED_QUERIES")
+        return []
+    seeds = []
+    for index, row in enumerate(rows):
+        name = row["canonical_name"] if hasattr(row, "keys") else row[0]
+        seeds.append(CATALOGUE_SHAPES[index % len(CATALOGUE_SHAPES)].format(name=name))
+    return seeds
+
+
+def resolve_queries(
+    conn, explicit: list[str] | None, source: str = "catalogue"
+) -> list[str]:
+    """What this run will actually search for.
+
+    Precedence is explicit > catalogue > fixed, and the fallback is the
+    part that matters: `catalogue_seeds` returns `[]` on a database with
+    no retail tables *and* on one where every qualifying bottle has
+    already been searched. Both are ordinary states, not failures — the
+    first is a fresh clone, the second is the loop having done its job —
+    and neither should turn a scheduled run into a no-op. It falls back to
+    `SEED_QUERIES`, which still collects something useful.
+    """
+    if explicit:
+        return list(explicit)
+    if source == "fixed":
+        return list(SEED_QUERIES)
+    seeds = catalogue_seeds(conn)
+    if seeds:
+        return seeds
+    log.info(
+        "no catalogue seeds available (no retail data, or every qualifying "
+        "bottle already searched); using SEED_QUERIES"
+    )
+    return list(SEED_QUERIES)
 
 
 def render_seed_diversity(conn) -> str:
@@ -142,7 +301,13 @@ def render_seed_diversity(conn) -> str:
             " WHERE retrieval_query IS NOT NULL AND retrieval_query != ''"
         )
     ]
-    seeds, built = shape_mix(SEED_QUERIES), shape_mix(corpus)
+    # The seeds a run would actually use, not the fixed constant. Reading
+    # `SEED_QUERIES` here would have reported the plan the loop stopped
+    # following the day seeding moved to the catalogue — and this report
+    # exists precisely so "how diverse are the seeds" is answered by the
+    # code rather than from memory.
+    upcoming = resolve_queries(conn, None)
+    seeds, built = shape_mix(upcoming), shape_mix(corpus)
     shapes = sorted(set(seeds) | set(built))
 
     lines = [
@@ -443,8 +608,17 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument(
         "--queries",
         nargs="+",
-        default=list(SEED_QUERIES),
-        help="YouTube searches. See SEED_QUERIES for the shapes and why.",
+        default=None,
+        help="YouTube searches. Default: derived from the catalogue by "
+             "`catalogue_seeds` — the popular, note-carrying bottles the "
+             "corpus cannot speak about yet. Pass this to override.",
+    )
+    r.add_argument(
+        "--seed-source",
+        choices=("catalogue", "fixed"),
+        default="catalogue",
+        help="Where default seeds come from. 'fixed' restores the old "
+             "SEED_QUERIES list. Ignored when --queries is given.",
     )
     r.add_argument("--ingest-limit", type=int, default=DEFAULT_INGEST_LIMIT)
     r.add_argument("--max-videos", type=int, default=3)
@@ -501,7 +675,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = run(
             conn,
-            queries=args.queries,
+            queries=resolve_queries(conn, args.queries, args.seed_source),
             budget=Budget.load(cap_usd=args.cap, require_ledger=True),
             ingest_limit=args.ingest_limit,
             max_videos=args.max_videos,
