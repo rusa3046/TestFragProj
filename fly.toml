@@ -1,0 +1,40 @@
+# Fly.io deployment for the FACET demo.
+#
+#   fly launch --no-deploy --copy-config --name <your-app-name>
+#   fly deploy
+#
+# The app name here is a placeholder; `fly launch` rewrites it. Nothing in
+# this file is secret and nothing needs to be — the image carries its own
+# database, built from the committed corpus, so there is no connection
+# string, no managed instance to provision, and no credential to leak.
+app = "facet-demo"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8000"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+
+  # The demo is one process serving one person at a time. Scaling to zero
+  # is the difference between a free demo and a monthly bill; the cost is
+  # a few seconds on the first request after an idle period, which is the
+  # right trade for a link on a CV.
+  #
+  # It is also why the database is baked into the image rather than
+  # rebuilt on boot: a 56-second rebuild would run on every cold start,
+  # and the first visitor would give up long before it finished.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  # Postgres and Python in one machine. 256MB is the free-tier default and
+  # is not enough for both; 512MB runs this corpus comfortably.
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

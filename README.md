@@ -911,6 +911,34 @@ uv run uvicorn fragrance_graph.api:app --host 0.0.0.0
 # then open http://localhost:8000/
 ```
 
+### Or as one container, database included
+
+```bash
+docker build -t facet .
+docker run -p 8000:8000 facet
+```
+
+**The database is built during `docker build`, not at boot.** That
+follows from something this README already argues: the database is
+disposable and the corpus is not, so there is nothing in it worth
+keeping that is not already in git. Measured on this corpus the full
+seven-command rebuild takes ~56s — fine once at build time, much too
+slow on every cold start with a visitor waiting. The image ships with
+the data directory already populated, and boot is just "start postgres,
+start uvicorn".
+
+The build refuses to produce an image whose `retailer_listings` came out
+empty, for the reason recorded above: that failure publishes a *working*
+site that quietly answers from community evidence alone.
+
+`fly.toml` deploys it (`fly launch --no-deploy --copy-config` then `fly
+deploy`). No managed database, no connection string, no secret — which
+is the practical dividend of keeping the corpus as the source of truth.
+Sessions do not survive a redeploy, since they are event-sourced into
+that same disposable database; for a demo that is the right trade, and a
+real deployment would point `FRAGRANCE_DB_URL` at a managed instance
+instead (`docker/entrypoint.sh` already honours it).
+
 What you get, and where each piece is documented in
 [docs/FACET.md](./docs/FACET.md):
 

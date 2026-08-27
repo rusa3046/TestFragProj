@@ -1,0 +1,25 @@
+# The build needs source, the corpus and the curated inputs. Everything
+# else is either rebuilt inside the image or has no business in it.
+#
+# `data/` is copied wholesale and deliberately: `data/corpus/` is the
+# source of truth the database is built from, and `data/curation/` holds
+# the houses, retailer listings and declared notes `corpus import` never
+# reads. Excluding either produces an image that boots fine and answers
+# worse.
+.git
+.github
+.claude
+site/
+*.db
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+docs/
+tests/
+seed/
+*.md
+!README.md
+.env
+.env.*
