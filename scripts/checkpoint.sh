@@ -31,9 +31,10 @@
 #   2. pytest      — the full suite
 #   3. audit       — the cross-surface provenance contract
 #   4. benchmark   — recommendation eval; unsupported assertions must be 0
+#   5. cards       — the assembled sentences a shopper reads, vs the golden
 #
-# 3 and 4 need a populated developer database and are skipped with a loud
-# notice when one is absent, rather than silently passing.
+# 3, 4 and 5 need a populated developer database and are skipped with a
+# loud notice when one is absent, rather than silently passing.
 #
 set -euo pipefail
 
@@ -65,7 +66,7 @@ step "pytest"
 uv run pytest -q || fail "tests failed"
 
 if [[ "$QUICK" == "1" ]]; then
-  echo "(--quick: skipping audit and benchmark)"
+  echo "(--quick: skipping audit, benchmark and card golden)"
 else
   step "provenance audit"
   if uv run python -m fragrance_graph.audit >/tmp/checkpoint-audit.txt 2>&1; then
@@ -97,6 +98,19 @@ if notice:
 conn.close()
 PY
     fail "the benchmark reported unsupported assertions"
+  fi
+
+  step "card golden"
+  # The other three gates check rules. This one checks the artifact: the
+  # assembled sentences a shopper actually reads, rendered through the
+  # same function the kiosk calls. Six defects reached a screen in one
+  # week with every unit test passing, because a card is a composition of
+  # a dozen correct functions plus the corpus plus the ordering.
+  if uv run python -m fragrance_graph.evals.cards >/tmp/checkpoint-cards.txt 2>&1; then
+    tail -1 /tmp/checkpoint-cards.txt
+  else
+    tail -40 /tmp/checkpoint-cards.txt
+    fail "the customer-visible cards drifted from data/eval/cards.golden.txt"
   fi
 fi
 

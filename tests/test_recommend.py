@@ -56,6 +56,22 @@ def note(conn, i, *, frag, value, author, channel="chan_a", claim_type="NOTE_DES
     conn.commit()
 
 
+def _deny(conn, i, *, frag, value, author, channel="chan_b",
+          claim_type="NOTE_DESCRIPTOR"):
+    """One person asserting the bottle is *not* the thing — a `DENIED`
+    claim, the opposing side of a fact. `note` writes the supporting
+    side; this writes the side the whole `polarity` column exists to keep
+    distinguishable from it."""
+    note(conn, i, frag=frag, value=value, author=author, channel=channel,
+         claim_type=claim_type)
+    conn.execute(
+        "UPDATE claims SET polarity = 'DENIED' WHERE comment_id = "
+        "(SELECT id FROM comments WHERE source_id = %s)",
+        (f"t1_fake{i:05d}",),
+    )
+    conn.commit()
+
+
 def declare(conn, frag, *raw_notes, claim_type="retailer_declared", source="test retailer"):
     """One bottle's declared notes, for `TestAnchorProfileFallback` —
     `fragrance_note_claim` rows, the retailer/brand half of the corpus,
@@ -345,6 +361,31 @@ class TestDigest:
         text = digest(rec)
         assert "People call it raspberry" in text
         assert "call it Sandalwood" not in text
+
+    def test_no_headcount_tail_when_nobody_is_behind_the_card(self):
+        """Catalog-first candidacy made zero-commenter results ordinary,
+        and the unconditional tail rendered them "Sandalwood is among the
+        declared notes. 0 people across 0 channels behind everything
+        cited." — nonsense, and a headcount sentence about a fact that
+        carries no headcount by design. Found by the golden card file on
+        its first read, on four of five results for a plain sandalwood
+        request."""
+        catalog = Reason(kind="catalog_fit",
+                         text="Sandalwood is among the declared notes.",
+                         strength=Strength.CANONICAL)
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[catalog],
+                             people=0, creators=0)
+        text = digest(rec)
+        assert "0 people" not in text
+        assert "behind everything cited" not in text
+        assert text == "Sandalwood is among the declared notes."
+
+    def test_the_tail_returns_as_soon_as_one_person_is_behind_it(self):
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[
+            Reason(kind="prefer", text="raspberry",
+                   strength=Strength.OBSERVED, people=1, creators=1),
+        ], people=1, creators=1)
+        assert "behind everything cited" in digest(rec)
 
     def test_a_contested_facts_disagreement_number_appears(self):
         contested = Reason(kind="profile", text="longevity long lasting",
@@ -1494,6 +1535,75 @@ class TestInvertedModifiersNeverMatchTheBareTerm:
                     continue
                 texts = [r.text for r in result.reasons + result.caveats]
                 assert not any("less sweet" in t for t in texts), (direction, texts)
+
+
+class TestTiedEvidenceIsNotAReasonToBuy:
+    """`CONTESTED_MIN_PEOPLE` is 2, so one dissenter can never grade a
+    fact CONTESTED — a floor that correctly protects 8-for/1-against from
+    a single grumpy commenter, but which at 1-for/1-against dropped the
+    opposing side entirely.
+
+    Found by the golden card file on its first read: Lattafa Khamrah
+    Dukhan rendered `sweet=unknown` in its chip strip (the matrix nets
+    the two sides) directly beside "One commenter said it is sweet" under
+    *why try this*. One person said sweet; one person said it is not. The
+    denial is exactly what `polarity` exists to preserve, and it was
+    being discarded at render time."""
+
+    def _split(self, conn, name, value, *, for_people, against_people):
+        frag = add_fragrance(conn, name)
+        i = 600
+        for n in range(for_people):
+            note(conn, i + n, frag=frag, value=value, author=f"y{n}",
+                 channel=f"cy{n}")
+        i += 50
+        for n in range(against_people):
+            _deny(conn, i + n, frag=frag, value=value, author=f"n{n}",
+                  channel=f"cn{n}")
+        return frag
+
+    def test_one_for_one_against_is_not_a_fit_signal(self, conn):
+        self._split(conn, "Evenly Split Bottle", "sweet",
+                    for_people=1, against_people=1)
+        plan = QueryPlan(text="", soft=[
+            Preference("note", "sweet", Direction.HIGH, said="sweet"),
+        ])
+        answer = recommend_plan(conn, plan)
+        result = next(
+            r for r in answer.results if r.name == "Evenly Split Bottle"
+        )
+        assert not [r for r in result.reasons if r.kind == "prefer"], (
+            "a tied fact must not be filed as a reason to buy"
+        )
+        assert result.caveats, "the disagreement has to go somewhere visible"
+
+    def test_the_disagreement_is_disclosed_in_the_sentence(self, conn):
+        self._split(conn, "Evenly Split Bottle", "sweet",
+                    for_people=1, against_people=1)
+        plan = QueryPlan(text="", soft=[
+            Preference("note", "sweet", Direction.HIGH, said="sweet"),
+        ])
+        answer = recommend_plan(conn, plan)
+        result = next(
+            r for r in answer.results if r.name == "Evenly Split Bottle"
+        )
+        assert any("disagree" in c.phrase() for c in result.caveats), [
+            c.phrase() for c in result.caveats
+        ]
+
+    def test_a_well_supported_fact_keeps_its_single_dissenter(self, conn):
+        """The floor is doing real work above the tie: 3-for/1-against is
+        still a fit signal, and demoting it would empty the cards."""
+        self._split(conn, "Mostly Agreed Bottle", "sweet",
+                    for_people=3, against_people=1)
+        plan = QueryPlan(text="", soft=[
+            Preference("note", "sweet", Direction.HIGH, said="sweet"),
+        ])
+        answer = recommend_plan(conn, plan)
+        result = next(
+            r for r in answer.results if r.name == "Mostly Agreed Bottle"
+        )
+        assert [r for r in result.reasons if r.kind == "prefer"]
 
 
 class TestCatalogWeights:
