@@ -468,11 +468,21 @@ def digest(recommendation: Recommendation) -> str:
         )
 
     lead = f"{lead}." if lead else lead
+    # No tail when nobody is behind the card. Catalog-first candidacy made
+    # zero-commenter results ordinary — a bottle recommended entirely on
+    # its declared notes — and the unconditional tail rendered them
+    # "Sandalwood is among the declared notes. 0 people across 0 channels
+    # behind everything cited.", which is both nonsense and a headcount
+    # sentence about a fact that carries no headcount by design. Found by
+    # the golden card file on its first read, on four of the five results
+    # for a plain sandalwood request.
     tail = (
         f"{_people(recommendation.people)} across "
         f"{_sources(recommendation.creators)} behind everything cited."
+        if recommendation.people
+        else ""
     )
-    text = f"{lead} {tail}" if lead else tail
+    text = " ".join(part for part in (lead, tail) if part)
 
     # Structural backstop, not the primary guard: if sanitising every
     # embedded fragment individually still somehow left more than two
@@ -481,7 +491,8 @@ def digest(recommendation: Recommendation) -> str:
     # safest lead rather than ship whatever was assembled.
     if len(_SENTENCE_END.findall(text)) > 2:
         safe_lead = _weak_fallback(everything)
-        text = f"{safe_lead}. {tail}" if safe_lead else tail
+        safe_lead = f"{safe_lead}." if safe_lead else ""
+        text = " ".join(part for part in (safe_lead, tail) if part)
     return text
 
 
@@ -624,7 +635,23 @@ def _fact_reason(fact: AttributeFact, kind: str) -> Reason:
         claim_ids=fact.supporting.claim_ids,
         inferred=fact.inferred,
         against=fact.opposing.people
-        if fact.strength is Strength.CONTESTED else 0,
+        if (
+            fact.strength is Strength.CONTESTED
+            # ...or the evidence is simply tied. `CONTESTED_MIN_PEOPLE` is
+            # 2, so one dissenter can never grade a fact CONTESTED — a
+            # floor that correctly protects 8-for/1-against from a single
+            # grumpy commenter, but which at 1-for/1-against dropped the
+            # opposing count entirely and rendered "One commenter said it
+            # is sweet" with the denial invisible. Found by the golden
+            # card file on its first read: Lattafa Khamrah Dukhan showed
+            # `sweet=unknown` in its chip strip (the matrix nets the two
+            # sides) beside that sentence in "why try this". One person
+            # said sweet and one person said it is not; that is something
+            # to disclose, never a reason to buy. Ratio-based opposition
+            # keeps its existing meaning above the floor.
+            or (fact.opposing.people and fact.opposing.people >= fact.supporting.people)
+        )
+        else 0,
     )
 
 
@@ -1296,7 +1323,7 @@ def _score(
             # "less rose" has ruled on the trade-off already.
             result.caveats.append(_fact_reason(fact, "avoid"))
             result.score -= 3.0 + _weight(fact)
-        elif fact.opposing.people > fact.supporting.people:
+        elif fact.opposing.people and fact.opposing.people >= fact.supporting.people:
             # Asked for strong projection, and more people say it is weak
             # than strong. Citing that as a reason to pick the bottle
             # inverts the evidence; it belongs in what the reader should

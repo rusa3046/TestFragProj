@@ -1,0 +1,818 @@
+FACET card golden file.
+
+Rendered by `python -m fragrance_graph.evals.cards --update` from
+data/eval/cards.jsonl, through the same `api._session_response` the
+kiosk calls. Committed so any change to a customer-visible sentence,
+to result ordering, or to a chip's status shows up as a reviewable
+diff instead of as a screenshot from somebody using the product.
+
+Scores are deliberately absent — order carries the ranking.
+========================================================================
+CASE regression-less-sweet-inversion
+  why: 'less sweet' token-matched a request for 'sweet' and rendered a checked sweet chip citing 'One commenter said it is less sweet'. Khamrah Qahwa is the bottle it was photographed on; its sweet chip is legitimate (the corpus holds 'so cloying and sweet') so the pin is that the cited sentence is never the inverted one.
+  chip: like vibe masculine
+  chip: like note sweet
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized masculine and sweet first.
+  preserve: masculine, sweet
+
+[1] COMMUNITY_FAVORITE  Lattafa Khamrah
+    chips: masculine=matched  sweet=matched
+    digest: 9 people said sweet, on videos about this bottle rather than naming it. 9 people across 5 channels behind everything cited.
+    why:  Wearers consistently describe it as sweet.
+    why:  Several wearers describe it as masculine.
+    coverage: Community evidence: moderate
+
+[2] COMMUNITY_FAVORITE  Parfums de Marly Layton
+    chips: masculine=matched  sweet=matched
+    digest: 12 people said sweet, on videos about this bottle rather than naming it. 12 people across 5 channels behind everything cited.
+    why:  Wearers consistently describe it as sweet.
+    why:  One commenter said it is extra spicy strong masculine leaning.
+    coverage: Community evidence: moderate
+
+[3] COMMUNITY_FAVORITE  Lattafa Khamrah Qahwa
+    chips: masculine=matched  sweet=matched
+    digest: 2 people said masculine. 2 people across 2 channels behind everything cited.
+    why:  Several wearers describe it as masculine.
+    why:  One commenter said it is sweet.
+    coverage: Community evidence: moderate
+
+[4] WORTH_DISCOVERING  Kilian Angels' Share Paradis
+    chips: masculine=matched  sweet=matched
+    digest: one commenter said masculine. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is masculine.
+    why:  One commenter said it is sweet.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Thomas Kosmala No. 4
+    chips: masculine=matched  sweet=matched
+    digest: 1 person said masculine, on videos about this bottle rather than naming it. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is masculine.
+    why:  One commenter said it is sweet.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE regression-less-sweet-as-an-avoid
+  why: The same inversion ran the other way: 'less sweet' counted as evidence the bottle HAS sweetness and cost it -3.0 for somebody avoiding it.
+  chip: avoid note sweet (reduce)
+  chip: like vibe masculine
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized masculine first, then looked for distinctive options with less sweet evidence.
+  preserve: masculine
+  reduce: sweet
+
+[1] WORTH_DISCOVERING  Creed Aventus Cologne
+    chips: sweet=unknown  masculine=matched
+    digest: one commenter said masculine. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is masculine.
+    coverage: Community insight: limited so far
+
+[2] WORTH_DISCOVERING  French Avenue Liquid Brun
+    chips: sweet=unknown  masculine=matched
+    digest: one commenter said masculine. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is masculine.
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  Armaf Club de Nuit Intense Man
+    chips: sweet=unknown  masculine=unknown
+    digest: no sweet evidence recorded for it; 5 people across 4 channels have described it. 5 people across 4 channels behind everything cited.
+    coverage: Community evidence: moderate
+
+[4] WORTH_DISCOVERING  Byredo Black Saffron
+    chips: sweet=matched  masculine=unknown
+    digest: Declared profile isn't sweet-leaning.
+    why:  Declared profile isn't sweet-leaning.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Byredo Rose of No Man's Land
+    chips: sweet=matched  masculine=unknown
+    digest: Declared profile isn't sweet-leaning.
+    why:  Declared profile isn't sweet-leaning.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE regression-catalog-sentence-in-community-frame
+  why: Rendered live as 'People call it Sandalwood is among the declared notes.' — a catalog-voiced sentence spliced into the community frame. The digest line is the pin.
+  chip: like note sandalwood
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized sandalwood first.
+  preserve: sandalwood
+
+[1] WORTH_DISCOVERING  Estée Lauder AERIN Fleur de Peony
+    chips: sandalwood=matched
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    coverage: Community insight: limited so far
+
+[2] WORTH_DISCOVERING  Hermès Twilly d'Hermès
+    chips: sandalwood=matched
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  Tom Ford Private Blend Oud Wood
+    chips: sandalwood=matched
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    coverage: Community insight: limited so far
+
+[4] WORTH_DISCOVERING  Tom Ford Santal Blush
+    chips: sandalwood=matched
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Versace Eros Pour Femme
+    chips: sandalwood=matched
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE regression-duplicate-chip
+  why: One chip tapped twice scored twice and printed its caveat twice on one card. Both chips are sent here; exactly one must appear in the chip strip and each sentence once.
+  chip: like performance strong
+  chip: like performance strong
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized strong first.
+  preserve: strong, strong
+
+[1] WORTH_DISCOVERING  Armaf Club de Nuit Intense Man
+    chips: strong=matched  strong=matched
+    digest: People call it projection strong. 3 people across 3 channels behind everything cited.
+    why:  Wearers consistently report strong projection.
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Armaf Club de Nuit Imperiale
+    chips: strong=matched  strong=matched
+    digest: 3 people said projection strong. 3 people across 1 channel behind everything cited.
+    why:  There is some evidence of strong projection.
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  French Avenue Liquid Brun
+    chips: strong=matched  strong=matched
+    digest: 3 people said projection strong. 3 people across 1 channel behind everything cited.
+    why:  There is some evidence of strong projection.
+    coverage: Community insight: limited so far
+
+[4] WORTH_DISCOVERING  Lattafa Khamrah Dukhan
+    chips: strong=matched  strong=matched
+    digest: 3 people said projection strong. 3 people across 1 channel behind everything cited.
+    why:  There is some evidence of strong projection.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Lattafa Bade'e Al Oud Amethyst
+    chips: strong=matched  strong=matched
+    digest: 2 people said projection strong, on videos about this bottle rather than naming it. 2 people across 1 channel behind everything cited.
+    why:  There is some evidence of strong projection.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE regression-declared-note-vs-one-commenter
+  why: The owner's exact reported query. Two of its three chips are performance, which only the community can answer, so bottles with two wearer-backed matches legitimately outrank a bottle matching only the declared note — every result here shows sandalwood=unknown and that is the coverage asymmetry, not a ranking bug. Pinned because it is the query that started the investigation and because the day performance data arrives for catalogued bottles, this case should visibly change. The declared-note weighting itself is isolated in `weighting-declared-note-vs-one-commenter`.
+  chip: like note sandalwood
+  chip: like performance long lasting
+  chip: like performance strong
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized sandalwood, long lasting and strong first.
+  preserve: sandalwood, long lasting, strong
+
+[1] COMMUNITY_FAVORITE  Armaf Club de Nuit Intense Man
+    chips: sandalwood=unknown  long lasting=matched  strong=matched
+    digest: People call it longevity long lasting and projection strong. 5 people across 4 channels behind everything cited.
+    why:  Wearers consistently report long lasting.
+    why:  Wearers consistently report strong projection.
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Orientica Luxury Collection Royal Bleu
+    chips: sandalwood=unknown  long lasting=matched  strong=matched
+    digest: 4 people said longevity long lasting. 4 people across 1 channel behind everything cited.
+    why:  There is some evidence of long lasting.
+    why:  There is some evidence of strong projection.
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  Armaf Club de Nuit Imperiale
+    chips: sandalwood=unknown  long lasting=matched  strong=matched
+    digest: 3 people said projection strong. 3 people across 1 channel behind everything cited.
+    why:  There is some evidence of strong projection.
+    why:  There is some evidence of long lasting.
+    coverage: Community insight: limited so far
+
+[4] COMMUNITY_FAVORITE  Lattafa Khamrah Dukhan
+    chips: sandalwood=unknown  long lasting=matched  strong=matched
+    digest: 3 people said projection strong. 3 people across 2 channels behind everything cited.
+    why:  Several wearers report long lasting.
+    why:  There is some evidence of strong projection.
+    coverage: Community evidence: moderate
+
+[5] WORTH_DISCOVERING  Lattafa Khamrah
+    chips: sandalwood=unknown  long lasting=matched  strong=contradicted
+    digest: 14 people said longevity long lasting, on videos about this bottle rather than naming it — though 3 of 10 disagree on projection. 14 people across 6 channels behind everything cited.
+    why:  Wearers consistently report long lasting.
+    know: Projection opinions are mixed across wearers.
+    coverage: Community evidence: moderate
+
+========================================================================
+CASE weighting-declared-note-vs-one-commenter
+  why: Isolates the weighting fix with nothing else in play: one note the catalogue can answer, one performance term only the community can. A declared note is worth more than a single stray commenter's word on a different dimension (1.5 vs 1.2) and less than independent agreement (2.0) — so declared-sandalwood bottles must appear here.
+  chip: like note sandalwood
+  chip: like note woody
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized sandalwood and woody first.
+  preserve: sandalwood, woody
+
+[1] WORTH_DISCOVERING  Creed Aventus
+    chips: sandalwood=matched  woody=matched
+    digest: Sandalwood is among the declared notes. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is fruity and woody.
+    why:  Sandalwood is among the declared notes.
+    coverage: Community insight: limited so far
+
+[2] STRONG_PROFILE_FIT  Tom Ford Private Blend Oud Wood
+    chips: sandalwood=matched  woody=matched
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    why:  Woody-forward declared profile.
+    coverage: Community insight: limited so far
+
+[3] STRONG_PROFILE_FIT  Diptyque Tam Dao
+    chips: sandalwood=matched  woody=matched
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    why:  Woody-forward declared profile.
+    coverage: Community insight: limited so far
+
+[4] STRONG_PROFILE_FIT  Marc Jacobs Daisy Wild
+    chips: sandalwood=matched  woody=matched
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    why:  Woody-forward declared profile.
+    coverage: Community insight: limited so far
+
+[5] STRONG_PROFILE_FIT  Chanel BLEU DE CHANEL
+    chips: sandalwood=matched  woody=matched
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    why:  Woody-forward declared profile.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE regression-performance-chip-is-performance
+  why: The kiosk's 'strong' chip compiled to ('note','strong'), so real PROJECTION evidence could never match the most explicit signal in the composer. A matched strong chip on a bottle with projection evidence is the pin.
+  chip: want performance strong
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized strong first.
+  target: strong
+
+[1] WORTH_DISCOVERING  Armaf Club de Nuit Intense Man
+    chips: strong=matched
+    digest: People call it projection strong. 3 people across 3 channels behind everything cited.
+    why:  Wearers consistently report strong projection.
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Armaf Club de Nuit Imperiale
+    chips: strong=matched
+    digest: 3 people said projection strong. 3 people across 1 channel behind everything cited.
+    why:  There is some evidence of strong projection.
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  French Avenue Liquid Brun
+    chips: strong=matched
+    digest: 3 people said projection strong. 3 people across 1 channel behind everything cited.
+    why:  There is some evidence of strong projection.
+    coverage: Community insight: limited so far
+
+[4] WORTH_DISCOVERING  Lattafa Khamrah Dukhan
+    chips: strong=matched
+    digest: 3 people said projection strong. 3 people across 1 channel behind everything cited.
+    why:  There is some evidence of strong projection.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Lattafa Bade'e Al Oud Amethyst
+    chips: strong=matched
+    digest: 2 people said projection strong, on videos about this bottle rather than naming it. 2 people across 1 channel behind everything cited.
+    why:  There is some evidence of strong projection.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE budget-under-200-discloses-which-price
+  why: Creed Aventus satisfies 'under $200' on a 0.33oz at $100 while its 3.3oz is $510 — judged correct, not a bug, because that variant is real and in stock. Pinned so the day the disclosure changes, it changes visibly.
+  chip: like note sandalwood
+  chip: want budget <= 200
+  chip: want occasion summer
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized sandalwood and summer first.
+  preserve: sandalwood
+  constraints: budget <= $200, occasion: summer
+
+[1] STRONG_PROFILE_FIT  Jimmy Choo I Want Choo With Love
+    chips: sandalwood=matched  budget=matched  summer=unknown
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    why:  Declared profile leans citrus — a conservative catalog fit for summer wear.
+    coverage: Community insight: limited so far
+
+[2] STRONG_PROFILE_FIT  Yves Saint Laurent Jumpsuit - Le Vestiaire des Parfums
+    chips: sandalwood=matched  budget=matched  summer=unknown
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    why:  Declared profile leans citrus/fresh — a conservative catalog fit for summer wear.
+    coverage: Community insight: limited so far
+
+[3] STRONG_PROFILE_FIT  Acqua di Parma Colonia
+    chips: sandalwood=matched  budget=matched  summer=unknown
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    why:  Declared profile leans citrus/fresh — a conservative catalog fit for summer wear.
+    coverage: Community insight: limited so far
+
+[4] STRONG_PROFILE_FIT  Guerlain Aqua Allegoria Florabloom
+    chips: sandalwood=matched  budget=matched  summer=unknown
+    digest: Sandalwood is among the declared notes.
+    why:  Sandalwood is among the declared notes.
+    why:  Declared profile leans citrus/fresh — a conservative catalog fit for summer wear.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Creed Aventus Cologne
+    chips: sandalwood=unknown  budget=unknown  summer=matched
+    digest: People call it occasion summer. 3 people across 2 channels behind everything cited.
+    why:  Wearers consistently confirm it for summer wear.
+    coverage: Community evidence: moderate
+
+========================================================================
+CASE catalog-first-proving-query
+  why: The screenshot that forced catalog-first generation: this returned 2 bottles from a 548-bottle catalogue because comments were gating candidacy. Result count and the presence of zero-community bottles are the pin.
+  chip: avoid note sweet (reduce)
+  chip: avoid note vanilla (reduce)
+  chip: want occasion summer
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized summer first, then looked for distinctive options with less sweet and vanilla evidence.
+  reduce: sweet, vanilla
+  constraints: occasion: summer
+
+[1] WORTH_DISCOVERING  Creed Aventus Cologne
+    chips: sweet=unknown  vanilla=unknown  summer=matched
+    digest: People call it occasion summer. 3 people across 2 channels behind everything cited.
+    why:  Wearers consistently confirm it for summer wear.
+    coverage: Community evidence: moderate
+
+[2] STRONG_PROFILE_FIT  Chanel COCO MADEMOISELLE
+    chips: sweet=matched  vanilla=matched  summer=unknown
+    digest: Declared profile isn't sweet-leaning.
+    why:  Declared profile isn't sweet-leaning.
+    why:  Vanilla isn't among the declared notes.
+    why:  Declared profile leans citrus — a conservative catalog fit for summer wear.
+    coverage: Community insight: limited so far
+
+[3] STRONG_PROFILE_FIT  Chanel N°5 L'EAU
+    chips: sweet=matched  vanilla=matched  summer=unknown
+    digest: Declared profile isn't sweet-leaning.
+    why:  Declared profile isn't sweet-leaning.
+    why:  Vanilla isn't among the declared notes.
+    why:  Declared profile leans citrus/fresh — a conservative catalog fit for summer wear.
+    coverage: Community insight: limited so far
+
+[4] STRONG_PROFILE_FIT  Chloé Atelier des Fleurs Magnolia Alba
+    chips: sweet=matched  vanilla=matched  summer=unknown
+    digest: Declared profile isn't sweet-leaning.
+    why:  Declared profile isn't sweet-leaning.
+    why:  Vanilla isn't among the declared notes.
+    why:  Declared profile leans citrus/fresh — a conservative catalog fit for summer wear.
+    coverage: Community insight: limited so far
+
+[5] STRONG_PROFILE_FIT  Clinique Happy Perfume Rollerball
+    chips: sweet=matched  vanilla=matched  summer=unknown
+    digest: Declared profile isn't sweet-leaning.
+    why:  Declared profile isn't sweet-leaning.
+    why:  Vanilla isn't among the declared notes.
+    why:  Declared profile leans citrus/fresh — a conservative catalog fit for summer wear.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE anchor-minus-the-complained-axis
+  why: 'i said i like side effect but its too warm' and it recommended the warmest bottle in the corpus. The anchor's profile minus the avoided axis is the pin.
+  chip: like fragrance Initio Parfums Privés Side Effect
+  chip: avoid scent_characteristic warm (reduce)
+------------------------------------------------------------------------
+HEADLINE: Not enough people have compared these directly; matches below share Initio Parfums Privés Side Effect's official notes, leaving out its warm ones.
+  anchors: Initio Parfums Privés Side Effect
+  reduce: warm
+
+[1] WORTH_DISCOVERING  Penhaligon's Halfeti
+    chips: Initio Parfums Privés Side Effect=matched  warm=contradicted
+    digest: official notes share saffron and sandalwood with Initio Parfums Privés Side Effect.
+    why:  Matches your preference for official notes share saffron and sandalwood with Initio Parfums Privés Side Effect.
+    coverage: Community insight: limited so far
+
+[2] WORTH_DISCOVERING  Amouage Guidance
+    chips: Initio Parfums Privés Side Effect=matched  warm=unknown
+    digest: official notes share saffron and sandalwood with Initio Parfums Privés Side Effect.
+    why:  Matches your preference for official notes share saffron and sandalwood with Initio Parfums Privés Side Effect.
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  Amouage Guidance 46
+    chips: Initio Parfums Privés Side Effect=matched  warm=unknown
+    digest: official notes share saffron and sandalwood with Initio Parfums Privés Side Effect.
+    why:  Matches your preference for official notes share saffron and sandalwood with Initio Parfums Privés Side Effect.
+    coverage: Community insight: limited so far
+
+[4] WORTH_DISCOVERING  Ex Nihilo Outcast Blue
+    chips: Initio Parfums Privés Side Effect=matched  warm=unknown
+    digest: official notes share saffron and sandalwood with Initio Parfums Privés Side Effect.
+    why:  Matches your preference for official notes share saffron and sandalwood with Initio Parfums Privés Side Effect.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Amouage Purpose 50
+    chips: Initio Parfums Privés Side Effect=matched  warm=unknown
+    digest: official notes share saffron and sandalwood with Initio Parfums Privés Side Effect.
+    why:  Matches your preference for official notes share saffron and sandalwood with Initio Parfums Privés Side Effect.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE signature-query-delina-rose
+  why: The sentence the product is named for. Read forwards it returns the rosiest bottles to somebody who just said rose is the problem.
+  said: "I love Delina but the rose is too strong"
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I looked for options with less rose evidence.
+  anchors: Parfums de Marly Delina
+
+[1] WORTH_DISCOVERING  Parfums de Marly Delina Exclusif
+    digest: People compare this to Parfums de Marly Delina. 4 people across 2 channels behind everything cited.
+    why:  One commenter said it is rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here).
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Armaf Club de Nuit Imperiale
+    digest: one commenter said rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here). 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here).
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  Lattafa Bade'e Al Oud Amethyst
+    digest: 3 people said rose mentioned by 3 people here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named, on videos about this bottle rather than naming it. 3 people across 0 channels behind everything cited.
+    why:  There is some evidence that it is rose mentioned by 3 people here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named.
+    coverage: Community insight: limited so far
+
+[4] WORTH_DISCOVERING  Kilian Angels' Share Paradis
+    digest: 1 person said rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named, on videos about this bottle rather than naming it. 1 person across 0 channels behind everything cited.
+    why:  One commenter said it is rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Maison Alhambra Delilah
+    digest: People compare this to Parfums de Marly Delina. 3 people across 2 channels behind everything cited.
+    coverage: Community evidence: moderate
+
+========================================================================
+CASE free-text-insane-longevity
+  why: From the owner's real session log. An intensifier phrase the parser must read as a performance preference rather than dropping.
+  said: "I want something with insane longevity"
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized long lasting first.
+
+[1] WORTH_DISCOVERING  Lattafa Khamrah
+    digest: 14 people said longevity long lasting, on videos about this bottle rather than naming it. 14 people across 6 channels behind everything cited.
+    why:  Wearers consistently report long lasting.
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Armaf Club de Nuit Intense Man
+    digest: People call it longevity long lasting. 5 people across 4 channels behind everything cited.
+    why:  Wearers consistently report long lasting.
+    coverage: Community evidence: moderate
+
+[3] WORTH_DISCOVERING  Maison Alhambra Hercules
+    digest: People call it longevity long lasting. 3 people across 2 channels behind everything cited.
+    why:  Wearers consistently report long lasting.
+    coverage: Community evidence: moderate
+
+[4] WORTH_DISCOVERING  Parfums de Marly Layton
+    digest: longevity long lasting — 24 people say so and 15 disagree, some inferred from the video rather than named — though 15 of 39 disagree on longevity. 24 people across 7 channels behind everything cited.
+    know: Longevity opinions are mixed across wearers.
+    coverage: Community evidence: moderate
+
+[5] WORTH_DISCOVERING  Orientica Luxury Collection Royal Bleu
+    digest: 4 people said longevity long lasting. 4 people across 1 channel behind everything cited.
+    why:  There is some evidence of long lasting.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE free-text-typo-fails-visibly
+  why: A typo from the real session log. The product may fail to parse it, but it must SAY so rather than silently returning an unrelated answer.
+  said: "something biut fresh"
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized fresh first.
+
+[1] WORTH_DISCOVERING  Parfums de Marly Layton
+    digest: one commenter said fresh. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is fresh.
+    coverage: Community insight: limited so far
+
+[2] WORTH_DISCOVERING  Acqua di Parma Camelia
+    digest: Fresh-forward declared profile.
+    why:  Fresh-forward declared profile.
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  Byredo Animalique
+    digest: Fresh-forward declared profile.
+    why:  Fresh-forward declared profile.
+    coverage: Community insight: limited so far
+
+[4] WORTH_DISCOVERING  Byredo Gypsy Water
+    digest: Fresh-forward declared profile.
+    why:  Fresh-forward declared profile.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Carolina Herrera Good Girl Blush
+    digest: Fresh-forward declared profile.
+    why:  Fresh-forward declared profile.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE empty-session
+  why: Nothing said yet. Must render an empty headline rather than inventing 'nothing in the catalogue matches'.
+------------------------------------------------------------------------
+HEADLINE: (none)
+  (no results)
+
+========================================================================
+CASE avoid-note-exclude-mode
+  why: An explicit exclusion is a hard constraint: a bottle with real evidence for the excluded note must not appear at all.
+  chip: avoid note oud (exclude)
+  chip: like note vanilla
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized vanilla first, then looked for distinctive options with less oud evidence.
+  preserve: vanilla
+  exclude: oud
+
+[1] WORTH_DISCOVERING  Parfums de Marly Layton
+    chips: oud=matched  vanilla=matched
+    digest: 7 people said vanilla, on videos about this bottle rather than naming it. 7 people across 3 channels behind everything cited.
+    why:  Wearers consistently describe it as vanilla.
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Lattafa Khamrah
+    chips: oud=unknown  vanilla=matched
+    digest: People call it vanilla. 3 people across 2 channels behind everything cited.
+    why:  Wearers consistently describe it as vanilla.
+    coverage: Community evidence: moderate
+
+[3] WORTH_DISCOVERING  Coach Gold
+    chips: oud=matched  vanilla=matched
+    digest: Vanilla is among the declared notes.
+    why:  Vanilla is among the declared notes.
+    coverage: Community insight: limited so far
+
+[4] WORTH_DISCOVERING  Tom Ford Private Blend Tobacco Vanille
+    chips: oud=matched  vanilla=matched
+    digest: Vanilla is among the declared notes.
+    why:  Vanilla is among the declared notes.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Valentino Donna Born in Roma Intense
+    chips: oud=matched  vanilla=matched
+    digest: Vanilla is among the declared notes.
+    why:  Vanilla is among the declared notes.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE avoid-note-reduce-mode
+  why: Reduce is a soft penalty, not a filter — the same note in the other mode must behave differently, and visibly so.
+  chip: avoid note oud (reduce)
+  chip: like note vanilla
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized vanilla first, then looked for distinctive options with less oud evidence.
+  preserve: vanilla
+  reduce: oud
+
+[1] WORTH_DISCOVERING  Parfums de Marly Layton
+    chips: oud=matched  vanilla=matched
+    digest: Oud isn't among the declared notes. 7 people across 3 channels behind everything cited.
+    why:  Wearers consistently describe it as vanilla.
+    why:  Oud isn't among the declared notes.
+    coverage: Community evidence: moderate
+
+[2] STRONG_PROFILE_FIT  Coach Gold
+    chips: oud=matched  vanilla=matched
+    digest: Oud isn't among the declared notes.
+    why:  Oud isn't among the declared notes.
+    why:  Vanilla is among the declared notes.
+    coverage: Community insight: limited so far
+
+[3] STRONG_PROFILE_FIT  Tom Ford Private Blend Tobacco Vanille
+    chips: oud=matched  vanilla=matched
+    digest: Oud isn't among the declared notes.
+    why:  Oud isn't among the declared notes.
+    why:  Vanilla is among the declared notes.
+    coverage: Community insight: limited so far
+
+[4] STRONG_PROFILE_FIT  Valentino Donna Born in Roma Intense
+    chips: oud=matched  vanilla=matched
+    digest: Oud isn't among the declared notes.
+    why:  Oud isn't among the declared notes.
+    why:  Vanilla is among the declared notes.
+    coverage: Community insight: limited so far
+
+[5] STRONG_PROFILE_FIT  Yves Saint Laurent Black Opium Eau de Parfum Women's
+    chips: oud=matched  vanilla=matched
+    digest: Oud isn't among the declared notes.
+    why:  Oud isn't among the declared notes.
+    why:  Vanilla is among the declared notes.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE want-outranks-like
+  why: Buckets are priority, never usability: a WANT is a stronger signal than a LIKE and the ordering must show it.
+  chip: like note sweet
+  chip: want note rose
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized sweet and rose first.
+  preserve: sweet
+  target: rose
+
+[1] COMMUNITY_FAVORITE  Parfums de Marly Delina
+    chips: sweet=matched  rose=matched
+    digest: People call it rose. 6 people across 4 channels behind everything cited.
+    why:  Wearers consistently describe it as rose.
+    why:  There is some evidence that it is sweet.
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Lattafa Bade'e Al Oud Amethyst
+    chips: sweet=matched  rose=matched
+    digest: 3 people said rose, on videos about this bottle rather than naming it. 3 people across 1 channel behind everything cited.
+    why:  There is some evidence that it is rose.
+    why:  One commenter said it is spicy sweet.
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  Kilian Angels' Share Paradis
+    chips: sweet=matched  rose=matched
+    digest: one commenter said sweet. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is sweet.
+    why:  One commenter said it is raspberry and rose.
+    coverage: Community insight: limited so far
+
+[4] WORTH_DISCOVERING  Parfums de Marly Layton
+    chips: sweet=matched  rose=unknown
+    digest: 12 people said sweet, on videos about this bottle rather than naming it. 12 people across 5 channels behind everything cited.
+    why:  Wearers consistently describe it as sweet.
+    coverage: Community evidence: moderate
+
+[5] WORTH_DISCOVERING  Lattafa Khamrah
+    chips: sweet=matched  rose=unknown
+    digest: 9 people said sweet, on videos about this bottle rather than naming it. 9 people across 5 channels behind everything cited.
+    why:  Wearers consistently describe it as sweet.
+    coverage: Community evidence: moderate
+
+========================================================================
+CASE two-anchors-second-is-held
+  why: Only the most recent liked bottle drives anchor comparison this phase; the second must appear in NOT USED rather than being silently dropped.
+  chip: like fragrance Parfums de Marly Delina
+  chip: like fragrance Lattafa Khamrah
+------------------------------------------------------------------------
+HEADLINE: Your closest matches, based on what the corpus supports.
+  anchors: Parfums de Marly Delina, Lattafa Khamrah
+  NOT USED: liked bottle: Lattafa Khamrah: multiple anchors not yet ranked
+
+[1] WORTH_DISCOVERING  Parfums de Marly Delina Exclusif
+    chips: Parfums de Marly Delina=matched  Lattafa Khamrah=matched
+    digest: People compare this to Parfums de Marly Delina. 4 people across 2 channels behind everything cited.
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Maison Alhambra Delilah
+    chips: Parfums de Marly Delina=matched  Lattafa Khamrah=matched
+    digest: People compare this to Parfums de Marly Delina. 3 people across 2 channels behind everything cited.
+    coverage: Community evidence: moderate
+
+[3] WORTH_DISCOVERING  Maison Francis Kurkdjian Baccarat Rouge 540
+    chips: Parfums de Marly Delina=matched  Lattafa Khamrah=matched
+    digest: People compare this to Parfums de Marly Delina. 3 people across 2 channels behind everything cited.
+    coverage: Community evidence: moderate
+
+[4] WORTH_DISCOVERING  Armaf Club de Nuit Imperiale
+    chips: Parfums de Marly Delina=matched  Lattafa Khamrah=matched
+    digest: 1 person across 1 channel compared this with Parfums de Marly Delina. 1 person across 1 channel behind everything cited.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Dior Hypnotic Poison
+    chips: Parfums de Marly Delina=matched  Lattafa Khamrah=matched
+    digest: 1 person across 1 channel compared this with Parfums de Marly Delina. 1 person across 1 channel behind everything cited.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE occasion-only
+  why: A single occasion with no note or anchor — the catalog occasion prior has to carry the whole request.
+  chip: want occasion summer
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized summer first.
+  constraints: occasion: summer
+
+[1] WORTH_DISCOVERING  Parfums de Marly Layton
+    chips: summer=matched
+    digest: 4 people said occasion summer, on videos about this bottle rather than naming it. 4 people across 2 channels behind everything cited.
+    why:  Wearers consistently confirm it for summer wear.
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Creed Aventus Cologne
+    chips: summer=matched
+    digest: People call it occasion summer. 3 people across 2 channels behind everything cited.
+    why:  Wearers consistently confirm it for summer wear.
+    coverage: Community evidence: moderate
+
+[3] WORTH_DISCOVERING  Kilian Angels' Share Paradis
+    chips: summer=matched
+    digest: one commenter said occasion spring and summer. 1 person across 1 channel behind everything cited.
+    why:  One commenter confirmed it for spring and summer wear.
+    coverage: Community insight: limited so far
+
+[4] WORTH_DISCOVERING  Lalique White in Black
+    chips: summer=matched
+    digest: one commenter said occasion spring or a summer night. 1 person across 1 channel behind everything cited.
+    why:  One commenter confirmed it for spring or a summer night wear.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Lattafa Khamrah
+    chips: summer=matched
+    digest: 1 person said occasion summer, on videos about this bottle rather than naming it. 1 person across 1 channel behind everything cited.
+    why:  One commenter confirmed it for summer wear.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE budget-exhausts-everything
+  why: Spec §35: hard-constraint exhaustion is the ONLY honest empty result. A $10 budget must produce a named refusal, not a shrug.
+  chip: want budget <= 10
+  chip: like note vanilla
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized vanilla first.
+  preserve: vanilla
+  constraints: budget <= $10
+
+[1] WORTH_DISCOVERING  Lattafa Khamrah
+    chips: budget=unknown  vanilla=matched
+    digest: People call it vanilla. 3 people across 2 channels behind everything cited.
+    why:  Wearers consistently describe it as vanilla.
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Creed Centaurus
+    chips: budget=unknown  vanilla=matched
+    digest: one commenter said vanilla. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is vanilla.
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  French Avenue Liquid Brun
+    chips: budget=unknown  vanilla=matched
+    digest: one commenter said vanilla. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is vanilla.
+    coverage: Community insight: limited so far
+
+[4] WORTH_DISCOVERING  Lattafa Bade'e Al Oud Amethyst
+    chips: budget=unknown  vanilla=matched
+    digest: 1 person said vanilla, on videos about this bottle rather than naming it. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is vanilla.
+    coverage: Community insight: limited so far
+
+[5] WORTH_DISCOVERING  Maison Alhambra Hercules
+    chips: budget=unknown  vanilla=matched
+    digest: one commenter said vanilla. 1 person across 1 channel behind everything cited.
+    why:  One commenter said it is vanilla.
+    coverage: Community insight: limited so far
+
+========================================================================
+CASE contested-evidence-is-not-a-match
+  why: Material opposition caps a tier at CONTESTED: 'opinions are mixed', never 'wearers consistently'. Longevity is the corpus's most-disputed axis.
+  chip: want performance long lasting
+  chip: like vibe feminine
+------------------------------------------------------------------------
+HEADLINE: Your closest matches — I prioritized long lasting and feminine first.
+  preserve: feminine
+  target: long lasting
+
+[1] COMMUNITY_FAVORITE  Lattafa Khamrah
+    chips: long lasting=matched  feminine=matched
+    digest: 14 people said longevity long lasting, on videos about this bottle rather than naming it. 14 people across 6 channels behind everything cited.
+    why:  Wearers consistently report long lasting.
+    why:  Wearers consistently describe it as feminine.
+    coverage: Community evidence: moderate
+
+[2] WORTH_DISCOVERING  Kilian Angels' Share Paradis
+    chips: long lasting=matched  feminine=matched
+    digest: 2 people said longevity long lasting. 2 people across 1 channel behind everything cited.
+    why:  There is some evidence of long lasting.
+    why:  One commenter said it is feminine.
+    coverage: Community insight: limited so far
+
+[3] WORTH_DISCOVERING  Parfums de Marly Delina
+    chips: long lasting=contradicted  feminine=matched
+    digest: longevity long lasting — 5 people say so and 4 disagree, some inferred from the video rather than named — though 4 of 9 disagree on longevity. 5 people across 2 channels behind everything cited.
+    why:  Several wearers describe it as feminine.
+    know: Longevity opinions are mixed across wearers.
+    coverage: Community evidence: moderate
+
+[4] WORTH_DISCOVERING  Parfums de Marly Layton
+    chips: long lasting=contradicted  feminine=matched
+    digest: longevity long lasting — 24 people say so and 15 disagree, some inferred from the video rather than named — though 15 of 39 disagree on longevity. 24 people across 7 channels behind everything cited.
+    why:  One commenter said it is feminine.
+    know: Longevity opinions are mixed across wearers.
+    coverage: Community evidence: moderate
+
+[5] WORTH_DISCOVERING  French Avenue Liquid Brun
+    chips: long lasting=contradicted  feminine=matched
+    digest: longevity long lasting — 4 people say so and 3 disagree, some inferred from the video rather than named — though 3 of 7 disagree on longevity. 4 people across 2 channels behind everything cited.
+    why:  One commenter said it is feminine.
+    know: Longevity opinions are mixed across wearers.
+    coverage: Community evidence: moderate
