@@ -493,6 +493,31 @@ def item_plan_attribute(item: PreferenceItem) -> tuple[str, str] | None:
     return None
 
 
+def item_identity(item: PreferenceItem) -> tuple:
+    """What makes two composer chips the same request.
+
+    A shopper who taps "strong" twice has expressed one preference, not
+    a stronger one — but every layer downstream of the second add treated
+    it as two: two chips, twice the score, "Projection opinions are mixed
+    across wearers" printed twice on one card (photographed live). The
+    key is the COMPILED meaning, not the raw chip fields, so two picker
+    entries that land on the same `(attribute, value)` collapse too.
+    `api.compose` checks this before recording (the validate-before-
+    record discipline — a duplicate is never written), and `to_plan`
+    checks it again while compiling, because sessions recorded before
+    this key existed already carry duplicate events and replay must not
+    resurrect the double-counting.
+    """
+    entity_type = EntityType(item.entity_type)
+    if entity_type is EntityType.FRAGRANCE:
+        return (item.bucket, "fragrance", item.value.strip().lower())
+    if entity_type is EntityType.BUDGET:
+        return (item.bucket, "budget", item.operator, item.amount)
+    if entity_type is EntityType.OCCASION:
+        return (item.bucket, "occasion", item.value.strip().lower())
+    return (item.bucket, item_plan_attribute(item), item.mode)
+
+
 def _resolve_item_fragrance(
     conn: psycopg.Connection | None, value: str
 ) -> tuple[str, int | None]:
@@ -1092,11 +1117,25 @@ class PreferenceState:
                     "reason": WORDING.want_fragrance_not_supported(),
                 })
 
+        # One preference, however many times it was tapped. Sessions
+        # recorded before `api.compose` refused duplicate chips can carry
+        # two identical `preference_item_added` events, and compiling
+        # both scored the preference twice and printed its caveat twice
+        # on one card ("Projection opinions are mixed across wearers",
+        # twice, photographed live). Replay stays faithful — both events
+        # rebuild, both chips render — but the compiled plan carries the
+        # preference once. See `item_identity`.
+        compiled_identities: set[tuple] = set()
         for _index, item in self.active_items:
             entity_type = item.entity_type
             bucket = item.bucket
             if entity_type == EntityType.FRAGRANCE.value:
                 continue  # already handled above
+
+            identity = item_identity(item)
+            if identity in compiled_identities:
+                continue
+            compiled_identities.add(identity)
 
             if entity_type == EntityType.BUDGET.value:
                 if bucket != Bucket.WANT.value:

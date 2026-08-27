@@ -131,6 +131,7 @@ from fragrance_graph.session import (
     PreferenceState,
     Verdict,
     avoid_mode,
+    item_identity,
     item_plan_attribute,
     rebuild,
 )
@@ -1174,7 +1175,24 @@ def compose(session_id: str, body: ComposeRequest, conn: Conn, debug: bool = Fal
     if errors:
         raise HTTPException(status_code=400, detail={"errors": errors})
 
+    # Adding a chip is idempotent on its meaning: a duplicate of an
+    # already-active chip (or of an earlier item in this same batch) is
+    # skipped before anything is written — the same validate-before-
+    # record discipline as the checks above, applied to redundancy
+    # instead of invalidity. Without this, tapping "strong" twice scored
+    # the preference twice, rendered the chip twice, and printed its
+    # caveat twice on every card (photographed live). Keyed on the
+    # COMPILED meaning (`session.item_identity`), so two picker entries
+    # that land on the same `(attribute, value)` collapse too.
+    active = {
+        item_identity(item)
+        for _, item in _load_state(conn, session_id).active_items
+    }
     for payload in payloads:
+        identity = item_identity(PreferenceItem(**payload))
+        if identity in active:
+            continue
+        active.add(identity)
         _record_event(conn, session_id, "preference_item_added", payload)
 
     state = _load_state(conn, session_id)

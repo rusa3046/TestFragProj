@@ -318,6 +318,34 @@ class TestDigest:
             for word in ("mostly", "mainly", "generally"):
                 assert word not in text.lower()
 
+    def test_a_catalog_sentence_is_never_wrapped_in_people_call_it(self):
+        """Photographed live: "People call it Sandalwood is among the
+        declared notes" — a fully-composed catalog-voiced sentence
+        spliced into the community frame, broken grammar wrapped around
+        a voice violation. A catalog_fit reason is CANONICAL and
+        un-inferred, so `declarable` swept it into the clause; it must
+        instead stand as the lead verbatim when nothing community-voiced
+        is declarable."""
+        catalog = Reason(kind="catalog_fit",
+                         text="Sandalwood is among the declared notes.",
+                         strength=Strength.CANONICAL)
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[catalog])
+        text = digest(rec)
+        assert "People call it" not in text
+        assert text.startswith("Sandalwood is among the declared notes")
+
+    def test_community_declarables_still_lead_over_the_catalog_sentence(self):
+        catalog = Reason(kind="catalog_fit",
+                         text="Sandalwood is among the declared notes.",
+                         strength=Strength.CANONICAL)
+        community = Reason(kind="prefer", text="raspberry",
+                           strength=Strength.SUPPORTED, people=8, creators=4)
+        rec = Recommendation(fragrance_id=1, name="X",
+                             reasons=[catalog, community], people=8, creators=4)
+        text = digest(rec)
+        assert "People call it raspberry" in text
+        assert "call it Sandalwood" not in text
+
     def test_a_contested_facts_disagreement_number_appears(self):
         contested = Reason(kind="profile", text="longevity long lasting",
                            strength=Strength.CONTESTED, people=6, creators=3,
@@ -1410,6 +1438,62 @@ class TestTheTwoAbsencesAreDistinct:
         assert absence_reasons, result.reasons
         assert "no sweet evidence recorded" in absence_reasons[0].text
         assert "declared notes" not in absence_reasons[0].text
+
+
+class TestInvertedModifiersNeverMatchTheBareTerm:
+    """Photographed live on Lattafa Khamrah Qahwa: a ✓ sweet chip whose
+    cited fit signal read "One commenter said it is less sweet" — the
+    token rule (`"sweet" in "less sweet".split()`) credited a claim of
+    LESS sweetness as evidence FOR sweetness. The corpus writes these
+    forms rarely (`less sweet`, `less fruity`, `less smoky` — counted
+    before the fix) but every one of them inverts, in both directions:
+    the same match made "less sweet" cost a bottle -3.0 for a
+    sweet-avoider."""
+
+    def _fact(self, value):
+        from fragrance_graph.evidence import AttributeFact, Support
+
+        return AttributeFact(
+            fragrance_id=1, attribute="note", value=value,
+            supporting=Support(people=1, creators=1, videos=1),
+        )
+
+    @pytest.mark.parametrize("fact_value,matches", [
+        ("sweet", True),
+        ("sweet smells", True),            # extra words, same assertion
+        ("very sweet", True),              # intensifier, same assertion
+        ("less sweet", False),             # the photographed inversion
+        ("not sweet", False),
+        ("no sweet", False),
+        ("barely sweet", False),
+    ])
+    def test_the_bare_term(self, fact_value, matches):
+        from fragrance_graph.recommend import _matches
+
+        assert _matches(self._fact(fact_value), "note", "sweet") is matches
+
+    def test_the_identical_diminished_form_still_matches_itself(self):
+        from fragrance_graph.recommend import _matches
+
+        assert _matches(self._fact("less sweet"), "note", "less sweet")
+
+    def test_end_to_end_less_sweet_is_not_a_sweet_fit_signal(self, conn):
+        """The full inversion: a bottle whose ONLY sweetness evidence is
+        "less sweet" must earn no reason and no caveat for a sweet
+        request, in either direction — the MISSING DATA rule, not a
+        credit and not a penalty."""
+        bottle = add_fragrance(conn, "Qahwa Shaped Bottle")
+        note(conn, 700, frag=bottle, value="less sweet", author="q1")
+        for direction in (Direction.HIGH, Direction.LOW):
+            plan = QueryPlan(text="", soft=[
+                Preference("note", "sweet", direction, said="sweet"),
+            ])
+            answer = recommend_plan(conn, plan)
+            for result in answer.results:
+                if result.name != "Qahwa Shaped Bottle":
+                    continue
+                texts = [r.text for r in result.reasons + result.caveats]
+                assert not any("less sweet" in t for t in texts), (direction, texts)
 
 
 class TestCatalogWeights:
