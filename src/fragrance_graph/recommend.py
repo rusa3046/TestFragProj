@@ -417,8 +417,21 @@ def digest(recommendation: Recommendation) -> str:
     graph = next(
         (r for r in facts if r.kind == "graph" and r.declarable), None
     )
+    # Only value-fragment facts may enter the "call it" clause. The kinds
+    # `phrase()` returns verbatim (catalog_fit/catalog_avoid, absence,
+    # declared_overlap) carry a fully-composed sentence in a NON-community
+    # voice, and splicing one into a "People ..." frame produced, live:
+    # "People call it Sandalwood is among the declared notes" — broken
+    # grammar wrapped around a voice violation, a catalog fact presented
+    # as something people say. Those reasons keep their card bullets; the
+    # strongest of them may stand as the lead below, verbatim, exactly
+    # because its sentence is already complete in its own voice.
+    composed_kinds = ("catalog_fit", "catalog_avoid", "absence", "declared_overlap")
     declarable = sorted(
-        (r for r in facts if r.declarable and r is not graph),
+        (
+            r for r in facts
+            if r.declarable and r is not graph and r.kind not in composed_kinds
+        ),
         key=lambda r: -r.people,
     )[:3]
 
@@ -429,7 +442,17 @@ def digest(recommendation: Recommendation) -> str:
         named = _join_and([_strip_sentence_ends(r.text) for r in declarable])
         clauses.append(f"call it {named}")
 
-    lead = f"People {_join_and(clauses)}" if clauses else _weak_fallback(everything)
+    if clauses:
+        lead = f"People {_join_and(clauses)}"
+    else:
+        catalog_lead = next(
+            (r for r in facts if r.kind == "catalog_fit" and r.renderable), None
+        )
+        lead = (
+            _strip_sentence_ends(catalog_lead.text)
+            if catalog_lead is not None
+            else _weak_fallback(everything)
+        )
 
     contested = [r for r in everything if r.against]
     if contested:
@@ -497,6 +520,19 @@ def _facts_by_fragrance(
     return grouped
 
 
+#: Words that flip or drain the token they precede. "less sweet" is not
+#: a sweetness observation with extra words — it asserts the OPPOSITE of
+#: what a token match on "sweet" would credit. Small and focused on what
+#: the corpus actually writes (`less fruity`, `less smoky`, `less sweet`,
+#: `not …`, `no …` — counted before this list was written); a modifier
+#: not listed here means the token match stands, which fails toward the
+#: pre-existing behaviour rather than toward silently dropping evidence.
+_INVERTING_MODIFIERS = frozenset({
+    "less", "not", "no", "never", "barely", "hardly", "without",
+    "zero", "lacks", "lacking", "minimal",
+})
+
+
 def _matches(fact: AttributeFact, attribute: str, value: str) -> bool:
     """Whether a fact answers a request for (attribute, value).
 
@@ -504,10 +540,30 @@ def _matches(fact: AttributeFact, attribute: str, value: str) -> bool:
     notes", "raspberry Berry note" and "raspberry" for one thing, and the
     normaliser deliberately does not collapse compound descriptions — the
     raw wording is evidence and gets quoted.
+
+    Except when the word directly before the matched token inverts it.
+    "less sweet" token-matched a request for "sweet", and the card FACET's
+    owner photographed said the rest: a ✓ sweet chip whose cited evidence
+    read "One commenter said it is less sweet" — the claim asserting the
+    opposite of the match it was credited as. The same inversion ran the
+    other way for avoiders: "less sweet" counted as evidence the bottle
+    HAS sweetness and cost it -3.0. A diminished form now matches only a
+    request for the identical diminished form; the bare token match it
+    used to satisfy returns nothing, which under the MISSING DATA rule is
+    exactly what it should contribute either way: no credit, no penalty.
     """
     if fact.attribute != attribute:
         return False
-    return value == fact.value or value in fact.value.split()
+    if value == fact.value:
+        return True
+    tokens = fact.value.split()
+    for position, token in enumerate(tokens):
+        if token != value:
+            continue
+        if position > 0 and tokens[position - 1].lower() in _INVERTING_MODIFIERS:
+            continue
+        return True
+    return False
 
 
 def fact_matches(fact: AttributeFact, attribute: str, value: str) -> bool:

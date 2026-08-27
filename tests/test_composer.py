@@ -673,6 +673,61 @@ class TestTheMatrixReadsTheCatalogLadder:
         assert_honest(body)
 
 
+class TestADuplicateChipIsOnePreference:
+    """Photographed live: "strong" tapped twice rendered two ✓ chips,
+    scored the preference twice, and printed "Projection opinions are
+    mixed across wearers" twice on one card. A shopper repeating a chip
+    has expressed one preference, not a stronger one."""
+
+    def _seed(self, conn):
+        frag = add_fragrance(conn, "Dupe Chip Bottle")
+        for i, (author, channel) in enumerate(
+            [("d1", "ca"), ("d2", "cb"), ("d3", "cc")]
+        ):
+            _claim(conn, 800 + i, frag=frag, claim_type="PROJECTION",
+                   value="strong", author=author, channel=channel)
+        return frag
+
+    def test_the_second_add_is_not_recorded(self, client, conn):
+        self._seed(conn)
+        session_id = _create(client)
+        _compose(client, session_id, [
+            {"bucket": "like", "entity_type": "performance", "value": "strong"},
+        ])
+        body = _compose(client, session_id, [
+            {"bucket": "like", "entity_type": "performance", "value": "strong"},
+        ]).json()
+        strong_items = [
+            i for i in body["state"]["items"] if i["value"] == "strong"
+        ]
+        assert len(strong_items) == 1
+
+    def test_a_batch_carrying_the_same_chip_twice_records_it_once(
+        self, client, conn
+    ):
+        self._seed(conn)
+        session_id = _create(client)
+        body = _compose(client, session_id, [
+            {"bucket": "like", "entity_type": "performance", "value": "strong"},
+            {"bucket": "like", "entity_type": "performance", "value": "strong"},
+        ]).json()
+        assert len(body["state"]["items"]) == 1
+
+    def test_a_historical_duplicate_compiles_once(self, conn):
+        """Sessions recorded before the API refused duplicates already
+        carry both events; replay keeps both chips faithfully, but the
+        compiled plan — and therefore the score and every caveat — must
+        carry the preference once."""
+        from fragrance_graph.session import PreferenceItem, PreferenceState
+
+        state = PreferenceState()
+        state.add_item(conn, PreferenceItem("like", "performance", "strong"))
+        state.add_item(conn, PreferenceItem("like", "performance", "strong"))
+        plan, _unexpressed = state.to_plan()
+        strong_prefs = [p for p in plan.soft if p.value == "strong"]
+        assert len(strong_prefs) == 1
+
+
 # --- vocabulary endpoint --------------------------------------------------
 
 
