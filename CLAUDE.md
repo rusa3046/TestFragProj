@@ -131,3 +131,83 @@ codebase. Read the whole diff, confirm any new test fails against the old
 code, run `uv run ruff check . && uv run pytest -q` yourself rather than
 trusting a reported result, and reject anything touching `data/corpus/` —
 that is the source of truth and it is not regenerable.
+
+## Where things stand, and what the environment will do to you
+
+Written 2026-08-27 so a session starting cold does not have to re-derive
+any of it. The product decisions live in [docs/FACET.md](docs/FACET.md);
+this is the operational half.
+
+### The repository was renamed
+
+`TestFragProj` → **`claim-graph`**, 2026-08-27. GitHub redirects the old
+URL permanently, so old clones and links keep working and `git` accepts
+either name. Two things do *not* follow the rename automatically and are
+worth knowing before you go hunting: this environment's proxy scopes
+**GitHub API** access by repository name, so opening or merging a PR can
+start returning `403 GitHub access to this repository is not enabled for
+this session` while `git push` to the same repo works perfectly. The fix
+is `add_repo` with `access: "push"`, which needs the operator to approve
+it. Plain `git` was never affected.
+
+### What the five gates are for
+
+`scripts/checkpoint.sh` runs ruff, the suite, the provenance audit, the
+recommendation benchmark, and — added 2026-08-27 — the **card golden**.
+The first four check rules. The fifth checks the artifact, and it exists
+because six defects reached a person's screen in one week with all
+1,815 tests passing: an inverted note match, a catalog sentence spliced
+into a community frame, a chip counted twice, a declared note scored at a
+quarter of a comment, a performance chip compiled as a note, and a
+headcount line reading "0 people across 0 channels".
+
+Every one of them lived in the *assembled card*, which no unit test
+looked at. If you change anything a customer reads, expect
+`data/eval/cards.golden.txt` to move; read the diff, decide whether it is
+an improvement, then `uv run python -m fragrance_graph.evals.cards
+--update` and commit the golden **with** the change that caused it.
+
+A golden that renders its own copy of a card would drift from the product
+and pass forever, so `evals/cards.py` goes through `api._session_response`
+— the same function the kiosk's handlers return. Keep it that way.
+
+### The asymmetry that explains most "bad recommendation" reports
+
+Notes, families and occasions are answerable from the **catalogue**;
+longevity, projection and vibes exist **only** in community evidence.
+So a request weighted toward performance will always favour well-discussed
+bottles, however good the catalog data is — 47 of 548 bottles carry
+longevity evidence. That is a data-coverage fact, not a ranking bug, and
+it is why `catalogue_seeds` now aims collection at popular, note-carrying
+bottles the corpus cannot speak about. Check coverage before assuming the
+ranker is wrong.
+
+### The full gate takes ~12 minutes
+
+Longer than the 10-minute shell timeout, so run it detached with a log
+and poll the log — do not chain sleeps. Two more traps that have each
+cost a session: `pkill` in the same command as anything else kills the
+tool's own process group (exit 144), and two `pytest` runs at once
+clobber the shared test database and produce failures that are not real.
+One suite run at a time.
+
+Real-corpus tests skip silently unless `FRAGRANCE_DB_URL` points at a
+populated developer database. A "1801 passed, 14 skipped" is not the same
+run as "1815 passed" — check which you got before trusting it.
+
+### Open, in rough priority order
+
+1. **Deploy.** `Dockerfile`/`fly.toml` are written and the bake sequence
+   is verified natively, but no daemon existed in that session so the
+   image has never been built. First build is the risk.
+2. **The eval.** 86 labelled comments, and the published F1 predates the
+   corpus doubling. Target 200-500 stratified. A model must never write
+   its own answer key — see the blind-check discipline in the README.
+3. **First-party feedback** as a fourth provenance voice, silent until
+   volume justifies speech, never blended into YouTube counts.
+4. **Nordstrom review text.** 2,192 reviews sit on 352 comment-less
+   bottles in the raw collection and are *deliberately* not imported:
+   shopper prose carries no republication licence. A claims-only
+   extraction (typed claims, no stored sentence, no quote on the card) is
+   the version that would be defensible, and it is a decision for the
+   owner, not a task to pick up.

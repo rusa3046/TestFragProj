@@ -660,7 +660,7 @@ Three files decide, none of them code:
 
 ```bash
 uv run python -m fragrance_graph.pages build --out site/ \
-  --base-url https://rusa3046.github.io/TestFragProj/
+  --base-url https://rusa3046.github.io/claim-graph/
 ```
 
 - **`--base-url`** is what canonical tags and `sitemap.xml` are built
