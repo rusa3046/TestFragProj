@@ -1,4 +1,12 @@
-# fragrance-graph / FACET
+# claim-graph
+
+**The repository is named for what the system does: it turns unstructured
+text into a graph of attributed claims.** Fragrance is the domain it does
+that in — `fragrance_graph` is the package and the evidence graph it
+builds; **FACET** is the retail product built on top. The technique
+(typed claims, verified quotes, counted humans, polarity, provenance
+tiers) is domain-agnostic; the discipline it enforces is not negotiable
+in any domain.
 
 Two things live here, one built on the other:
 
