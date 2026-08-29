@@ -64,7 +64,7 @@ log = logging.getLogger("fragrance_graph.release_sources")
 #: scraper, whatever its intentions.
 USER_AGENT = (
     "fragrance-graph/0.1 (research feed reader; "
-    "https://github.com/rusa3046/TestFragProj)"
+    "https://github.com/rusa3046/claim-graph)"
 )
 
 #: The marker Now Smell This puts on posts announcing a product, as

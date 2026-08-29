@@ -6,9 +6,10 @@ what a shopper touches. It is a preference composer, a deterministic
 recommender, and a commerce presentation layer, served by FastAPI
 (`api.py`) with a single-file kiosk UI (`facet/static/index.html`).
 
-This document records the three product decisions FACET is built on, in
-the order they were made, because each one corrects a real failure the
-previous state produced. The specs were authored by the product owner;
+This document records the product decisions FACET is built on, in the
+order they were made, because each one corrects a real failure the
+previous state produced — most of them photographed by the owner on the
+running product before being named here. The specs were authored by the product owner;
 dates are when each landed.
 
 ## One sentence per layer
@@ -164,6 +165,80 @@ disqualification: **Best overall fit** (catalog + community agree),
 became 5, four of them bottles with no comments at all, each explained in
 catalog voice.
 
+## 4. What a catalog fact is worth (2026-08-21)
+
+Catalog-first fixed who gets *considered* and left what a catalog fact is
+*worth* untouched: every catalog signal scored a flat 0.5 while a
+community match scored `1.0 + evidence weight`, so one stray commenter's
+word outweighed the brand's own declared note list four to one — observed
+live when "like sandalwood + long lasting + strong" ranked a bottle with
+no sandalwood anywhere in its declared notes above all 97 bottles that
+declare it.
+
+Four named weights replace the flat constant, pinned as **orderings**
+rather than tuned values: a declared note (1.5) beats one stray
+commenter's word on another dimension (1.2) and loses to independent
+community agreement (2.0) — declared is a strong claim about what is *in*
+the bottle and a weak one about what *dominates* it. A family tendency
+(0.75) sits below a literal declaration; note-absence for an avoider
+stays the spec's own modest positive (0.5). A prominence tie-break — the
+requested note as a share of the declared profile, capped below every
+gap between classes — orders bottles within DECLARED_PRESENT, because 97
+bottles tied at one flat weight had been ordered by database id.
+
+Two subtler halves of the same fix. The preference matrix (the chip
+strip) now consults the same `_catalog_signal` ladder the engine scores
+with, so a chip and a card can never disagree about what the catalogue
+says — before it, the composer tie-break re-sorted results on a
+community-only matrix and buried the engine's catalog-aware order under a
+subset of its own information. And a bottle's *name* is no longer
+evidence: "Pure Sandalwood Elixir" had been earning a match worth more
+than a family tendency from its own marketing.
+
+## 5. A card may not cite the opposite of what it claims (2026-08-22 →)
+
+A run of defects found by the owner reading real cards, each now a rule:
+
+- **Inverting modifiers.** "less sweet" token-matched a request for
+  "sweet" and was cited as a fit signal — a claim asserting the opposite
+  of the match it was credited as, in both directions (it also penalised
+  bottles for avoiders). A token directly preceded by
+  less/not/no/never/barely/… matches nothing but its own exact form; the
+  claim contributes nothing either way, which is the MISSING DATA rule
+  applied to negation.
+- **Tied evidence is disclosed, not endorsed.** `CONTESTED` has a
+  two-person floor, so a 1-for/1-against fact dropped its denial entirely
+  and rendered as a clean reason to buy — beside a chip whose matrix had
+  netted the same two sides to `unknown`. Tied evidence now files as
+  disputed and the sentence says so.
+- **Voices never splice.** "People call it Sandalwood is among the
+  declared notes" — a catalog-voiced sentence inside the community
+  headline frame. Composed-sentence kinds are excluded from the "call it"
+  clause; when nothing community-voiced is declarable, the strongest
+  catalog sentence stands as the lead verbatim.
+- **A chip tapped twice is one preference.** It had scored twice and
+  printed its caveat twice. Duplicate adds are refused before recording,
+  and replay compiles historical duplicates once.
+- **No headcount over nobody.** Zero-commenter cards — ordinary, once
+  the catalogue generates candidates — ended "0 people across 0 channels
+  behind everything cited." The tail renders only when somebody is
+  actually behind it.
+
+## The golden card file — testing the sentence, not just the scorer
+
+Every defect above passed 1,815 unit tests, because each lived in the
+*assembled card* — a composition of a dozen correct functions plus the
+corpus plus the ordering. So the fifth commit gate
+(`evals/cards.py`, `data/eval/cards.golden.txt`) renders 21 real
+compositions — one per defect that reached a screen, plus the owner's own
+reported queries and the structural edges — through
+`api._session_response`, the identical function the kiosk's handlers
+return, and diffs the output against a committed file a person has read.
+A change to any customer-visible sentence, ordering, or chip status
+arrives as a reviewable diff instead of as a screenshot. Reading the
+file's first render by hand found the tied-evidence and zero-headcount
+defects above, which is the whole argument for it.
+
 ## The wording audit holds all of it together
 
 Every customer-visible sentence comes from a registered wording function,
@@ -180,6 +255,13 @@ and was declared release-blocking.
 uv run uvicorn fragrance_graph.api:app --host 0.0.0.0
 ```
 
+Or as one container with its database baked in at build time —
+`docker build -t facet . && docker run -p 8000:8000 facet` — and
+`fly.toml` to put it on a URL; the README's "Or as one container"
+section carries the reasoning (the database is disposable, the corpus is
+committed, and a ~56s rebuild belongs in `docker build`, not in a cold
+start a visitor is waiting on).
+
 Then open `http://localhost:8000/`. The kiosk is one static file; the API
 is documented at `/docs`. Sessions are event-sourced (validate before
 record, rebuild from the log), so a refinement is an edit to the same
@@ -190,6 +272,19 @@ A rebuilt database needs the curation imports as well as the corpus — see
 candidacy reads `retailer_listings` and the declared-note map directly, so
 a rebuild that skips them silently degrades every answer to community-only
 candidacy.
+
+## The coverage asymmetry, and how it closes
+
+Notes, families and occasions are answerable from the catalogue;
+longevity, projection and vibes exist **only** in community evidence —
+47 of 548 bottles carry longevity evidence today. So a request weighted
+toward performance will always favour well-discussed bottles however the
+weights are set. That is data coverage, not a ranking defect, and it is
+what the collection loop now works on: since 2026-08-21 the seeds come
+from the catalogue itself (`daily.catalogue_seeds`) — popular,
+note-carrying bottles the corpus cannot speak about, one per brand,
+rotated as each gets searched — instead of a fixed list of ten bottles
+chosen when the catalogue held 56.
 
 ## What's next: first-party feedback
 
