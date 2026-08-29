@@ -211,3 +211,13 @@ run as "1815 passed" — check which you got before trusting it.
    extraction (typed claims, no stored sentence, no quote on the card) is
    the version that would be defensible, and it is a decision for the
    owner, not a task to pick up.
+
+## Documentation moves with the code
+
+Standing instruction from the owner (2026-08-27): **every commit leaves
+README.md, docs/FACET.md and the rest of docs/ describing the current
+state of the project.** A behaviour change that would surprise a reader
+of those files is not done until the files say otherwise — update them in
+the same commit as the change, not in a sweep afterwards. The docs-drift
+this rule ended: a README still describing an eight-page dupes site three
+product generations after FACET shipped.

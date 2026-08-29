@@ -1126,6 +1126,35 @@ uv run ruff check .
 uv run pytest
 ```
 
+Commits go through `scripts/checkpoint.sh`, which runs five gates as
+separate checked steps and refuses to commit if any fails — it exists
+because a pipeline's exit status is its last command's, and a commit
+landed with failing tests twice from exactly that shape:
+
+1. **ruff** — seconds, catches most mechanical breakage
+2. **pytest** — the full suite
+3. **provenance audit** — the cross-surface wording contract
+4. **recommendation benchmark** — unsupported assertions must be 0
+5. **card golden** — the assembled sentences a shopper reads, diffed
+   against `data/eval/cards.golden.txt`
+
+The fifth is the newest and checks a different *kind* of thing: the
+first four check rules, it checks the artifact. Six defects reached a
+person's screen in one week with all 1,815 unit tests passing, because
+each lived in the assembled card — a composition of a dozen correct
+functions plus the corpus plus the ordering. `evals/cards.py` renders 21
+real compositions through the same `api._session_response` the kiosk
+calls; when a customer-visible sentence changes, the golden moves, and a
+person reads the diff and commits it **with** the change that caused it
+(`uv run python -m fragrance_graph.evals.cards --update`).
+
+**Documentation moves with the code, in the same commit.** README,
+[docs/FACET.md](./docs/FACET.md) and the rest of `docs/` describe the
+current state of the project, not the state at some earlier milestone —
+a doc that lags its code is worse than no doc, because it reads as
+authority while being wrong. A behaviour change that would surprise a
+reader of these files is not done until the files say otherwise.
+
 ### The score dropped because the measurement got honest
 
 Until 2026-08-11 this table published `SIMILARITY EDGES` F1 **0.89** and
