@@ -132,6 +132,23 @@ class TestRendering:
         out = render_entry(drafted(claims=[]), position=2, total=3)
         assert "NO CLAIMS" in out
 
+    def test_an_undrafted_row_never_reports_a_drafters_opinion(self):
+        """A `sample plan` batch arrives with no draft at all, and the
+        renderer told its labeller "the drafter says this asserts
+        nothing" — a second opinion invented out of an empty list, which
+        then anchors them toward the `n` key.
+
+        That is the model-writes-the-answer-key failure the blind step
+        exists to prevent, arriving through the one door nobody was
+        watching: the `silent` stratum, whose entire purpose is finding
+        claims the extractor missed."""
+        entry = drafted(claims=[])
+        entry.pop("drafted_by")
+        out = render_entry(entry, position=1, total=44)
+        assert "NO CLAIMS" not in out
+        assert "drafter" not in out
+        assert "nobody has read this yet" in out
+
     def test_an_unmarked_file_is_a_no_op(self):
         entries = [drafted()]
         entries[0].pop("drafted_by")

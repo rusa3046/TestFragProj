@@ -31,6 +31,10 @@ labels*.json
 todraft*.json
 review*.json
 blind*.json
+# A labelling batch in progress. The labels reach the repository through
+# `labels import` -> `corpus export` -> data/corpus/eval_labels.jsonl,
+# which is the reviewed, byte-stable form; the working files are not.
+eval-batch/
 
 # Codex review output. Ignored so `git status --porcelain` stays empty —
 # scripts/codex-agent.sh refuses to run on a dirty tree, and findings written

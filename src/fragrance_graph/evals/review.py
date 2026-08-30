@@ -132,7 +132,20 @@ def render_entry(entry: dict, *, position: int, total: int) -> str:
     ]
     claims = entry.get("claims") or []
     if not claims:
-        lines.append("  drafted: NO CLAIMS — the drafter says this asserts nothing.")
+        # Only a row a drafter actually saw may report a drafter's
+        # opinion. A `sample plan` batch arrives with no draft at all, and
+        # telling its labeller "the drafter says this asserts nothing"
+        # invents a second opinion out of an empty list — then anchors
+        # them toward the `n` key with it. That is precisely the
+        # model-writes-the-answer-key failure the blind step exists to
+        # prevent, arriving through the one door nobody was watching: the
+        # `silent` stratum, whose whole purpose is finding claims the
+        # extractor missed.
+        lines.append(
+            "  drafted: NO CLAIMS — the drafter says this asserts nothing."
+            if entry.get("drafted_by")
+            else "  no draft — nobody has read this yet."
+        )
     else:
         lines.append(f"  drafted {len(claims)} claim(s):")
         for i, claim in enumerate(claims, 1):
