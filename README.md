@@ -1156,6 +1156,29 @@ calls; when a customer-visible sentence changes, the golden moves, and a
 person reads the diff and commits it **with** the change that caused it
 (`uv run python -m fragrance_graph.evals.cards --update`).
 
+### Two outside models, one narrowing and one widening
+
+Neither writes to this tree. `scripts/codex-agent.sh` sends a **frozen
+commit** to Codex in a sibling directory and gets back what is wrong;
+`scripts/adhd-widen.sh` sends an **open question** to ADHD — N isolated
+reasoning branches under distorted cognitive frames, then a separate critic
+pass — and gets back what is possible.
+
+```bash
+scripts/adhd-widen.sh open eval-strata "what axes should the 200-500 comment \
+  eval stratify on, without leaking the answer key?" docs/LABELLING.md
+scripts/adhd-widen.sh check eval-strata
+```
+
+Both are advisory, and both have a gate that makes a person verify before
+anything is accepted. Codex findings go through `/codex-checkpoint`, which
+requires opening every cited file. ADHD ideas land in `docs/decisions/` marked
+`unreviewed`, and `check` fails until each carries `kept`, `rejected` or
+`parked` **with a reason** — a decision record where nothing was rejected was
+skimmed, not weighed. See [docs/decisions/README.md](./docs/decisions/README.md)
+for what the lane costs, why no figure reaches `data/spend.jsonl`, and why it
+is kept out of the product path.
+
 **Documentation moves with the code, in the same commit.** README,
 [docs/FACET.md](./docs/FACET.md) and the rest of `docs/` describe the
 current state of the project, not the state at some earlier milestone —

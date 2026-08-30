@@ -63,6 +63,62 @@ general terms — approval for the plan is not approval for these.
 The plugin's stop-time review gate stays **off**. It installs a `Stop` hook
 that fires on every turn.
 
+## The other outside model widens, and answers to the same rule
+
+`scripts/adhd-widen.sh` is the mirror of the Codex lanes. Codex reads a
+frozen commit and reports what is **wrong**. ADHD spawns N isolated
+reasoning processes under deliberately distorted cognitive frames — a
+regulator, a hardware engineer, a speedrunner — with no shared context
+between them, then runs a separate critic that scores, clusters, flags traps
+and deepens the survivors; it reports what is **possible**.
+
+```
+scripts/adhd-widen.sh open  <slug> "<question>" [context-file …]
+scripts/adhd-widen.sh check <slug>       # fails while any verdict is unreviewed
+scripts/adhd-widen.sh list
+```
+
+Wrapped by `/adhd-widen`. Records land in `docs/decisions/`, one file per
+question, with every idea marked `unreviewed` until a person rules `kept`,
+`rejected` or `parked` **with a reason**. The advisory rule above applies
+unchanged, and the reason it matters more here is worth stating: a Codex
+finding that is wrong costs the ten minutes it takes to open the file and
+disagree; an ADHD idea that is wrong is *plausible* — it costs nothing to
+read and a week to unbuild.
+
+**A record where nothing was rejected was skimmed, not weighed.** Same shape
+as the Codex rule, different mechanism: divergence is *instructed to
+generate without evaluating*, so a run emits its full quota of ideas whether
+or not the design space holds that many good ones. `check` warns on this
+rather than failing, because a fatal version would only teach the reader to
+reject one row to get past the gate. It fails on `unreviewed`, which cannot
+be faked without reading.
+
+Four constraints, each enforced in the script rather than remembered:
+
+- **Never in the product path.** Nothing in this lane is importable by
+  `fragrance_graph`. The recommender is deterministic and every card is
+  tier-gated; similarity here is asserted and counted, never generated. An
+  ideation engine near `recommend.py` breaks the property FACET sells.
+- **The CLI, not the in-session skill.** Each divergence branch is a fresh
+  isolated context, so the base substrate is paid *once per branch* — and
+  this file is the substrate. Five frames inside a session means five copies
+  of these rules before one novel token. The CLI carries only the problem,
+  the frame, and whatever `--context` you hand it deliberately.
+- **Nothing is written to `data/spend.jsonl`.** The `adhd` CLI reports no
+  cost, so any figure there would be an estimate that can never be settled —
+  a wrong number that, by that ledger's own rules, stays written. The lane
+  prints the estimate to the terminal instead. Known gap, recorded in
+  `docs/decisions/README.md`.
+- **A dirty tree is fine here.** Codex reviews a commit and refuses on a
+  moving target; ADHD reasons about a question, and the most valuable moment
+  to widen is halfway into a change that turned out wrong. The commit is
+  recorded in the record's header instead.
+
+Use it on open design decisions, naming, API surface, migration planning, and
+*"what could go wrong beyond the checklist"*. Not on the deploy, not on a bug
+with a known root cause, not on anything one search answers.
+
 ## Commit through the checkpoint script
 
 Use `scripts/checkpoint.sh -m "..."`. It runs ruff, the full suite, the

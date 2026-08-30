@@ -41,3 +41,9 @@ blind*.json
 # path; it carries no data and must never dirty the tree, because both
 # codex-agent.sh lanes refuse to run on a dirty tree.
 *.jsonl.lock
+
+# ADHD raw runs and assembled context files. The reviewed decision record
+# under docs/decisions/ is committed deliberately; these are the machine
+# output it was rendered from, reproducible only by spending again but of no
+# value once the verdicts are written.
+.adhd-runs/
