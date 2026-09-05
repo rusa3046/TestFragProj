@@ -73,7 +73,7 @@ HEADLINE: Your closest matches — I prioritized masculine first, then looked fo
     why:  One commenter said it is masculine.
     coverage: Community insight: limited so far
 
-[3] WORTH_DISCOVERING  Armaf Club de Nuit Intense Man
+[3] CLOSEST_AVAILABLE  Armaf Club de Nuit Intense Man
     chips: sweet=unknown  masculine=unknown
     digest: no sweet evidence recorded for it; 5 people across 4 channels have described it. 5 people across 4 channels behind everything cited.
     coverage: Community evidence: moderate
@@ -134,7 +134,7 @@ CASE regression-duplicate-chip
   chip: like performance strong
   chip: like performance strong
 ------------------------------------------------------------------------
-HEADLINE: Your closest matches — I prioritized strong first.
+HEADLINE: Your closest matches — I prioritized strong first. Wearer reports on projection cover 44 of 548 bottles so far, so these lean toward the well-known ones.
   preserve: strong, strong
 
 [1] WORTH_DISCOVERING  Armaf Club de Nuit Intense Man
@@ -161,11 +161,11 @@ HEADLINE: Your closest matches — I prioritized strong first.
     why:  There is some evidence of strong projection.
     coverage: Community insight: limited so far
 
-[5] WORTH_DISCOVERING  Lattafa Bade'e Al Oud Amethyst
+[5] WORTH_DISCOVERING  Lancôme La Vie Est Belle L'Elixir
     chips: strong=matched  strong=matched
-    digest: 2 people said projection strong, on videos about this bottle rather than naming it. 2 people across 1 channel behind everything cited.
-    why:  There is some evidence of strong projection.
-    coverage: Community insight: limited so far
+    digest: 2 people said projection strong, on videos about this bottle rather than naming it. 2 people across 2 channels behind everything cited.
+    why:  Several wearers report strong projection.
+    coverage: Community evidence: moderate
 
 ========================================================================
 CASE regression-declared-note-vs-one-commenter
@@ -174,7 +174,7 @@ CASE regression-declared-note-vs-one-commenter
   chip: like performance long lasting
   chip: like performance strong
 ------------------------------------------------------------------------
-HEADLINE: Your closest matches — I prioritized sandalwood, long lasting and strong first.
+HEADLINE: Your closest matches — I prioritized sandalwood, long lasting and strong first. Wearer reports on longevity and projection cover at most 51 of 548 bottles each so far, so these lean toward the well-known ones.
   preserve: sandalwood, long lasting, strong
 
 [1] COMMUNITY_FAVORITE  Armaf Club de Nuit Intense Man
@@ -184,26 +184,26 @@ HEADLINE: Your closest matches — I prioritized sandalwood, long lasting and st
     why:  Wearers consistently report strong projection.
     coverage: Community evidence: moderate
 
-[2] WORTH_DISCOVERING  Orientica Luxury Collection Royal Bleu
+[2] COMMUNITY_FAVORITE  Lancôme La Vie Est Belle L'Elixir
+    chips: sandalwood=unknown  long lasting=matched  strong=matched
+    digest: 6 people said longevity long lasting, on videos about this bottle rather than naming it. 6 people across 2 channels behind everything cited.
+    why:  Wearers consistently report long lasting.
+    why:  Several wearers report strong projection.
+    coverage: Community evidence: moderate
+
+[3] WORTH_DISCOVERING  Orientica Luxury Collection Royal Bleu
     chips: sandalwood=unknown  long lasting=matched  strong=matched
     digest: 4 people said longevity long lasting. 4 people across 1 channel behind everything cited.
     why:  There is some evidence of long lasting.
     why:  There is some evidence of strong projection.
     coverage: Community insight: limited so far
 
-[3] WORTH_DISCOVERING  Armaf Club de Nuit Imperiale
+[4] WORTH_DISCOVERING  Armaf Club de Nuit Imperiale
     chips: sandalwood=unknown  long lasting=matched  strong=matched
     digest: 3 people said projection strong. 3 people across 1 channel behind everything cited.
     why:  There is some evidence of strong projection.
     why:  There is some evidence of long lasting.
     coverage: Community insight: limited so far
-
-[4] COMMUNITY_FAVORITE  Lattafa Khamrah Dukhan
-    chips: sandalwood=unknown  long lasting=matched  strong=matched
-    digest: 3 people said projection strong. 3 people across 2 channels behind everything cited.
-    why:  Several wearers report long lasting.
-    why:  There is some evidence of strong projection.
-    coverage: Community evidence: moderate
 
 [5] WORTH_DISCOVERING  Lattafa Khamrah
     chips: sandalwood=unknown  long lasting=matched  strong=contradicted
@@ -261,7 +261,7 @@ CASE regression-performance-chip-is-performance
   why: The kiosk's 'strong' chip compiled to ('note','strong'), so real PROJECTION evidence could never match the most explicit signal in the composer. A matched strong chip on a bottle with projection evidence is the pin.
   chip: want performance strong
 ------------------------------------------------------------------------
-HEADLINE: Your closest matches — I prioritized strong first.
+HEADLINE: Your closest matches — I prioritized strong first. Wearer reports on projection cover 44 of 548 bottles so far, so these lean toward the well-known ones.
   target: strong
 
 [1] WORTH_DISCOVERING  Armaf Club de Nuit Intense Man
@@ -288,11 +288,11 @@ HEADLINE: Your closest matches — I prioritized strong first.
     why:  There is some evidence of strong projection.
     coverage: Community insight: limited so far
 
-[5] WORTH_DISCOVERING  Lattafa Bade'e Al Oud Amethyst
+[5] WORTH_DISCOVERING  Lancôme La Vie Est Belle L'Elixir
     chips: strong=matched
-    digest: 2 people said projection strong, on videos about this bottle rather than naming it. 2 people across 1 channel behind everything cited.
-    why:  There is some evidence of strong projection.
-    coverage: Community insight: limited so far
+    digest: 2 people said projection strong, on videos about this bottle rather than naming it. 2 people across 2 channels behind everything cited.
+    why:  Several wearers report strong projection.
+    coverage: Community evidence: moderate
 
 ========================================================================
 CASE budget-under-200-discloses-which-price
@@ -306,35 +306,35 @@ HEADLINE: Your closest matches — I prioritized sandalwood and summer first.
   constraints: budget <= $200, occasion: summer
 
 [1] STRONG_PROFILE_FIT  Jimmy Choo I Want Choo With Love
-    chips: sandalwood=matched  budget=matched  summer=unknown
+    chips: sandalwood=matched  from $116 (2 Ounce)=matched  summer=unknown
     digest: Sandalwood is among the declared notes.
     why:  Sandalwood is among the declared notes.
     why:  Declared profile leans citrus — a conservative catalog fit for summer wear.
     coverage: Community insight: limited so far
 
 [2] STRONG_PROFILE_FIT  Yves Saint Laurent Jumpsuit - Le Vestiaire des Parfums
-    chips: sandalwood=matched  budget=matched  summer=unknown
+    chips: sandalwood=matched  from $195 (1.2 Ounce)=matched  summer=unknown
     digest: Sandalwood is among the declared notes.
     why:  Sandalwood is among the declared notes.
     why:  Declared profile leans citrus/fresh — a conservative catalog fit for summer wear.
     coverage: Community insight: limited so far
 
 [3] STRONG_PROFILE_FIT  Acqua di Parma Colonia
-    chips: sandalwood=matched  budget=matched  summer=unknown
+    chips: sandalwood=matched  from $165 (1.7 Ounce)=matched  summer=unknown
     digest: Sandalwood is among the declared notes.
     why:  Sandalwood is among the declared notes.
     why:  Declared profile leans citrus/fresh — a conservative catalog fit for summer wear.
     coverage: Community insight: limited so far
 
 [4] STRONG_PROFILE_FIT  Guerlain Aqua Allegoria Florabloom
-    chips: sandalwood=matched  budget=matched  summer=unknown
+    chips: sandalwood=matched  from $170 (4.2 Ounce)=matched  summer=unknown
     digest: Sandalwood is among the declared notes.
     why:  Sandalwood is among the declared notes.
     why:  Declared profile leans citrus/fresh — a conservative catalog fit for summer wear.
     coverage: Community insight: limited so far
 
 [5] WORTH_DISCOVERING  Creed Aventus Cologne
-    chips: sandalwood=unknown  budget=unknown  summer=matched
+    chips: sandalwood=unknown  under $200=unknown  summer=matched
     digest: People call it occasion summer. 3 people across 2 channels behind everything cited.
     why:  Wearers consistently confirm it for summer wear.
     coverage: Community evidence: moderate
@@ -433,64 +433,65 @@ CASE signature-query-delina-rose
   why: The sentence the product is named for. Read forwards it returns the rosiest bottles to somebody who just said rose is the problem.
   said: "I love Delina but the rose is too strong"
 ------------------------------------------------------------------------
-HEADLINE: Your closest matches — I looked for options with less rose evidence.
+HEADLINE: Building on Parfums de Marly Delina — I looked for less rose, and these are the bottles wearers connect to it.
   anchors: Parfums de Marly Delina
 
 [1] WORTH_DISCOVERING  Parfums de Marly Delina Exclusif
     digest: People compare this to Parfums de Marly Delina. 4 people across 2 channels behind everything cited.
-    why:  One commenter said it is rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here).
+    why:  Rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here).
     coverage: Community evidence: moderate
 
 [2] WORTH_DISCOVERING  Armaf Club de Nuit Imperiale
-    digest: one commenter said rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here). 1 person across 1 channel behind everything cited.
-    why:  One commenter said it is rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here).
+    digest: rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here). 1 person across 1 channel behind everything cited.
+    why:  Rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here).
     coverage: Community insight: limited so far
 
 [3] WORTH_DISCOVERING  Lattafa Bade'e Al Oud Amethyst
-    digest: 3 people said rose mentioned by 3 people here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named, on videos about this bottle rather than naming it. 3 people across 0 channels behind everything cited.
-    why:  There is some evidence that it is rose mentioned by 3 people here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named.
+    digest: rose mentioned by 3 people here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named. 3 people behind everything cited.
+    why:  Rose mentioned by 3 people here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named.
     coverage: Community insight: limited so far
 
 [4] WORTH_DISCOVERING  Kilian Angels' Share Paradis
-    digest: 1 person said rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named, on videos about this bottle rather than naming it. 1 person across 0 channels behind everything cited.
-    why:  One commenter said it is rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named.
+    digest: rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named. 1 person behind everything cited.
+    why:  Rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here), some inferred from the video rather than named.
     coverage: Community insight: limited so far
 
-[5] WORTH_DISCOVERING  Maison Alhambra Delilah
-    digest: People compare this to Parfums de Marly Delina. 3 people across 2 channels behind everything cited.
-    coverage: Community evidence: moderate
+[5] WORTH_DISCOVERING  Lancôme La Vie est belle
+    digest: rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here). 1 person behind everything cited.
+    why:  Rose mentioned by 1 person here, 6 people across 4 channels for Parfums de Marly Delina (fewer — which is why it ranks here).
+    coverage: Community insight: limited so far
 
 ========================================================================
 CASE free-text-insane-longevity
   why: From the owner's real session log. An intensifier phrase the parser must read as a performance preference rather than dropping.
   said: "I want something with insane longevity"
 ------------------------------------------------------------------------
-HEADLINE: Your closest matches — I prioritized long lasting first.
+HEADLINE: Your closest matches — I prioritized long lasting first. Wearer reports on longevity cover 51 of 548 bottles so far, so these lean toward the well-known ones.
 
 [1] WORTH_DISCOVERING  Lattafa Khamrah
     digest: 14 people said longevity long lasting, on videos about this bottle rather than naming it. 14 people across 6 channels behind everything cited.
     why:  Wearers consistently report long lasting.
     coverage: Community evidence: moderate
 
-[2] WORTH_DISCOVERING  Armaf Club de Nuit Intense Man
+[2] WORTH_DISCOVERING  Lancôme La Vie Est Belle L'Elixir
+    digest: 6 people said longevity long lasting, on videos about this bottle rather than naming it. 6 people across 2 channels behind everything cited.
+    why:  Wearers consistently report long lasting.
+    coverage: Community evidence: moderate
+
+[3] WORTH_DISCOVERING  Armaf Club de Nuit Intense Man
     digest: People call it longevity long lasting. 5 people across 4 channels behind everything cited.
     why:  Wearers consistently report long lasting.
     coverage: Community evidence: moderate
 
-[3] WORTH_DISCOVERING  Maison Alhambra Hercules
+[4] WORTH_DISCOVERING  Maison Alhambra Hercules
     digest: People call it longevity long lasting. 3 people across 2 channels behind everything cited.
     why:  Wearers consistently report long lasting.
     coverage: Community evidence: moderate
 
-[4] WORTH_DISCOVERING  Parfums de Marly Layton
+[5] CLOSEST_AVAILABLE  Parfums de Marly Layton
     digest: longevity long lasting — 24 people say so and 15 disagree, some inferred from the video rather than named — though 15 of 39 disagree on longevity. 24 people across 7 channels behind everything cited.
     know: Longevity opinions are mixed across wearers.
     coverage: Community evidence: moderate
-
-[5] WORTH_DISCOVERING  Orientica Luxury Collection Royal Bleu
-    digest: 4 people said longevity long lasting. 4 people across 1 channel behind everything cited.
-    why:  There is some evidence of long lasting.
-    coverage: Community insight: limited so far
 
 ========================================================================
 CASE free-text-typo-fails-visibly
@@ -665,7 +666,7 @@ CASE two-anchors-second-is-held
   chip: like fragrance Parfums de Marly Delina
   chip: like fragrance Lattafa Khamrah
 ------------------------------------------------------------------------
-HEADLINE: Your closest matches, based on what the corpus supports.
+HEADLINE: Building on Parfums de Marly Delina — these are the bottles wearers connect to it.
   anchors: Parfums de Marly Delina, Lattafa Khamrah
   NOT USED: liked bottle: Lattafa Khamrah: multiple anchors not yet ranked
 
@@ -743,31 +744,31 @@ HEADLINE: Your closest matches — I prioritized vanilla first.
   constraints: budget <= $10
 
 [1] WORTH_DISCOVERING  Lattafa Khamrah
-    chips: budget=unknown  vanilla=matched
+    chips: under $10=unknown  vanilla=matched
     digest: People call it vanilla. 3 people across 2 channels behind everything cited.
     why:  Wearers consistently describe it as vanilla.
     coverage: Community evidence: moderate
 
 [2] WORTH_DISCOVERING  Creed Centaurus
-    chips: budget=unknown  vanilla=matched
+    chips: under $10=unknown  vanilla=matched
     digest: one commenter said vanilla. 1 person across 1 channel behind everything cited.
     why:  One commenter said it is vanilla.
     coverage: Community insight: limited so far
 
 [3] WORTH_DISCOVERING  French Avenue Liquid Brun
-    chips: budget=unknown  vanilla=matched
+    chips: under $10=unknown  vanilla=matched
     digest: one commenter said vanilla. 1 person across 1 channel behind everything cited.
     why:  One commenter said it is vanilla.
     coverage: Community insight: limited so far
 
 [4] WORTH_DISCOVERING  Lattafa Bade'e Al Oud Amethyst
-    chips: budget=unknown  vanilla=matched
+    chips: under $10=unknown  vanilla=matched
     digest: 1 person said vanilla, on videos about this bottle rather than naming it. 1 person across 1 channel behind everything cited.
     why:  One commenter said it is vanilla.
     coverage: Community insight: limited so far
 
 [5] WORTH_DISCOVERING  Maison Alhambra Hercules
-    chips: budget=unknown  vanilla=matched
+    chips: under $10=unknown  vanilla=matched
     digest: one commenter said vanilla. 1 person across 1 channel behind everything cited.
     why:  One commenter said it is vanilla.
     coverage: Community insight: limited so far
@@ -778,7 +779,7 @@ CASE contested-evidence-is-not-a-match
   chip: want performance long lasting
   chip: like vibe feminine
 ------------------------------------------------------------------------
-HEADLINE: Your closest matches — I prioritized long lasting and feminine first.
+HEADLINE: Your closest matches — I prioritized long lasting and feminine first. Wearer reports on longevity cover 51 of 548 bottles so far, so these lean toward the well-known ones.
   preserve: feminine
   target: long lasting
 
@@ -789,30 +790,30 @@ HEADLINE: Your closest matches — I prioritized long lasting and feminine first
     why:  Wearers consistently describe it as feminine.
     coverage: Community evidence: moderate
 
-[2] WORTH_DISCOVERING  Kilian Angels' Share Paradis
+[2] COMMUNITY_FAVORITE  Lancôme La Vie Est Belle L'Elixir
+    chips: long lasting=matched  feminine=matched
+    digest: 6 people said longevity long lasting, on videos about this bottle rather than naming it. 6 people across 2 channels behind everything cited.
+    why:  Wearers consistently report long lasting.
+    why:  One commenter said it is feminine women.
+    coverage: Community evidence: moderate
+
+[3] WORTH_DISCOVERING  Kilian Angels' Share Paradis
     chips: long lasting=matched  feminine=matched
     digest: 2 people said longevity long lasting. 2 people across 1 channel behind everything cited.
     why:  There is some evidence of long lasting.
     why:  One commenter said it is feminine.
     coverage: Community insight: limited so far
 
-[3] WORTH_DISCOVERING  Parfums de Marly Delina
+[4] WORTH_DISCOVERING  Parfums de Marly Delina
     chips: long lasting=contradicted  feminine=matched
     digest: longevity long lasting — 5 people say so and 4 disagree, some inferred from the video rather than named — though 4 of 9 disagree on longevity. 5 people across 2 channels behind everything cited.
     why:  Several wearers describe it as feminine.
     know: Longevity opinions are mixed across wearers.
     coverage: Community evidence: moderate
 
-[4] WORTH_DISCOVERING  Parfums de Marly Layton
+[5] WORTH_DISCOVERING  Parfums de Marly Layton
     chips: long lasting=contradicted  feminine=matched
     digest: longevity long lasting — 24 people say so and 15 disagree, some inferred from the video rather than named — though 15 of 39 disagree on longevity. 24 people across 7 channels behind everything cited.
-    why:  One commenter said it is feminine.
-    know: Longevity opinions are mixed across wearers.
-    coverage: Community evidence: moderate
-
-[5] WORTH_DISCOVERING  French Avenue Liquid Brun
-    chips: long lasting=contradicted  feminine=matched
-    digest: longevity long lasting — 4 people say so and 3 disagree, some inferred from the video rather than named — though 3 of 7 disagree on longevity. 4 people across 2 channels behind everything cited.
     why:  One commenter said it is feminine.
     know: Longevity opinions are mixed across wearers.
     coverage: Community evidence: moderate

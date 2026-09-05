@@ -141,14 +141,19 @@ this is the operational half.
 ### The repository was renamed
 
 `TestFragProj` → **`claim-graph`**, 2026-08-27. GitHub redirects the old
-URL permanently, so old clones and links keep working and `git` accepts
-either name. Two things do *not* follow the rename automatically and are
-worth knowing before you go hunting: this environment's proxy scopes
-**GitHub API** access by repository name, so opening or merging a PR can
-start returning `403 GitHub access to this repository is not enabled for
-this session` while `git push` to the same repo works perfectly. The fix
-is `add_repo` with `access: "push"`, which needs the operator to approve
-it. Plain `git` was never affected.
+URL permanently, so old clones and links keep working. What does *not*
+follow the rename is this environment's credential, which is scoped to
+the **old** name on both surfaces: the GitHub MCP tools answer
+`owner="rusa3046", repo="TestFragProj"` and return `403 GitHub access to
+this repository is not enabled for this session` for `claim-graph`, and
+`git push` to the new URL is refused with "not in this session's
+authorized repository set" while the same push to
+`https://github.com/rusa3046/TestFragProj` succeeds through the
+redirect. So: keep `origin` on the old URL, open and merge PRs with the
+old name, and expect a stop-hook "unpushed commits" warning after a push
+by URL until `git fetch` refreshes the tracking ref. `add_repo` with
+`access: "push"` for `claim-graph` needs the operator to approve it and
+has not been.
 
 ### What the five gates are for
 

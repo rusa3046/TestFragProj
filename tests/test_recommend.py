@@ -387,6 +387,33 @@ class TestDigest:
         ], people=1, creators=1)
         assert "behind everything cited" in digest(rec)
 
+    def test_the_tail_names_no_channels_when_there_are_none(self):
+        """A comparative reason carries a person but no creator, and the
+        card behind it read "1 person across 0 channels behind
+        everything cited." Found by the golden file the first time the
+        corpus grew a one-person comparison."""
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[
+            Reason(kind="comparative", text="rose mentioned by 1 person here, "
+                   "6 people across 4 channels for Delina (fewer — which is why "
+                   "it ranks here)", strength=Strength.OBSERVED, people=1),
+        ], people=1, creators=0)
+        text = digest(rec)
+        assert "0 channels" not in text
+        assert text.endswith("1 person behind everything cited.")
+
+    def test_a_comparative_reason_is_phrased_as_its_own_report(self):
+        """Its text already states both headcounts; "one commenter said
+        rose mentioned by 1 person here, 6 people across 4 channels for
+        Delina" is what wrapping it produced on a real card."""
+        reason = Reason(kind="comparative", text="rose mentioned by 1 person "
+                        "here, 6 people across 4 channels for Delina (fewer — "
+                        "which is why it ranks here)",
+                        strength=Strength.OBSERVED, people=1)
+        assert reason.phrase() == reason.text
+        rec = Recommendation(fragrance_id=1, name="X", reasons=[reason],
+                             people=1, creators=0)
+        assert "one commenter said" not in digest(rec)
+
     def test_a_contested_facts_disagreement_number_appears(self):
         contested = Reason(kind="profile", text="longevity long lasting",
                            strength=Strength.CONTESTED, people=6, creators=3,
@@ -1255,11 +1282,14 @@ class TestFailureCaseCompositionReturnsPositivelyFramedResults:
         cards = {c.fragrance_id: build_card(c) for c in answer.results}
         # Every returned card carries a real, tier-worded reason — never
         # an empty "why try this" list standing in for a rejection.
+        # `CLOSEST_AVAILABLE` is a real tier, not a rejection: the cinnamon
+        # bottle matched "feminine" and carries the avoided note at equal
+        # strength, and the honest word for that is "closest available".
         for card in cards.values():
             assert card.fit_signals, f"{card.name!r} has no fit signals at all"
             assert card.result_tier in (
                 "BEST_OVERALL_FIT", "STRONG_PROFILE_FIT",
-                "COMMUNITY_FAVORITE", "WORTH_DISCOVERING",
+                "COMMUNITY_FAVORITE", "WORTH_DISCOVERING", "CLOSEST_AVAILABLE",
             )
 
 

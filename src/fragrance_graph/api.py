@@ -105,7 +105,13 @@ from fragrance_graph.catalog_profile import CatalogProfile
 from fragrance_graph.catalog_profile import catalog_profile as build_catalog_profiles
 from fragrance_graph.commerce_card import build_card, headline, result_tier
 from fragrance_graph.db import DEFAULT_DB_URL, get_connection, migrate
-from fragrance_graph.evidence import Attribution, Support, attribute_facts, tier_of
+from fragrance_graph.evidence import (
+    Attribution,
+    Support,
+    attribute_facts,
+    evidence_coverage,
+    tier_of,
+)
 from fragrance_graph.notes import declared_note_map, load_note_axes
 from fragrance_graph.plan import Direction as PlanDirection
 from fragrance_graph.plan import Preference as PlanPreference
@@ -116,6 +122,7 @@ from fragrance_graph.recommend import (
     Recommendation,
     _catalog_signal,
     _fact_reason,
+    cheapest_in_stock,
     digest,
     fact_matches,
     price_floor,
@@ -312,7 +319,8 @@ def _reason_jsons(reasons: list[Reason]) -> list[dict]:
 
 def _label(candidate: Recommendation) -> str:
     """BEST_OVERALL_FIT / STRONG_PROFILE_FIT / COMMUNITY_FAVORITE /
-    WORTH_DISCOVERING — delegates to `commerce_card.result_tier`, which
+    WORTH_DISCOVERING / CLOSEST_AVAILABLE — delegates to
+    `commerce_card.result_tier`, which
     is the one place this rule lives (see that function's docstring for
     the exact two-axis thresholds and rationale). Kept as a thin wrapper,
     rather than inlined at each call site, only so existing imports of
@@ -355,7 +363,12 @@ def _candidate_json(
     }
 
 
-def _answer_json(answer: Answer, *, debug: bool = False) -> dict:
+def _answer_json(
+    answer: Answer,
+    *,
+    debug: bool = False,
+    coverage: tuple[dict[str, int], int] | None = None,
+) -> dict:
     """An `Answer`, rendered whole, for the customer surface. `note` is
     the commerce headline (`commerce_card.headline`) — see that function's
     docstring and `commerce-audit.md` §1/§8 for why the engine's own
@@ -366,8 +379,11 @@ def _answer_json(answer: Answer, *, debug: bool = False) -> dict:
     raw `answer.note` unconditionally — the one piece of guaranteed
     internal-diagnostic text (audit §11's L3 debug view), opt-in and
     clearly separately named rather than silently swapped in for `note`.
+    `coverage` is `evidence_coverage(conn)` from the caller that holds the
+    connection; this function has none, and without it the headline
+    simply omits the coverage sentence.
     """
-    note = headline(answer.plan, answer.results, answer.note)
+    note = headline(answer.plan, answer.results, answer.note, coverage)
     body = {
         "note": note,
         "results": [_candidate_json(c, i) for i, c in enumerate(answer.results)],
@@ -612,6 +628,26 @@ def _item_status(
     return cell("unknown")
 
 
+def _budget_display(
+    item: PreferenceItem, cell: dict, cheapest: tuple[float, str] | None
+) -> str:
+    """The label a budget chip shows. Empty for every other item type,
+    whose `value` speaks for itself.
+
+    Matched: "from $100 (0.33 oz)" — the price and size that actually
+    cleared the bar, so a shopper can tell a travel spray from a bottle
+    without opening the full story. Otherwise the request as typed,
+    "under $200", which is all that can honestly be said when no
+    in-stock price is known for this candidate.
+    """
+    if item.entity_type != "budget" or not item.amount:
+        return ""
+    if cell.get("status") == "matched" and cheapest is not None:
+        price, size = cheapest
+        return f"from ${price:g} ({size})" if size else f"from ${price:g}"
+    return f"under ${item.amount:g}"
+
+
 def _preference_statuses(
     conn: psycopg.Connection, state: PreferenceState, candidates: list[Recommendation]
 ) -> dict[int, list[dict]]:
@@ -638,6 +674,15 @@ def _preference_statuses(
     prices = (
         price_floor(conn, [c.fragrance_id for c in candidates]) if needs_price else {}
     )
+    # The cheapest in-stock variant *with its size*, for the chip label.
+    # "✓ under $200" on Creed Aventus is true on a 0.33 oz at $100 while
+    # the 3.3 oz is $510; both facts are real, and a bare checkmark let
+    # the reader assume the second. The size is the one word that stops
+    # that — see `recommend.cheapest_in_stock`.
+    cheapest = (
+        cheapest_in_stock(conn, [c.fragrance_id for c in candidates])
+        if needs_price else {}
+    )
     # The same catalog read the engine ranks with, so a cell can consult
     # the note-status ladder when the community is silent — see
     # `_catalog_matrix_cell` for the live inversion this closed.
@@ -663,10 +708,8 @@ def _preference_statuses(
                     # its `value` is empty — clients key such rows by
                     # entity_type. `display` carries the human label the
                     # UI shows; empty for items whose value speaks.
-                    "display": (
-                        f"under ${item.amount:g}"
-                        if item.entity_type == "budget" and item.amount
-                        else ""
+                    "display": _budget_display(
+                        item, cell, cheapest.get(candidate.fragrance_id)
                     ),
                     # `status`/`match_kind`/`contested`/`tier`/`people`/
                     # `creators` — see `_item_status`'s docstring for what
@@ -949,7 +992,9 @@ def _session_response(
     # is False and there is no refusal precisely in the "nothing said yet"
     # case (see `_recommendations_for`'s own docstring).
     empty_session = not plan.usable and not plan.refusal and not answer.results
-    note = "" if empty_session else headline(plan, answer.results, answer.note)
+    note = "" if empty_session else headline(
+        plan, answer.results, answer.note, evidence_coverage(conn)
+    )
     body = {
         "state": state.summary(),
         "note": note,
@@ -1290,7 +1335,9 @@ def spray_queue(session_id: str, conn: Conn, debug: bool = False) -> dict:
     # matches" sentence — the same `_session_response` invariant (F4),
     # applied here too.
     empty_session = not plan.usable and not plan.refusal and not results
-    note = "" if empty_session else headline(plan, results, answer.note)
+    note = "" if empty_session else headline(
+        plan, results, answer.note, evidence_coverage(conn)
+    )
     if not results:
         body = {
             "note": note, "queue": [], "unexpressed": unexpressed,
@@ -1359,7 +1406,7 @@ def stateless_recommend(body: RecommendRequest, conn: Conn, debug: bool = False)
     adds the raw engine note (`_answer_json`'s `engine_note`) — see that
     function's docstring and `commerce-audit.md` §11."""
     answer = recommend(conn, body.text)
-    return _answer_json(answer, debug=debug)
+    return _answer_json(answer, debug=debug, coverage=evidence_coverage(conn))
 
 
 @app.get("/api/fragrance/{fragrance_id}")
@@ -1374,7 +1421,7 @@ def fragrance_profile(fragrance_id: int, conn: Conn, debug: bool = False) -> dic
     if row is None:
         raise HTTPException(status_code=404, detail=f"No fragrance {fragrance_id!r}")
     answer = recommend(conn, f"what do people say about {row['canonical_name']}?")
-    body = _answer_json(answer, debug=debug)
+    body = _answer_json(answer, debug=debug, coverage=evidence_coverage(conn))
     body["official"] = _official_block(conn, fragrance_id)
     return body
 
@@ -1450,7 +1497,9 @@ def audited_probe_text(conn: psycopg.Connection) -> str:
         # `commerce-audit.md` §11 and the regression this closes:
         # `TestAuditSurfaceRegistration::
         # test_a_forbidden_phrase_reaching_the_api_through_a_real_fragrance_is_caught`.
-        rendered = _answer_json(recommend(conn, query), debug=True)
+        rendered = _answer_json(
+            recommend(conn, query), debug=True, coverage=evidence_coverage(conn)
+        )
         lines.append(rendered["note"])
         lines.append(rendered.get("engine_note", ""))
         for candidate in rendered["results"]:

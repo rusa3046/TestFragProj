@@ -199,13 +199,15 @@ class TestThePageAndTheApiCannotDrift:
         body = _next_function_body(HTML, "function renderResultsState")
         assert 'emptyNote.textContent = body.note' in body
 
-    def test_labels_in_js_match_the_apis_four(self):
+    def test_labels_in_js_match_the_apis_five(self):
         """Catalog-first spec: the two-axis label vocabulary
         (`commerce_card.result_tier`'s docstring) replaces the old
         single-axis `STRONG_FIT`/`GOOD_FIT`/`PARTIAL_FIT`/
-        `EXPLORATORY_PICK` four."""
+        `EXPLORATORY_PICK` four, plus `CLOSEST_AVAILABLE` for the card
+        that answered nothing the shopper asked."""
         for label in ("BEST_OVERALL_FIT", "STRONG_PROFILE_FIT",
-                      "COMMUNITY_FAVORITE", "WORTH_DISCOVERING"):
+                      "COMMUNITY_FAVORITE", "WORTH_DISCOVERING",
+                      "CLOSEST_AVAILABLE"):
             assert label in HTML
 
     def test_no_innerhtml_anywhere(self):

@@ -179,6 +179,14 @@ class Reason:
             # people by design (a catalog fact is not a headcount), for
             # the identical reason `declared_overlap` is in this branch.
             "catalog_fit", "catalog_avoid",
+            # `comparative` (`_score_comparative`): every one of its three
+            # texts is a complete report of two headcounts -- "rose
+            # mentioned by 1 person here, 6 people across 4 channels for
+            # Delina (fewer -- which is why it ranks here)" -- with its own
+            # inference disclosure. Wrapping that in "one commenter said
+            # ..." produced a sentence nobody could parse, on a real card,
+            # the first time the corpus grew a one-person comparison.
+            "comparative",
         ):
             # `declared_overlap`'s text is already fully composed by
             # `_declared_overlap_text` -- "official notes share iris and
@@ -476,12 +484,18 @@ def digest(recommendation: Recommendation) -> str:
     # sentence about a fact that carries no headcount by design. Found by
     # the golden card file on its first read, on four of the five results
     # for a plain sandalwood request.
-    tail = (
-        f"{_people(recommendation.people)} across "
-        f"{_sources(recommendation.creators)} behind everything cited."
-        if recommendation.people
-        else ""
-    )
+    # And no channel count when there is none to give: a comparative
+    # reason carries a person but no creator, and "1 person across 0
+    # channels" is the same nonsense in a smaller size.
+    if not recommendation.people:
+        tail = ""
+    elif recommendation.creators:
+        tail = (
+            f"{_people(recommendation.people)} across "
+            f"{_sources(recommendation.creators)} behind everything cited."
+        )
+    else:
+        tail = f"{_people(recommendation.people)} behind everything cited."
     text = " ".join(part for part in (lead, tail) if part)
 
     # Structural backstop, not the primary guard: if sanitising every
@@ -1735,6 +1749,42 @@ def price_floor(conn: psycopg.Connection, fragrance_ids: list[int]) -> dict[int,
         (list(fragrance_ids),),
     ).fetchall()
     return {r["fragrance_id"]: float(r["min_price"]) for r in rows}
+
+
+def cheapest_in_stock(
+    conn: psycopg.Connection, fragrance_ids: list[int]
+) -> dict[int, tuple[float, str]]:
+    """`{fragrance_id: (price_usd, size_display)}` for the cheapest
+    **in-stock** variant of each — the same rows `price_floor` minimises
+    over, with the size kept.
+
+    `price_floor` answers "does anything clear the budget"; this answers
+    the question a shopper asks the moment it does: *which* bottle. Creed
+    Aventus clears "under $200" on a 0.33 oz at $100 while its 3.3 oz is
+    $510. Both facts are true; a bare ✓ under $200 let the reader assume
+    the second, and the size is the one word that stops that.
+    """
+    if not fragrance_ids:
+        return {}
+    rows = conn.execute(
+        """
+        SELECT DISTINCT ON (rl.fragrance_id)
+               rl.fragrance_id AS fragrance_id,
+               rv.price_usd    AS price_usd,
+               rv.size_display AS size_display
+          FROM retailer_listings rl
+          JOIN retailer_variants rv ON rv.listing_id = rl.id
+         WHERE rl.fragrance_id = ANY(%s)
+           AND rv.in_stock
+           AND rv.price_usd IS NOT NULL
+         ORDER BY rl.fragrance_id, rv.price_usd ASC, rv.size_display
+        """,
+        (list(fragrance_ids),),
+    ).fetchall()
+    return {
+        r["fragrance_id"]: (float(r["price_usd"]), (r["size_display"] or "").strip())
+        for r in rows
+    }
 
 
 def _apply_budget(

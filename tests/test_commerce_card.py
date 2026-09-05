@@ -8,6 +8,8 @@ already computed, so a test here should never need evidence collection
 machinery to prove it.
 """
 
+import pytest
+
 from fragrance_graph.commerce_card import (
     MAX_FIT_SIGNALS,
     MAX_TRADEOFFS,
@@ -121,6 +123,34 @@ class TestResultTier:
         candidate = Recommendation(1, "X", reasons=[reason("graph")])
         assert result_tier(candidate) == "WORTH_DISCOVERING"
 
+    def test_nothing_answered_the_request_is_closest_available(self):
+        """The bottom rung is "good profile match, limited wearer data" —
+        the spec's own definition — and it was being handed to cards that
+        matched nothing at all. A label that means the opposite of what
+        it says is worse than no label."""
+        candidate = Recommendation(1, "X", reasons=[reason("semantic")])
+        assert result_tier(candidate) == "CLOSEST_AVAILABLE"
+
+    def test_tradeoffs_outnumbering_fit_is_closest_available(self):
+        """Photographed live: Parfums de Marly Layton labelled WORTH_
+        DISCOVERING for sandalwood + long lasting + strong, with one
+        commenter behind "strong" and both performance dimensions
+        disputed."""
+        candidate = Recommendation(
+            1, "Layton",
+            reasons=[reason("prefer", people=1, creators=1, videos=0)],
+            caveats=[reason("disputed", strength=Strength.CONTESTED, against=3),
+                     reason("avoid")],
+        )
+        assert result_tier(candidate) == "CLOSEST_AVAILABLE"
+
+    def test_a_graph_link_answers_an_anchor_request(self):
+        """"More like Delina": wearers connecting a bottle to Delina *is*
+        the fit, so a graph-only card is worth discovering, not merely
+        the closest thing available."""
+        candidate = Recommendation(1, "X", reasons=[reason("graph")])
+        assert result_tier(candidate) == "WORTH_DISCOVERING"
+
     def test_a_single_source_community_match_is_worth_discovering_never_rejected(self):
         """Independence gates language, never eligibility for a tier at
         all — see `commerce-audit.md` §1/§4. A `SINGLE_SOURCE` fact is
@@ -152,12 +182,27 @@ class TestResultTier:
         )
         assert result_tier(candidate) == "WORTH_DISCOVERING"
 
-    def test_caveats_never_influence_result_tier(self):
+    def test_a_caveat_outweighing_the_only_fit_is_closest_available(self):
+        """Caveats never raise a tier, and above the bottom rung they
+        only ever apply the documented caps (the F5 tests below). At the
+        bottom they pick between the two honest words: one wearer link
+        for and a strong contradiction against is the closest thing
+        available, not a discovery. (Formerly
+        `test_caveats_never_influence_result_tier`.)"""
         candidate = Recommendation(
             1, "X", reasons=[reason("graph")],
             caveats=[reason("avoid", people=9, creators=5, videos=3)],
         )
-        assert result_tier(candidate) == "WORTH_DISCOVERING"
+        assert result_tier(candidate) == "CLOSEST_AVAILABLE"
+
+    def test_a_caveat_never_pulls_a_strong_axis_below_its_cap(self):
+        """The bottom-rung rule stops at the bottom rung: a catalog-strong
+        card with an avoid caveat is still `STRONG_PROFILE_FIT`."""
+        candidate = Recommendation(
+            1, "X", reasons=[catalog_reason(), catalog_reason(text="citrus")],
+            caveats=[reason("avoid", people=9, creators=5, videos=3)],
+        )
+        assert result_tier(candidate) == "STRONG_PROFILE_FIT"
 
     def test_two_strong_community_matches_with_no_problems_is_community_favorite(self):
         """The uncapped baseline every F5 test below is a variation on —
@@ -239,9 +284,10 @@ class TestResultTier:
         )
         # One contested reason alone: no FIT_SIGNAL reasons remain at all
         # (the only reason present was reclassified DISAGREEMENT), so
-        # this is WORTH_DISCOVERING, not a capped anything — a distinct,
-        # correct outcome from "matched but disputed."
-        assert result_tier(candidate) == "WORTH_DISCOVERING"
+        # nothing answered the request and this is CLOSEST_AVAILABLE —
+        # not a capped anything, and since 2026-09-05 not WORTH_DISCOVERING
+        # either: "matched but disputed" is not a discovery.
+        assert result_tier(candidate) == "CLOSEST_AVAILABLE"
 
     # --- the catalog axis itself --------------------------------------
 
@@ -295,6 +341,25 @@ class TestFitSignalWording:
         text = fit_signal_text(reason("prefer", text="feminine",
                                        people=1, creators=1, videos=0))
         assert text == "One commenter said it is feminine."
+
+    def test_a_comparative_reason_is_its_own_report_not_a_tier_claim(self):
+        """A satisfied "less rose than Delina" reason carries the two
+        headcounts the ranking used, as one composed clause. The tier
+        template wrapped it: "One commenter said it is rose mentioned by
+        1 person here, 6 people across 4 channels for Parfums de Marly
+        Delina (fewer — which is why it ranks here)." — on a real card,
+        the first time the corpus grew a one-person comparison."""
+        text = fit_signal_text(reason(
+            "comparative",
+            text="rose mentioned by 1 person here, 6 people across 4 channels "
+                 "for Parfums de Marly Delina (fewer — which is why it ranks here)",
+            people=1, creators=0, videos=0,
+        ))
+        assert text == (
+            "Rose mentioned by 1 person here, 6 people across 4 channels for "
+            "Parfums de Marly Delina (fewer — which is why it ranks here)."
+        )
+        assert "One commenter" not in text
 
     def test_a_constraint_match_states_the_preference_not_a_tier_claim(self):
         """A hard-constraint match is a catalogue fact ("this is required
@@ -647,6 +712,94 @@ class TestHeadline:
         lowered = text.lower()
         for jargon in ("independence", "bar", "threshold", "gate", "consensus"):
             assert jargon not in lowered
+
+    def test_an_anchor_is_named_so_love_it_has_a_visible_effect(self):
+        """Pressing *Love it* re-anchored the engine and reshuffled the
+        list while the headline went on saying "I prioritized sweet and
+        masculine first", word for word; the loved card vanished and
+        nothing on the page said why. A button whose only visible effect
+        is that things quietly change teaches people the buttons do
+        nothing."""
+        plan = QueryPlan(
+            text="", anchor="Parfums de Marly Layton", anchor_id=67,
+            soft=[
+                Preference("note", "sweet", Direction.HIGH, said="sweet"),
+                Preference("vibe", "masculine", Direction.HIGH, said="masculine"),
+            ],
+        )
+        results = [Recommendation(7, "Detour Noir", reasons=[reason("graph")])]
+        text = headline(plan, results)
+        assert text.startswith("Building on Parfums de Marly Layton")
+        assert "sweet and masculine" in text
+        assert "wearers connect to it" in text
+        lowered = text.lower()
+        for jargon in ("independence", "bar", "threshold", "gate", "consensus"):
+            assert jargon not in lowered
+
+    @pytest.mark.parametrize("prioritized,deprioritized,expected", [
+        ([], [], "Building on X — these are the bottles wearers connect to it."),
+        (["sweet"], [],
+         "Building on X — I kept sweet in mind, and these are the bottles wearers connect to it."),
+        ([], ["rose"],
+         "Building on X — I looked for less rose, and these are the bottles "
+         "wearers connect to it."),
+        (["sweet"], ["rose"],
+         "Building on X — I kept sweet in mind, looked for less rose, and these "
+         "are the bottles wearers connect to it."),
+    ])
+    def test_every_anchor_headline_shape_reads_as_a_sentence(
+        self, prioritized, deprioritized, expected
+    ):
+        from fragrance_graph.commerce_card import TierWording
+
+        assert TierWording.headline_with_results(prioritized, deprioritized, "X") == expected
+
+    def test_a_thin_performance_dimension_is_explained_in_the_headline(self):
+        """Ask for "long lasting" and the same fifteen well-discussed
+        bottles come back every time, because 46 of 548 bottles have any
+        wearer report on longevity — and the page never said so. The
+        shopper reads it as "this thing only knows fifteen perfumes."
+        One sentence turns that into "this thing is honest".
+        """
+        plan = QueryPlan(text="", soft=[
+            Preference("longevity", "long lasting", Direction.HIGH, said="long lasting"),
+        ])
+        results = [Recommendation(1, "X", reasons=[reason("prefer")])]
+        text = headline(plan, results, coverage=({"longevity": 46}, 548))
+        assert text.endswith(
+            "Wearer reports on longevity cover 46 of 548 bottles so far, "
+            "so these lean toward the well-known ones."
+        )
+
+    def test_a_note_request_never_gets_the_coverage_sentence(self):
+        """The catalogue answers notes for every bottle, so results do
+        not cluster and there is nothing to explain — even when the
+        community's own note coverage is thin."""
+        plan = QueryPlan(text="", soft=[
+            Preference("note", "sandalwood", Direction.HIGH, said="sandalwood"),
+        ])
+        results = [Recommendation(1, "X", reasons=[reason("prefer")])]
+        text = headline(plan, results, coverage=({"note": 66}, 548))
+        assert "Wearer reports" not in text
+
+    def test_well_covered_performance_is_not_flagged(self):
+        plan = QueryPlan(text="", soft=[
+            Preference("longevity", "long lasting", Direction.HIGH, said="long lasting"),
+        ])
+        results = [Recommendation(1, "X", reasons=[reason("prefer")])]
+        text = headline(plan, results, coverage=({"longevity": 400}, 548))
+        assert "Wearer reports" not in text
+
+    def test_two_thin_dimensions_are_named_together(self):
+        plan = QueryPlan(text="", soft=[
+            Preference("longevity", "long lasting", Direction.HIGH, said="long lasting"),
+            Preference("projection", "strong", Direction.HIGH, said="strong"),
+        ])
+        results = [Recommendation(1, "X", reasons=[reason("prefer")])]
+        text = headline(
+            plan, results, coverage=({"longevity": 46, "projection": 38}, 548)
+        )
+        assert "longevity and projection cover at most 46 of 548 bottles each" in text
 
     def test_no_preferences_at_all_still_produces_a_positive_sentence(self):
         plan = QueryPlan(text="")

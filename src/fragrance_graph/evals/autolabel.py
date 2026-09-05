@@ -257,13 +257,30 @@ class DraftStats:
 
 
 def build_client() -> Any:
-    if not __import__("os").environ.get("ANTHROPIC_API_KEY"):
+    """The Anthropic client, resolving the key the same way extraction
+    does.
+
+    `extract.llm.anthropic_api_key` accepts `FRAGRANCE_ANTHROPIC_API_KEY`
+    as well, because some managed runners reserve `ANTHROPIC_API_KEY` for
+    their own agent and decline to pass a user-supplied one through —
+    which is exactly the environment this project's own scheduled
+    workflow runs in, and why its repository secret carries the prefixed
+    name. This function checked only the reserved name, so on such a
+    runner the extractor worked and the drafter refused with "copy
+    .env.example to .env" beside a key that was already set. One
+    resolver, both callers.
+    """
+    from fragrance_graph.extract.llm import ALT_KEY_ENV, anthropic_api_key
+
+    key = anthropic_api_key()
+    if not key:
         raise SystemExit(
-            "ANTHROPIC_API_KEY must be set. Copy .env.example to .env."
+            f"No Anthropic API key. Set ANTHROPIC_API_KEY, or {ALT_KEY_ENV} "
+            "if the runner reserves that name. Copy .env.example to .env."
         )
     import anthropic
 
-    return anthropic.Anthropic()
+    return anthropic.Anthropic(api_key=key)
 
 
 def call_model(

@@ -740,7 +740,13 @@ class TestLabelDerivation:
         )
         assert _label(candidate) == "WORTH_DISCOVERING"
 
-    def test_caveats_never_influence_the_label(self):
+    def test_a_caveat_outweighing_the_only_fit_is_closest_available(self):
+        """Caveats never *raise* a label, and above the bottom rung they
+        only ever apply the documented caps. At the bottom they decide
+        between the two honest words: one wearer link for, one strong
+        contradiction against, is "closest available", not a discovery.
+        (Formerly `test_caveats_never_influence_the_label`, retired with
+        the split of the bottom rung on 2026-09-05.)"""
         from fragrance_graph.api import _label
 
         candidate = Recommendation(
@@ -748,7 +754,7 @@ class TestLabelDerivation:
             reasons=[self._strong(kind="graph")],
             caveats=[self._strong(kind="avoid")],
         )
-        assert _label(candidate) == "WORTH_DISCOVERING"
+        assert _label(candidate) == "CLOSEST_AVAILABLE"
 
     def test_two_catalog_fit_reasons_is_strong_profile_fit(self):
         """The catalog axis's own analogue of `COMMUNITY_FAVORITE` — real

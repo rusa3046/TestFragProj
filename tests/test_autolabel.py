@@ -17,6 +17,7 @@ from fragrance_graph.evals.autolabel import (
     PRONOUN_POLICIES,
     RESPONSE_SCHEMA,
     agreement,
+    build_client,
     build_prompt,
     calibration_subset,
     draft,
@@ -471,3 +472,32 @@ class TestDraftFromATemplate:
         ])
         assert drafted[0]["_stratum"] == "silent"
         assert drafted[0]["_why"] == "extractor found nothing"
+
+
+class TestTheKeyIsResolvedTheSameWayExtractionResolvesIt:
+    """`FRAGRANCE_ANTHROPIC_API_KEY` exists because some managed runners
+    reserve `ANTHROPIC_API_KEY` for their own agent and decline to pass a
+    user-supplied one through — this project's own scheduled workflow runs
+    in exactly such a runner, which is why its repository secret carries
+    the prefixed name.
+
+    `build_client` checked only the reserved name, so on that runner the
+    extractor worked and the drafter refused with "copy .env.example to
+    .env" beside a key that was already set. A documented fallback that
+    only half the code honours is worse than no fallback.
+    """
+
+    def test_the_prefixed_name_is_accepted(self, monkeypatch):
+        pytest.importorskip("anthropic")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("FRAGRANCE_ANTHROPIC_API_KEY", "sk-alt")
+        assert build_client() is not None
+
+    def test_neither_set_still_refuses_and_names_both(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("FRAGRANCE_ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(SystemExit) as caught:
+            build_client()
+        message = str(caught.value)
+        assert "ANTHROPIC_API_KEY" in message
+        assert "FRAGRANCE_ANTHROPIC_API_KEY" in message
