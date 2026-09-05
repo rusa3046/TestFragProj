@@ -297,13 +297,39 @@ class TierWording:
         return f"Matches your preference for {said}."
 
     @staticmethod
-    def headline_with_results(prioritized: list[str], deprioritized: list[str]) -> str:
+    def headline_with_results(
+        prioritized: list[str], deprioritized: list[str], anchor: str | None = None
+    ) -> str:
         """§1's positive-framing fix, the whole point of this module: what
         used to open "No match below clears the independence bar" now
         opens with what FACET actually did, named plainly, never with
         audit vocabulary a shopper has no reason to know
         ("independence"/"bar"/"threshold"/"gate"/"consensus" — checked by
-        `audit._audit_commerce`)."""
+        `audit._audit_commerce`).
+
+        `anchor` is the bottle the results are built around — a typed "I
+        love Delina", or the one the shopper just pressed *Love it* on.
+        Before this parameter existed, pressing Love it re-anchored the
+        engine and reshuffled the list while the headline went on saying
+        "I prioritized sweet and masculine first", word for word as
+        before; the loved card vanished (an anchor never recommends
+        itself) and nothing on the page said why. A button whose only
+        visible effect is that things quietly change teaches people the
+        buttons do nothing. Naming the anchor is the whole fix.
+        """
+        if anchor:
+            lead = f"Building on {anchor}"
+            if prioritized:
+                lead += f" — I kept {_join_and(prioritized)} in mind"
+            if deprioritized:
+                lead += (
+                    f"{',' if prioritized else ' — I'} looked for less "
+                    f"{_join_and(deprioritized)}"
+                )
+            lead += (
+                ", and" if prioritized or deprioritized else " —"
+            ) + " these are the bottles wearers connect to it."
+            return lead
         if not prioritized and not deprioritized:
             return "Your closest matches, based on what the corpus supports."
         lead = "Your closest matches"
@@ -314,6 +340,30 @@ class TierWording:
                 else " — I looked for options with less"
             lead += f"{joiner} {_join_and(deprioritized)} evidence"
         return lead + "."
+
+    @staticmethod
+    def coverage_note(dimensions: list[str], covered: int, total: int) -> str:
+        """Why a performance-led request keeps returning the well-known
+        bottles — said once, at the top, instead of left for the shopper
+        to infer that the product only knows fifteen perfumes.
+
+        Longevity, projection and vibe exist only in wearer reports; no
+        retailer publishes them. On this corpus that is 46, 38 and 31 of
+        548 bottles. A request leaning on one of them is answered from
+        that slice however good the catalogue data is, and the honest
+        thing is to say so. `covered` is the largest of the named
+        dimensions' counts, so "at most" is true for every one of them.
+        """
+        what = _join_and(dimensions)
+        if len(dimensions) == 1:
+            return (
+                f"Wearer reports on {what} cover {covered} of {total} bottles so "
+                "far, so these lean toward the well-known ones."
+            )
+        return (
+            f"Wearer reports on {what} cover at most {covered} of {total} bottles "
+            "each so far, so these lean toward the well-known ones."
+        )
 
     # --- community-coverage chrome (catalog-first spec) — a small,
     # always-present line distinct from any fit signal or tradeoff: "how
@@ -620,7 +670,8 @@ def _has_contradicted_avoid(candidate: Recommendation) -> bool:
 
 def result_tier(candidate: Recommendation) -> str:
     """BEST_OVERALL_FIT / STRONG_PROFILE_FIT / COMMUNITY_FAVORITE /
-    WORTH_DISCOVERING — replaces the single-axis `STRONG_FIT`/`GOOD_FIT`/
+    WORTH_DISCOVERING / CLOSEST_AVAILABLE — replaces the single-axis
+    `STRONG_FIT`/`GOOD_FIT`/
     `PARTIAL_FIT`/`EXPLORATORY_PICK` label (spec §16's predecessor) with
     one built from TWO separately-graded axes, per the catalog-first
     spec: how well the CATALOG (declared notes + the curated family/
@@ -659,15 +710,16 @@ def result_tier(candidate: Recommendation) -> str:
       — a candidate real wearer evidence backs strongly, whatever (or
       however little) the declared list itself suggests.
     - **WORTH_DISCOVERING** — everything else that still has at least one
-      `FIT_SIGNAL` on some axis, plus the honest "nothing directly
-      answered the request" case (only graph/semantic proximity got this
-      candidate here — the old `EXPLORATORY_PICK`) and every one-match/
-      thin-evidence case that used to be `GOOD_FIT`/`PARTIAL_FIT`. The
-      catch-all bottom rung under the new, coarser two-axis system —
-      "good profile match, limited data" per the spec's own description,
-      which covers both "limited catalog signal" and "limited community
-      signal" honestly rather than pretending a single weak match is a
-      confirmed fit on either axis.
+      `FIT_SIGNAL` on some axis (or a wearer link for an anchor request)
+      that the caveats do not outnumber: every one-match/thin-evidence
+      case that used to be `GOOD_FIT`/`PARTIAL_FIT`. "Good profile
+      match, limited data" per the spec's own description.
+    - **CLOSEST_AVAILABLE** (2026-09-05) — nothing answered the request
+      (semantic proximity only — the old `EXPLORATORY_PICK`), or the
+      tradeoffs and disagreements outnumber what did. Split off the
+      bottom rung because the catch-all was handing "worth discovering"
+      to cards that matched nothing at all; see the comment at the
+      bottom of this function.
 
     **Caps** (unchanged in shape from the §16-era rule, just carried onto
     the new top label): a contradicted explicit avoid
@@ -705,6 +757,27 @@ def result_tier(candidate: Recommendation) -> str:
         return "STRONG_PROFILE_FIT"
     if strong_community:
         return "COMMUNITY_FAVORITE"
+    # The bottom rung is "good profile match, limited wearer data" — the
+    # spec's own definition — and it was being handed to cards that
+    # matched nothing at all. Photographed live: Parfums de Marly Layton
+    # labelled WORTH_DISCOVERING for "sandalwood + long lasting + strong"
+    # with sandalwood unknown, longevity contradicted, and one commenter
+    # behind "strong". A label that means the opposite of what it says is
+    # worse than no label. When nothing answered the request, or the
+    # tradeoffs and disagreements outnumber what did, the honest word is
+    # that this is the closest thing available — not a discovery.
+    # A graph link counts as answering the request: for "more like
+    # Delina", wearers connecting a bottle to Delina *is* the fit, even
+    # though `classify` keeps it out of the L1 bullet list as neutral.
+    graph_links = [r for r in candidate.reasons if r.kind == "graph"]
+    fit = len(catalog_positive) + len(community_positive) + (1 if graph_links else 0)
+    against = sum(
+        1 for c in candidate.caveats
+        if classify(c, in_caveats=True)
+        in (EvidenceClass.TRADEOFF, EvidenceClass.DISAGREEMENT)
+    )
+    if fit == 0 or against >= fit:
+        return "CLOSEST_AVAILABLE"
     return "WORTH_DISCOVERING"
 
 
@@ -850,7 +923,12 @@ def _engine_note_is_customer_safe(note: str) -> bool:
     return not any(phrase in lowered for phrase in _DISCOURAGING_ENGINE_PHRASES)
 
 
-def headline(plan: QueryPlan, results: list[Recommendation], engine_note: str = "") -> str:
+def headline(
+    plan: QueryPlan,
+    results: list[Recommendation],
+    engine_note: str = "",
+    coverage: tuple[dict[str, int], int] | None = None,
+) -> str:
     """The one sentence every customer response leads with.
 
     `engine_note` (`answer.note`, `recommend._note`'s wording) is passed
@@ -884,6 +962,53 @@ def headline(plan: QueryPlan, results: list[Recommendation], engine_note: str = 
         prioritized, _ = _bucket_labels(plan)
         return TierWording.headline_no_results(prioritized)
     if engine_note and _engine_note_is_customer_safe(engine_note):
-        return engine_note
-    prioritized, deprioritized = _bucket_labels(plan)
-    return TierWording.headline_with_results(prioritized, deprioritized)
+        lead = engine_note
+    else:
+        prioritized, deprioritized = _bucket_labels(plan)
+        lead = TierWording.headline_with_results(prioritized, deprioritized, plan.anchor)
+    note = _coverage_sentence(plan, coverage)
+    return f"{lead} {note}" if note else lead
+
+
+#: Below this share of the catalogue, a community-only dimension is thin
+#: enough that the results visibly cluster on the well-discussed bottles
+#: and the headline should say why. Longevity (46/548 ≈ 8%) trips it;
+#: notes never reach this function at all, since the catalogue answers
+#: them.
+THIN_COVERAGE_SHARE = 0.25
+
+#: The dimensions the coverage sentence speaks about. Vibes are
+#: community-only too (`evidence.COMMUNITY_ONLY_ATTRIBUTES`), but a
+#: "masculine" or "fresh" request does not visibly cluster the way a
+#: performance one does, and a first draft that included them put the
+#: sentence on nearly every result page — at which point it is wallpaper,
+#: not information. Performance is where a shopper actually notices.
+PERFORMANCE_ATTRIBUTES = frozenset({"longevity", "projection"})
+
+
+def _coverage_sentence(
+    plan: QueryPlan, coverage: tuple[dict[str, int], int] | None
+) -> str:
+    """The `coverage_note` sentence for this plan, or `""`.
+
+    Fires only for dimensions in `evidence.COMMUNITY_ONLY_ATTRIBUTES` the
+    plan actually asks about, and only when their coverage is thin. Notes
+    and occasions never trigger it — the catalogue answers those for
+    every bottle, so the results do not cluster and nothing needs saying.
+    """
+    if coverage is None:
+        return ""
+    counts, total = coverage
+    if not total:
+        return ""
+    asked: list[str] = []
+    for item in [*plan.hard, *plan.soft]:
+        attribute = item.attribute
+        if attribute in PERFORMANCE_ATTRIBUTES and attribute not in asked:
+            asked.append(attribute)
+    thin = [a for a in asked if counts.get(a, 0) / total < THIN_COVERAGE_SHARE]
+    if not thin:
+        return ""
+    return TierWording.coverage_note(
+        thin, max(counts.get(a, 0) for a in thin), total
+    )

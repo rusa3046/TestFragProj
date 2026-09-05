@@ -1255,11 +1255,14 @@ class TestFailureCaseCompositionReturnsPositivelyFramedResults:
         cards = {c.fragrance_id: build_card(c) for c in answer.results}
         # Every returned card carries a real, tier-worded reason — never
         # an empty "why try this" list standing in for a rejection.
+        # `CLOSEST_AVAILABLE` is a real tier, not a rejection: the cinnamon
+        # bottle matched "feminine" and carries the avoided note at equal
+        # strength, and the honest word for that is "closest available".
         for card in cards.values():
             assert card.fit_signals, f"{card.name!r} has no fit signals at all"
             assert card.result_tier in (
                 "BEST_OVERALL_FIT", "STRONG_PROFILE_FIT",
-                "COMMUNITY_FAVORITE", "WORTH_DISCOVERING",
+                "COMMUNITY_FAVORITE", "WORTH_DISCOVERING", "CLOSEST_AVAILABLE",
             )
 
 

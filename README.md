@@ -963,10 +963,20 @@ What you get, and where each piece is documented in
   ("Wearers consistently…" only above the strong-evidence bar), at most
   two shopper-relevant tradeoffs, counts and source attribution behind
   the full-story view, never on the card. A contradiction of something
-  you explicitly avoided always surfaces as a caveat.
+  you explicitly avoided always surfaces as a caveat. Five tier labels,
+  graded on catalogue fit and community fit separately; a card that
+  answered nothing you asked, or whose tradeoffs outnumber what it did
+  answer, is labelled *Closest Available* rather than *Worth
+  Discovering*.
 - **Event-sourced sessions** — every preference change is validated, then
   recorded; a session rebuilds from its log, and refining a preference
-  re-runs the same state instead of starting over.
+  re-runs the same state instead of starting over. *Love it* re-anchors
+  the results on the loved bottle and the headline says so.
+- **A page that states its own limits** — when a request leans on
+  longevity or projection, which only wearers can report and only a few
+  dozen bottles have reports on, the headline says so in one sentence
+  rather than letting the shopper conclude the product knows fifteen
+  perfumes. Budget chips name the size that cleared the bar.
 
 Sessions live in the same PostgreSQL database and nothing about them is
 required by the pipeline — drop the service and the graph is untouched.

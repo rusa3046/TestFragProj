@@ -160,8 +160,11 @@ def _render_case(conn: psycopg.Connection, case: dict) -> str:
         out.append(f"[{position}] {card['result_tier']}  {card['name']}")
         chips = body["results"][position - 1].get("preference_status") or []
         if chips:
+            # `display` is the label a UI actually shows — for a budget chip,
+            # "from $100 (0.33 oz)" — so it is what the golden pins.
             rendered = "  ".join(
-                f"{chip['value'] or chip['entity_type']}={chip['status']}"
+                f"{chip.get('display') or chip['value'] or chip['entity_type']}"
+                f"={chip['status']}"
                 for chip in chips
             )
             out.append(f"    chips: {rendered}")

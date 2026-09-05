@@ -141,16 +141,17 @@ def _claim(conn, i, *, frag, claim_type, value, author, channel="chan_a",
 
 _SCORE_LIKE = re.compile(r"score|match|percent", re.I)
 
-#: The only four label values `api._label` (`commerce_card.result_tier`)
+#: The only five label values `api._label` (`commerce_card.result_tier`)
 #: may ever produce. Any other string is not a category this product
 #: defines and no response may carry it. First renamed from `BEST_MATCH`/
 #: `STRONG_MATCH`/`WORTH_TRYING`/`ALTERNATIVE_DIRECTION` for the commerce
 #: result tiers (spec §16); renamed again for the catalog-first spec's
-#: two-axis label set — see `commerce_card.result_tier`'s current
-#: docstring.
+#: two-axis label set; `CLOSEST_AVAILABLE` split off the bottom rung on
+#: 2026-09-05 for cards that answered nothing — see
+#: `commerce_card.result_tier`'s current docstring.
 _ALLOWED_LABELS = frozenset(
     {"BEST_OVERALL_FIT", "STRONG_PROFILE_FIT", "COMMUNITY_FAVORITE",
-     "WORTH_DISCOVERING"}
+     "WORTH_DISCOVERING", "CLOSEST_AVAILABLE"}
 )
 
 

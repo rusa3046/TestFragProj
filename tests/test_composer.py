@@ -482,6 +482,44 @@ class TestBudgetReallyFilters:
         assert _status_by_value(by_id[cheap])["budget"] == "matched"
         assert_honest(body)
 
+    def test_a_matched_budget_chip_says_which_price_and_size_cleared(self, client, conn):
+        """Photographed live: "✓ under $200" on Creed Aventus, whose 3.3 oz
+        is $510. The check was true — a 0.33 oz travel spray is $100 —
+        and the shopper had no way to know that. The chip's `display`
+        now names the price and size that actually cleared the bar."""
+        cheap, _pricey = self._seeded(conn)
+        session_id = _create(client)
+        body = _compose(client, session_id, [
+            {"bucket": "want", "entity_type": "note", "value": "citrus"},
+            {"bucket": "want", "entity_type": "budget", "operator": "<=", "amount": 100},
+        ]).json()
+        by_id = {r["fragrance_id"]: r for r in body["results"]}
+        chip = next(
+            s for s in by_id[cheap]["preference_status"] if s["entity_type"] == "budget"
+        )
+        assert chip["status"] == "matched"
+        assert chip["display"] == "from $40 (3.4 oz)"
+
+    def test_an_unpriced_budget_chip_shows_the_request_as_typed(self, client, conn):
+        """No in-stock price means nothing cleared anything; the honest
+        label is the request itself, "under $100"."""
+        cheap, _pricey = self._seeded(conn)
+        unpriced = add_fragrance(conn, "Budget Unpriced Bottle")
+        for i, author in enumerate(["u1", "u2"]):
+            note(conn, 20 + i, frag=unpriced, value="citrus", author=author,
+                 channel=f"u{i}")
+        session_id = _create(client)
+        body = _compose(client, session_id, [
+            {"bucket": "want", "entity_type": "note", "value": "citrus"},
+            {"bucket": "want", "entity_type": "budget", "operator": "<=", "amount": 100},
+        ]).json()
+        by_id = {r["fragrance_id"]: r for r in body["results"]}
+        chip = next(
+            s for s in by_id[unpriced]["preference_status"] if s["entity_type"] == "budget"
+        )
+        assert chip["status"] == "unknown"
+        assert chip["display"] == "under $100"
+
 
 # --- invalid item: 400, session not poisoned -----------------------------
 

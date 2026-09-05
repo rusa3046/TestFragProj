@@ -1737,6 +1737,42 @@ def price_floor(conn: psycopg.Connection, fragrance_ids: list[int]) -> dict[int,
     return {r["fragrance_id"]: float(r["min_price"]) for r in rows}
 
 
+def cheapest_in_stock(
+    conn: psycopg.Connection, fragrance_ids: list[int]
+) -> dict[int, tuple[float, str]]:
+    """`{fragrance_id: (price_usd, size_display)}` for the cheapest
+    **in-stock** variant of each — the same rows `price_floor` minimises
+    over, with the size kept.
+
+    `price_floor` answers "does anything clear the budget"; this answers
+    the question a shopper asks the moment it does: *which* bottle. Creed
+    Aventus clears "under $200" on a 0.33 oz at $100 while its 3.3 oz is
+    $510. Both facts are true; a bare ✓ under $200 let the reader assume
+    the second, and the size is the one word that stops that.
+    """
+    if not fragrance_ids:
+        return {}
+    rows = conn.execute(
+        """
+        SELECT DISTINCT ON (rl.fragrance_id)
+               rl.fragrance_id AS fragrance_id,
+               rv.price_usd    AS price_usd,
+               rv.size_display AS size_display
+          FROM retailer_listings rl
+          JOIN retailer_variants rv ON rv.listing_id = rl.id
+         WHERE rl.fragrance_id = ANY(%s)
+           AND rv.in_stock
+           AND rv.price_usd IS NOT NULL
+         ORDER BY rl.fragrance_id, rv.price_usd ASC, rv.size_display
+        """,
+        (list(fragrance_ids),),
+    ).fetchall()
+    return {
+        r["fragrance_id"]: (float(r["price_usd"]), (r["size_display"] or "").strip())
+        for r in rows
+    }
+
+
 def _apply_budget(
     conn: psycopg.Connection,
     candidates: list[Recommendation],

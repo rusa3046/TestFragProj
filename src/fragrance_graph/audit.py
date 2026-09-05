@@ -591,7 +591,11 @@ def _audit_commerce(conn: psycopg.Connection, report: AuditReport) -> None:
     ):
         check(template(benign))
     check(TierWording.headline_with_results([benign], [benign]))
+    check(TierWording.headline_with_results([benign], [benign], anchor=benign))
+    check(TierWording.headline_with_results([], [], anchor=benign))
     check(TierWording.headline_no_results([benign]))
+    check(TierWording.coverage_note([benign], 46, 548))
+    check(TierWording.coverage_note([benign, benign], 46, 548))
     check(TierWording.community_coverage_moderate())
     check(TierWording.community_coverage_limited())
 

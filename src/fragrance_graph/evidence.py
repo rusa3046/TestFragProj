@@ -618,3 +618,32 @@ def coverage(
         "declarable_facts": sum(1 for f in facts if f.may_declare),
         "facts_resting_on_inference": sum(1 for f in facts if f.inferred),
     }
+
+
+#: Dimensions only wearers can report. Notes, families and occasions have a
+#: catalogue answer (declared lists, the curated family map, occasion
+#: priors); these do not — no retailer publishes longevity — so a request
+#: leaning on one of them is answered from community evidence alone,
+#: however good the catalogue is. `coverage` below is how the headline
+#: says so instead of letting the shopper conclude the product only knows
+#: fifteen bottles.
+COMMUNITY_ONLY_ATTRIBUTES = frozenset({"longevity", "projection", "vibe"})
+
+
+def evidence_coverage(
+    conn: psycopg.Connection, *, attribution: Attribution = Attribution.PROPOSED
+) -> tuple[dict[str, int], int]:
+    """`({attribute: bottles with at least one real fact}, catalogue size)`.
+
+    Name-derived facts (`from_name`) do not count: a bottle called "Rose
+    01" is not a bottle with rose evidence, and this number exists to be
+    quoted to a shopper. Measured on the 2026-09 corpus: longevity 46,
+    projection 38, vibe 31 — of 548.
+    """
+    covered: dict[str, set[int]] = {}
+    for fact in attribute_facts(conn, attribution=attribution):
+        if fact.from_name:
+            continue
+        covered.setdefault(fact.attribute, set()).add(fact.fragrance_id)
+    total = conn.execute("SELECT count(*) FROM fragrances").fetchone()[0]
+    return {attribute: len(ids) for attribute, ids in covered.items()}, int(total)

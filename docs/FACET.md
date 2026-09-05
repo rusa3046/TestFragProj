@@ -224,6 +224,43 @@ A run of defects found by the owner reading real cards, each now a rule:
   behind everything cited." The tail renders only when somebody is
   actually behind it.
 
+## 6. Closing the seams a first-time visitor hits (2026-09-05)
+
+With the engine right, what remained were the moments a stranger stops
+trusting the page. Walked as a shopper, in order:
+
+- **Pressing *Love it* now visibly does something.** It always re-anchored
+  the engine on the loved bottle and reshuffled the list — while the
+  headline went on saying "I prioritized sweet and masculine first" word
+  for word, and the loved card vanished (an anchor never recommends
+  itself) with nothing on the page saying why. The headline now names it:
+  *"Building on Parfums de Marly Layton — I kept sweet and masculine in
+  mind, and these are the bottles wearers connect to it."* A button whose
+  only visible effect is that things quietly change teaches people the
+  buttons do nothing.
+- **The results page states its own coverage.** Ask for "long lasting"
+  and the same well-discussed bottles come back every time, because 46
+  of 548 bottles carry any wearer report on longevity — and the page
+  never said so, which reads as "this thing only knows fifteen
+  perfumes." When a request leans on longevity or projection and their
+  coverage is thin, the headline adds one sentence: *"Wearer reports on
+  longevity cover 46 of 548 bottles so far, so these lean toward the
+  well-known ones."* Notes never trigger it; the catalogue answers those
+  for every bottle. Vibes were tried and removed — the sentence landed on
+  nearly every page and became wallpaper.
+- **"Worth Discovering" is no longer a dumping ground.** Its definition
+  is *good profile match, limited wearer data*, and it was being handed to
+  cards that matched nothing (Layton, for a sandalwood request, with
+  sandalwood unknown and both performance asks disputed). When nothing
+  answered the request, or the tradeoffs outnumber what did, the label is
+  now **Closest Available** — which is the truth about why the card is
+  there. A graph link still counts as answering an anchor request.
+- **A budget chip says which size cleared it.** "✓ under $200" on Creed
+  Aventus was true — on a 0.33 oz at $100, with the 3.3 oz at $510 — and
+  a bare checkmark let the reader assume the bottle. The chip now reads
+  *from $100 (0.33 Ounce)*; the size is the one word that stops the wrong
+  assumption.
+
 ## The golden card file — testing the sentence, not just the scorer
 
 Every defect above passed 1,815 unit tests, because each lived in the
