@@ -260,6 +260,19 @@ trusting the page. Walked as a shopper, in order:
   a bare checkmark let the reader assume the bottle. The chip now reads
   *from $100 (0.33 Ounce)*; the size is the one word that stops the wrong
   assumption.
+- **A comparison reads as its own report.** Found by the golden file when
+  two scheduled runs merged into this pass and the corpus grew a
+  one-person comparison. A satisfied "less rose than Delina" reason
+  carries the two headcounts the ranking used as one composed clause,
+  and both the card and the digest wrapped it in a headcount template:
+  *"One commenter said it is rose mentioned by 1 person here, 6 people
+  across 4 channels for Parfums de Marly Delina (fewer — which is why it
+  ranks here)."* followed by *"1 person across 0 channels behind
+  everything cited."* Composed text is now returned as itself, the same
+  rule `declared_overlap` and `catalog_fit` already followed, and the
+  headcount tail names no channels when there are none. The committed
+  golden had carried a 3-person version of the same sentence unnoticed —
+  a reminder that reading the diff is the gate, not generating it.
 
 ## The golden card file — testing the sentence, not just the scorer
 

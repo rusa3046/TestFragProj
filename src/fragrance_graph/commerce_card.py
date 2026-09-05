@@ -539,6 +539,17 @@ def fit_signal_text(reason: Reason) -> str:
         return TierWording.preference_matched(_subject(reason))
     if reason.kind == "catalog_fit":
         return reason.text
+    if reason.kind == "comparative":
+        # A satisfied comparative's text is already the whole report --
+        # "rose mentioned by 1 person here, 6 people across 4 channels for
+        # Delina (fewer -- which is why it ranks here)" -- the two counts
+        # the ranking actually used, stated so the reader can draw the
+        # comparison themselves. The tier template turned it into "One
+        # commenter said it is rose mentioned by 1 person here, ...", on a
+        # real card, the first time the corpus grew a one-person
+        # comparison. Same rule as `Reason.phrase`: composed text is
+        # returned as itself.
+        return reason.text[:1].upper() + reason.text[1:] + "."
     return _tier_sentence(_reason_tier(reason), _subject(reason), _attribute_type(reason))
 
 

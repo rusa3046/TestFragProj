@@ -342,6 +342,25 @@ class TestFitSignalWording:
                                        people=1, creators=1, videos=0))
         assert text == "One commenter said it is feminine."
 
+    def test_a_comparative_reason_is_its_own_report_not_a_tier_claim(self):
+        """A satisfied "less rose than Delina" reason carries the two
+        headcounts the ranking used, as one composed clause. The tier
+        template wrapped it: "One commenter said it is rose mentioned by
+        1 person here, 6 people across 4 channels for Parfums de Marly
+        Delina (fewer — which is why it ranks here)." — on a real card,
+        the first time the corpus grew a one-person comparison."""
+        text = fit_signal_text(reason(
+            "comparative",
+            text="rose mentioned by 1 person here, 6 people across 4 channels "
+                 "for Parfums de Marly Delina (fewer — which is why it ranks here)",
+            people=1, creators=0, videos=0,
+        ))
+        assert text == (
+            "Rose mentioned by 1 person here, 6 people across 4 channels for "
+            "Parfums de Marly Delina (fewer — which is why it ranks here)."
+        )
+        assert "One commenter" not in text
+
     def test_a_constraint_match_states_the_preference_not_a_tier_claim(self):
         """A hard-constraint match is a catalogue fact ("this is required
         and present"), not a graded community-confidence claim — it must

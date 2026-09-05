@@ -179,6 +179,14 @@ class Reason:
             # people by design (a catalog fact is not a headcount), for
             # the identical reason `declared_overlap` is in this branch.
             "catalog_fit", "catalog_avoid",
+            # `comparative` (`_score_comparative`): every one of its three
+            # texts is a complete report of two headcounts -- "rose
+            # mentioned by 1 person here, 6 people across 4 channels for
+            # Delina (fewer -- which is why it ranks here)" -- with its own
+            # inference disclosure. Wrapping that in "one commenter said
+            # ..." produced a sentence nobody could parse, on a real card,
+            # the first time the corpus grew a one-person comparison.
+            "comparative",
         ):
             # `declared_overlap`'s text is already fully composed by
             # `_declared_overlap_text` -- "official notes share iris and
@@ -476,12 +484,18 @@ def digest(recommendation: Recommendation) -> str:
     # sentence about a fact that carries no headcount by design. Found by
     # the golden card file on its first read, on four of the five results
     # for a plain sandalwood request.
-    tail = (
-        f"{_people(recommendation.people)} across "
-        f"{_sources(recommendation.creators)} behind everything cited."
-        if recommendation.people
-        else ""
-    )
+    # And no channel count when there is none to give: a comparative
+    # reason carries a person but no creator, and "1 person across 0
+    # channels" is the same nonsense in a smaller size.
+    if not recommendation.people:
+        tail = ""
+    elif recommendation.creators:
+        tail = (
+            f"{_people(recommendation.people)} across "
+            f"{_sources(recommendation.creators)} behind everything cited."
+        )
+    else:
+        tail = f"{_people(recommendation.people)} behind everything cited."
     text = " ".join(part for part in (lead, tail) if part)
 
     # Structural backstop, not the primary guard: if sanitising every

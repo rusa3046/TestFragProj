@@ -113,24 +113,25 @@ still be recommended on its declared chemistry. Comparison *pages* still
 gate hard, by design: 23 of 120 resolved pairs clear the 3-commenter /
 2-creator bar.
 
-Corpus as of 2026-08-20 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
+Corpus as of 2026-09-05 (see [data/corpus/PROVENANCE.md](./data/corpus/PROVENANCE.md)):
 
 | | |
 |---|---|
-| Comments | 11,632 across 978 videos / 370 channels |
-| Claims | 4,964 |
+| Comments | 13,267 across 1,091 videos / 404 channels |
+| Claims | 5,543 |
 | Extraction cost | $0.3656-$0.4410 per 1k comments, and it moves with the query |
-| Catalogue | 548 bottles; 129 with community evidence |
+| Catalogue | 548 bottles; 146 with community evidence |
 | Retailer listings | 773 (Nordstrom); 475 resolve to a catalogue bottle |
 | Declared notes | 2,778 rows covering 411 of 548 bottles |
 | Labelled comments | 86 distinct comments labelled (165 label rows across labelers) |
 | Extractor score | `SIMILARITY EDGES` F1 **0.57** (P 0.60, R 0.55); OVERALL F1 0.40 — measured 2026-08-11 |
 | Denials caught | 35 of 38 flagged (92%), plus 32 the pattern missed |
-| Spent to date | $5.99 — under a $1/day cap enforced from a committed ledger |
+| Spent to date | $7.43 — under a $1.50/day cap enforced from a committed ledger |
 
 ### The edge funnel — where the graph actually is
 
-Counted on the corpus above, 2026-08-20:
+Counted on the 2026-08-20 corpus (11,632 comments, 4,964 claims); the
+funnel is re-measured when the pages are rebuilt, not on every daily run:
 
 ```
 4,964  all claims
